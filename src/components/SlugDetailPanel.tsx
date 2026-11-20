@@ -233,7 +233,7 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
                       : 'bg-[#0f1f2d] border-slate-700 text-slate-300'
                   }`}
                 >
-                  {megaCheck.hasResource ? '✓' : '○'} 1 Elixir ({snap.inventory.elixirs}) o Reliquia ({snap.inventory.relics})
+                  {megaCheck.hasResource ? '✓' : '○'} 1 Elixir ({snap.inventory.elixirs}), Reliquia ({snap.inventory.relics}) o Piedra Evo. ({snap.inventory.evoStone})
                 </div>
               </div>
 

@@ -10,6 +10,7 @@ import type {
   Inventory,
   InventoryKey,
   QuestDef,
+  Rarity,
   SlugInstance,
   SlugSpecies,
 } from './types';
@@ -24,6 +25,7 @@ export const MAX_ACTIVE_HOME_SLUGS = 6;
 export const MAX_SLUGS_PER_HABITAT = 2;
 export const MAX_HOME_FURNITURE = 32;
 export const SHELTER_HOME_RADIUS = 16;
+export const MAX_SLUG_LEVEL = 20;
 
 export const HABITAT_DEFS: HabitatDef[] = [
   {
@@ -650,6 +652,86 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
     outputQty: 1,
     cost: { stone: 2, crystal: 1 },
   },
+  {
+    id: 'torches_magma',
+    name: '4× Antorchas de Magma',
+    description: 'Antorchas de larga duración forjadas con carbón ígneo y raíces.',
+    outputKey: 'torches',
+    outputQty: 4,
+    cost: { rootWood: 1, magmaCoal: 1 },
+  },
+  {
+    id: 'emberSnack_coal',
+    name: '3× Bocado Ígneo Reforzado',
+    description: 'Prepara alimento favorito térmico aprovechando carbón de magma.',
+    outputKey: 'emberSnack',
+    outputQty: 3,
+    cost: { berries: 1, magmaCoal: 1 },
+  },
+  {
+    id: 'frostNectar_ice',
+    name: '3× Néctar Glacial Puro',
+    description: 'Prepara alimento favorito helado con cristales de hielo.',
+    outputKey: 'frostNectar',
+    outputQty: 3,
+    cost: { berries: 1, iceCrystal: 1 },
+  },
+  {
+    id: 'capsules_copper',
+    name: '3× Cilindros Térmicos',
+    description: 'Cilindros resistentes ensamblados con cobre térmico y carbón.',
+    outputKey: 'capsules',
+    outputQty: 3,
+    cost: { thermalCopper: 2, magmaCoal: 1 },
+  },
+  {
+    id: 'masterCapsules_quartz',
+    name: '1× Cilindro Maestro de Cuarzo',
+    description: 'Cápsula de alta precisión forjada con cuarzo azul y hierro oscuro.',
+    outputKey: 'masterCapsules',
+    outputQty: 1,
+    cost: { blueQuartz: 2, darkIron: 2 },
+  },
+  {
+    id: 'walls_iron',
+    name: '5× Paredes de Hierro Oscuro',
+    description: 'Muros subterráneos reforzados para proteger estancias del refugio.',
+    outputKey: 'walls',
+    outputQty: 5,
+    cost: { darkIron: 2, stone: 2 },
+  },
+  {
+    id: 'floors_root',
+    name: '4× Suelos de Raíz Viva',
+    description: 'Tarima orgánica cálida ideal para ampliar hábitats.',
+    outputKey: 'floors',
+    outputQty: 4,
+    cost: { rootWood: 2 },
+  },
+  {
+    id: 'elixirs_neon',
+    name: '1× Elixir Luminoso',
+    description: 'Destilado de hongos de neón y cuarzo azul para amistad y Megamorph.',
+    outputKey: 'elixirs',
+    outputQty: 1,
+    cost: { neonMushroom: 3, blueQuartz: 1 },
+  },
+  {
+    id: 'decor_quartz',
+    name: '1× Lámpara de Cuarzo Azul',
+    description: 'Luminaria del hogar tallada con cuarzo azul y madera de raíces.',
+    outputKey: 'decor',
+    outputQty: 1,
+    cost: { blueQuartz: 2, rootWood: 1 },
+  },
+  {
+    id: 'evoStone_craft',
+    name: '1× Piedra Evolutiva Elemental',
+    description: 'Catalizador elemental alternativo para despertar Megamorph.',
+    outputKey: 'evoStone',
+    outputQty: 1,
+    cost: { magmaCoal: 2, iceCrystal: 2, neonMushroom: 2, blueQuartz: 1 },
+  },
 ];
 
 export const QUEST_LIST: QuestDef[] = [
@@ -814,6 +896,14 @@ export function createDefaultInventory(): Inventory {
     bed: 0,
     feeder: 0,
     decor: 0,
+    rootWood: 0,
+    magmaCoal: 0,
+    thermalCopper: 0,
+    iceCrystal: 0,
+    blueQuartz: 0,
+    darkIron: 0,
+    neonMushroom: 0,
+    evoStone: 0,
   };
 }
 
@@ -852,11 +942,12 @@ export function createSlugInstance(
   opts?: { isBred?: boolean; bonusTrait?: string }
 ): SlugInstance {
   const sp = getSpecies(id);
+  const clampedLevel = Math.max(1, Math.min(MAX_SLUG_LEVEL, Math.floor(Number.isFinite(level) ? level : 1)));
   const traitHp = opts?.bonusTrait === 'Vitalidad +' ? 10 : 0;
   const traitAtk = opts?.bonusTrait === 'Potencia +' ? 3 : 0;
   const traitSpd = opts?.bonusTrait === 'Velocidad +' ? 3 : 0;
-  const maxHp = sp.baseHp + level * 6 + traitHp;
-  const maxEnergy = 14 + Math.floor(level * 1.5);
+  const maxHp = sp.baseHp + clampedLevel * 6 + traitHp;
+  const maxEnergy = 14 + Math.floor(clampedLevel * 1.5);
   return {
     uid: `${sp.id}_${Date.now().toString(36)}_${slugUidSeq++}_${Math.random().toString(36).slice(2, 6)}`,
     id: sp.id,
@@ -864,15 +955,15 @@ export function createSlugInstance(
     type: sp.type,
     rarity: sp.rarity,
     icon: sp.icon,
-    level,
+    level: clampedLevel,
     xp: 0,
     hp: maxHp,
     maxHp,
     energy: maxEnergy,
     maxEnergy,
-    atk: sp.baseAtk + Math.floor(level * 2.1) + traitAtk,
-    def: sp.baseDef + Math.floor(level * 1.4),
-    spd: sp.baseSpd + Math.floor(level * 1.2) + traitSpd,
+    atk: sp.baseAtk + Math.floor(clampedLevel * 2.1) + traitAtk,
+    def: sp.baseDef + Math.floor(clampedLevel * 1.4),
+    spd: sp.baseSpd + Math.floor(clampedLevel * 1.2) + traitSpd,
     bond: opts?.isBred ? 35 : 22,
     mega: false,
     isBred: opts?.isBred,
@@ -887,4 +978,23 @@ export function getElementMultiplier(atkType: ElementType, defType: ElementType)
   if (entry.strong.includes(defType)) return 1.75;
   if (entry.weak.includes(defType)) return 0.65;
   return 1;
+}
+
+export const RARITY_WEIGHTS: Record<Rarity, number> = {
+  Común: 55,
+  Rara: 28,
+  Épica: 13,
+  Legendaria: 4,
+};
+
+export function pickWeightedSpeciesByBiome(biome: BiomeId, rng: () => number = Math.random): SlugSpecies {
+  const pool = SPECIES_LIST.filter((s) => s.habitat === biome);
+  const candidates = pool.length > 0 ? pool : SPECIES_LIST;
+  const totalWeight = candidates.reduce((acc, sp) => acc + (RARITY_WEIGHTS[sp.rarity] ?? 10), 0);
+  let roll = rng() * totalWeight;
+  for (const sp of candidates) {
+    roll -= RARITY_WEIGHTS[sp.rarity] ?? 10;
+    if (roll <= 0) return sp;
+  }
+  return candidates[candidates.length - 1];
 }

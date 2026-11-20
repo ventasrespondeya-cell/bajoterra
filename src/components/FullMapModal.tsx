@@ -56,6 +56,10 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
                 {BIOME_INFO[b].name}
               </span>
             ))}
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full inline-block bg-amber-400" />
+              Lugar descubierto
+            </span>
           </div>
           {snap.shelterTier >= 3 && (
             <button
@@ -64,6 +68,28 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
             >
               Volver al Refugio
             </button>
+          )}
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-white/10">
+          <div className="text-xs font-extrabold text-amber-300 uppercase tracking-wider mb-1.5">
+            Lugares Descubiertos ({snap.discoveredPOIs.length})
+          </div>
+          {snap.discoveredPOIs.length === 0 ? (
+            <p className="text-[11px] text-slate-400">
+              Explora los túneles subterráneos para revelar minas, puestos, cámaras secretas y ruinas.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+              {snap.discoveredPOIs.map((poi) => (
+                <span
+                  key={poi.id}
+                  className="px-2 py-1 rounded-md bg-[#09131c] border border-slate-700 text-[11px] text-slate-200 tabular-nums"
+                >
+                  ◆ {poi.name} · {BIOME_INFO[poi.biome].name} ({poi.x}, {poi.y})
+                </span>
+              ))}
+            </div>
           )}
         </div>
       </div>

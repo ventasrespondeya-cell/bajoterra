@@ -195,6 +195,78 @@ class SpriteAtlas {
         p(6, 6, 2, 2, '#e0f2fe');
         break;
       }
+      case TileType.VOLCANIC_ROCK: {
+        p(0, 0, 14, 14, '#3a1a16');
+        p(1, 1, 12, 10, '#5a261d');
+        p(2, 2, 4, 2, '#7c3428');
+        p(4, 8, 3, 1, '#ea580c');
+        p(1, 11, 12, 3, '#260f0c');
+        break;
+      }
+      case TileType.MAGMA_COAL: {
+        p(1, 2, 12, 10, '#2a1614');
+        p(2, 3, 10, 8, '#3c1e1a');
+        p(3, 4, 3, 3, '#f97316');
+        p(8, 7, 3, 3, '#fb923c');
+        p(4, 5, 1, 1, '#fef08a');
+        p(9, 8, 1, 1, '#fde047');
+        break;
+      }
+      case TileType.THERMAL_COPPER: {
+        p(1, 2, 12, 10, '#4c2b21');
+        p(2, 3, 10, 8, '#693c2d');
+        p(3, 4, 4, 3, '#d97706');
+        p(7, 7, 4, 3, '#f59e0b');
+        p(4, 4, 2, 1, '#fef3c7');
+        break;
+      }
+      case TileType.ICE_CRYSTAL: {
+        p(5, 1, 4, 11, '#38bdf8');
+        p(3, 4, 2, 7, '#0ea5e9');
+        p(9, 5, 2, 6, '#7dd3fc');
+        p(6, 2, 1, 5, '#f0f9ff');
+        break;
+      }
+      case TileType.BLUE_QUARTZ: {
+        p(1, 2, 12, 10, '#3a556a');
+        p(2, 3, 10, 8, '#4e718d');
+        p(3, 4, 3, 4, '#2563eb');
+        p(8, 6, 3, 4, '#3b82f6');
+        p(4, 4, 1, 2, '#dbeafe');
+        p(9, 6, 1, 2, '#eff6ff');
+        break;
+      }
+      case TileType.DARK_IRON: {
+        p(1, 2, 12, 10, '#272936');
+        p(2, 3, 10, 8, '#383b4d');
+        p(3, 4, 3, 3, '#6366f1');
+        p(8, 7, 3, 3, '#818cf8');
+        p(4, 4, 1, 1, '#e0e7ff');
+        break;
+      }
+      case TileType.NEON_MUSHROOM: {
+        p(6, 7, 2, 5, '#cbd5e1');
+        p(3, 3, 8, 4, '#22d3ee');
+        p(4, 2, 6, 1, '#67e8f9');
+        p(5, 4, 1, 1, '#ecfeff');
+        p(8, 5, 1, 1, '#a5f3fc');
+        break;
+      }
+      case TileType.KELP: {
+        p(4, 5, 2, 7, '#059669');
+        p(8, 4, 2, 8, '#10b981');
+        p(3, 6, 2, 2, '#34d399');
+        p(9, 5, 2, 2, '#6ee7b7');
+        break;
+      }
+      case TileType.EVO_STONE_VEIN: {
+        p(1, 2, 12, 10, '#3b2e4d');
+        p(2, 3, 10, 8, '#4f3c68');
+        p(4, 4, 6, 6, '#f59e0b');
+        p(5, 5, 4, 4, '#fde047');
+        p(6, 6, 2, 2, '#ffffff');
+        break;
+      }
       default:
         break;
     }

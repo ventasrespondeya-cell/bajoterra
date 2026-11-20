@@ -1,7 +1,7 @@
-import { getSpecies } from './data';
+import { MAX_SLUG_LEVEL, getSpecies } from './data';
 import type { GameState, SlugInstance } from './types';
 
-export const MAX_SLUG_LEVEL = 20;
+export { MAX_SLUG_LEVEL };
 export const MAX_MOVE_MASTERY = 100;
 export const MEGAMORPH_MIN_LEVEL = 5;
 export const MEGAMORPH_MIN_BOND = 60;
@@ -136,9 +136,16 @@ export function ensureSlugProgressionFields(slug: SlugInstance): SlugInstance {
       Math.max(0, Math.min(MAX_MOVE_MASTERY, Math.round(slug.moveMastery[1] || 0))),
     ];
   }
-  slug.bond = Math.max(0, Math.min(100, Math.round(slug.bond || 0)));
-  slug.level = Math.max(1, Math.floor(slug.level || 1));
-  slug.xp = Math.max(0, Math.round(slug.xp || 0));
+  slug.bond = Math.max(0, Math.min(100, Math.round(Number.isFinite(slug.bond) ? slug.bond : 0)));
+  slug.level = Math.max(
+    1,
+    Math.min(MAX_SLUG_LEVEL, Math.floor(Number.isFinite(slug.level) ? slug.level : 1))
+  );
+  if (slug.level >= MAX_SLUG_LEVEL) {
+    slug.xp = 0;
+  } else {
+    slug.xp = Math.max(0, Math.round(Number.isFinite(slug.xp) ? slug.xp : 0));
+  }
   return slug;
 }
 
@@ -250,7 +257,8 @@ export function grantMoveMastery(
   ensureSlugProgressionFields(slug);
   const current = slug.moveMastery![moveIndex] || 0;
   const prevInfo = getMoveMasteryInfo(current);
-  const next = Math.min(MAX_MOVE_MASTERY, current + Math.max(0, Math.round(points)));
+  const safePts = Number.isFinite(points) ? Math.max(0, Math.round(points)) : 0;
+  const next = Math.min(MAX_MOVE_MASTERY, current + safePts);
   slug.moveMastery![moveIndex] = next;
   const nextInfo = getMoveMasteryInfo(next);
   return {
@@ -313,7 +321,7 @@ export function grantSlugBond(
   ensureSlugProgressionFields(slug);
   const previousBond = slug.bond;
   const previousTier = getBondTierInfo(previousBond);
-  let delta = Math.max(0, Math.round(baseDelta));
+  let delta = Number.isFinite(baseDelta) ? Math.max(0, Math.round(baseDelta)) : 0;
   if (delta > 0 && opts?.allowTraitBonus !== false && slug.bonusTrait === 'Leal') {
     delta += 1;
   }
@@ -358,8 +366,9 @@ export function awardSlugExperience(
     }
   }
 
-  if (slug.level < MAX_SLUG_LEVEL && amount > 0) {
-    slug.xp += Math.max(0, Math.round(amount));
+  const safeAmount = Number.isFinite(amount) && amount > 0 ? Math.round(amount) : 0;
+  if (slug.level < MAX_SLUG_LEVEL && safeAmount > 0) {
+    slug.xp += safeAmount;
     while (slug.level < MAX_SLUG_LEVEL && slug.xp >= getXpForNextLevel(slug.level)) {
       slug.xp -= getXpForNextLevel(slug.level);
       slug.level++;
@@ -380,6 +389,9 @@ export function awardSlugExperience(
       slug.xp = 0;
     }
   } else {
+    if (slug.level >= MAX_SLUG_LEVEL) {
+      slug.xp = 0;
+    }
     const newTrait = maybeGrantProgressionTrait(slug);
     if (newTrait) {
       msgs.push(`¡${slug.name} desarrolla el rasgo ${newTrait}!`);
@@ -400,7 +412,7 @@ export interface MegamorphCheck {
   hasLevel: boolean;
   hasBond: boolean;
   hasResource: boolean;
-  resourceKind: 'elixirs' | 'relics' | null;
+  resourceKind: 'elixirs' | 'relics' | 'evoStone' | null;
   missingReasons: string[];
 }
 
@@ -419,14 +431,20 @@ export function checkMegamorphEligibility(state: GameState, slug: SlugInstance):
   }
   const hasLevel = slug.level >= MEGAMORPH_MIN_LEVEL;
   const hasBond = slug.bond >= MEGAMORPH_MIN_BOND;
-  const resourceKind: 'elixirs' | 'relics' | null =
-    state.inventory.elixirs >= 1 ? 'elixirs' : state.inventory.relics >= 1 ? 'relics' : null;
+  const resourceKind: 'elixirs' | 'relics' | 'evoStone' | null =
+    state.inventory.elixirs >= 1
+      ? 'elixirs'
+      : state.inventory.evoStone >= 1
+      ? 'evoStone'
+      : state.inventory.relics >= 1
+      ? 'relics'
+      : null;
   const hasResource = resourceKind !== null;
 
   const missingReasons: string[] = [];
   if (!hasLevel) missingReasons.push(`Nivel ${MEGAMORPH_MIN_LEVEL}+ (actual Nv.${slug.level})`);
   if (!hasBond) missingReasons.push(`Amistad ${MEGAMORPH_MIN_BOND}+ (actual ${slug.bond})`);
-  if (!hasResource) missingReasons.push('1× Elixir Megamorph o 1× Reliquia Antigua');
+  if (!hasResource) missingReasons.push('1× Elixir, 1× Piedra Evolutiva o 1× Reliquia');
 
   return {
     eligible: hasLevel && hasBond && hasResource,
@@ -479,7 +497,12 @@ export function evolveSlugToMegamorph(
   slug.spd += 2;
   state.stats.megaUnlocked++;
 
-  const resourceLabel = check.resourceKind === 'elixirs' ? '1 Elixir Megamorph' : '1 Reliquia Antigua';
+  const resourceLabel =
+    check.resourceKind === 'elixirs'
+      ? '1 Elixir Megamorph'
+      : check.resourceKind === 'evoStone'
+      ? '1 Piedra Evolutiva'
+      : '1 Reliquia Antigua';
   return {
     ok: true,
     slug,

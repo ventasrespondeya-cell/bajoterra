@@ -25,7 +25,7 @@ export class CombatManager {
   public allyBurnTurns = 0;
   public allyChillTurns = 0;
   private participatedUids = new Set<string>();
-  private onBattleEndCallback: (() => void) | null = null;
+  private onBattleEndCallback: ((endedBattle: BattleState | null) => void) | null = null;
   private onStateChangeCallback: (() => void) | null = null;
   private enemyTurnTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -45,7 +45,7 @@ export class CombatManager {
       nameOverride?: string;
       bossId?: string;
       iconOverride?: string;
-      onEnd?: () => void;
+      onEnd?: (endedBattle?: BattleState | null) => void;
       onStateChange?: () => void;
     }
   ): BattleState {
@@ -640,10 +640,11 @@ export class CombatManager {
   public closeBattle(): void {
     this.clearPendingTimers();
     this.participatedUids.clear();
+    const endedBattle = this.battle;
     const cb = this.onBattleEndCallback;
     this.battle = null;
     this.onBattleEndCallback = null;
     this.onStateChangeCallback = null;
-    if (cb) cb();
+    if (cb) cb(endedBattle);
   }
 }

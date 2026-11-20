@@ -36,6 +36,15 @@ export enum TileType {
   ALTAR = 19,
   ICE_FLOOR = 20,
   ANCIENT_BRICK = 21,
+  MAGMA_COAL = 22,
+  THERMAL_COPPER = 23,
+  ICE_CRYSTAL = 24,
+  BLUE_QUARTZ = 25,
+  DARK_IRON = 26,
+  NEON_MUSHROOM = 27,
+  KELP = 28,
+  VOLCANIC_ROCK = 29,
+  EVO_STONE_VEIN = 30,
 }
 
 export interface Chunk {
@@ -67,7 +76,15 @@ export type InventoryKey =
   | 'nest'
   | 'bed'
   | 'feeder'
-  | 'decor';
+  | 'decor'
+  | 'rootWood'
+  | 'magmaCoal'
+  | 'thermalCopper'
+  | 'iceCrystal'
+  | 'blueQuartz'
+  | 'darkIron'
+  | 'neonMushroom'
+  | 'evoStone';
 
 export type Inventory = Record<InventoryKey, number>;
 
@@ -237,6 +254,7 @@ export interface RoamingEntity {
   kind: 'wild' | 'mercenary' | 'boss' | 'merchant';
   speciesId?: string;
   bossId?: string;
+  challengeId?: string;
   name: string;
   icon: string;
   x: number;
@@ -367,6 +385,22 @@ export interface RoomValidationInfo {
   centerY: number;
 }
 
+export type POIKind =
+  | 'secret_chamber'
+  | 'outpost'
+  | 'abandoned_mine'
+  | 'ancient_ruins'
+  | 'crystal_chamber';
+
+export interface DiscoveredPOI {
+  id: string;
+  name: string;
+  kind: POIKind;
+  biome: BiomeId;
+  x: number;
+  y: number;
+}
+
 export interface GameState {
   version: '4.0';
   saveMeta?: SaveMetadata;
@@ -382,6 +416,8 @@ export interface GameState {
   tilesDelta: Record<string, number>;
   exploredChunks: Record<string, number>; // "cx,cy": 1
   discoveries: BiomeId[];
+  discoveredPOIs?: DiscoveredPOI[];
+  clearedChallenges?: string[];
   seenSpecies: Record<string, boolean>;
   capturedSpecies: Record<string, number>;
   eggs: BreedingEgg[];
@@ -416,6 +452,8 @@ export interface HudSnapshot {
   inventory: Inventory;
   selectedHotbar: number;
   discoveries: BiomeId[];
+  discoveredPOIs: DiscoveredPOI[];
+  clearedChallenges: string[];
   seenSpecies: Record<string, boolean>;
   capturedSpecies: Record<string, number>;
   eggs: BreedingEgg[];

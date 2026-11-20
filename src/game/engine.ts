@@ -15,6 +15,7 @@ import {
   WORLD_W,
   createSlugInstance,
   getSpecies,
+  pickWeightedSpeciesByBiome,
 } from './data';
 import {
   awardSlugExperience,
@@ -65,7 +66,14 @@ import {
   type RoomValidationInfo,
   type UIScreen,
 } from './types';
-import { ChunkManager, getBiomeAt, isTileHazard, isTileSolid } from './world';
+import {
+  ChunkManager,
+  type ChunkStructureMeta,
+  getBiomeAt,
+  getChunkStructureMeta,
+  isTileHazard,
+  isTileSolid,
+} from './world';
 
 export class BajoterraEngine {
   public state: GameState = createInitialGameState();
@@ -106,10 +114,20 @@ export class BajoterraEngine {
 
   constructor() {
     ensureHomeState(this.state);
+    this.ensureExplorationFields();
     this.chunks = new ChunkManager(this.state.worldSeed, this.state.tilesDelta);
     this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
     this.seedInitialEntities();
     this.checkSavesAvailability();
+  }
+
+  private ensureExplorationFields(): void {
+    if (!Array.isArray(this.state.discoveredPOIs)) {
+      this.state.discoveredPOIs = [];
+    }
+    if (!Array.isArray(this.state.clearedChallenges)) {
+      this.state.clearedChallenges = [];
+    }
   }
 
   public getRoomValidations(force = false): RoomValidationInfo[] {
@@ -161,6 +179,8 @@ export class BajoterraEngine {
       inventory: { ...this.state.inventory },
       selectedHotbar: this.state.selectedHotbar,
       discoveries: [...this.state.discoveries],
+      discoveredPOIs: (this.state.discoveredPOIs || []).map((p) => ({ ...p })),
+      clearedChallenges: [...(this.state.clearedChallenges || [])],
       seenSpecies: { ...this.state.seenSpecies },
       capturedSpecies: { ...this.state.capturedSpecies },
       eggs: this.state.eggs.map((e) => ({ ...e })),
@@ -262,6 +282,7 @@ export class BajoterraEngine {
   public startNewGame(): void {
     this.state = createInitialGameState();
     ensureHomeState(this.state);
+    this.ensureExplorationFields();
     this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
@@ -283,6 +304,7 @@ export class BajoterraEngine {
     }
     this.state = loadRes.state;
     ensureHomeState(this.state);
+    this.ensureExplorationFields();
     this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
@@ -315,6 +337,7 @@ export class BajoterraEngine {
     }
     this.state = parsed.state;
     ensureHomeState(this.state);
+    this.ensureExplorationFields();
     this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
@@ -344,6 +367,7 @@ export class BajoterraEngine {
     }
     this.state = res.state;
     ensureHomeState(this.state);
+    this.ensureExplorationFields();
     this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
@@ -747,6 +771,9 @@ export class BajoterraEngine {
       }
     }
 
+    // POI discovery & guardian challenges in surrounding chunks
+    this.checkSurroundingPOIs(px, py);
+
     // Incubator egg hatching progress
     if (this.state.eggs.length > 0) {
       const mult = this.state.shelterTier >= 2 ? 1.5 : 1;
@@ -758,6 +785,101 @@ export class BajoterraEngine {
         }
       }
     }
+  }
+
+  private checkSurroundingPOIs(px: number, py: number): void {
+    this.ensureExplorationFields();
+    const cx = Math.floor(px / CHUNK_SIZE);
+    const cy = Math.floor(py / CHUNK_SIZE);
+    const maxChunkX = Math.floor(WORLD_W / CHUNK_SIZE);
+    const maxChunkY = Math.floor(WORLD_H / CHUNK_SIZE);
+
+    for (let scy = cy - 1; scy <= cy + 1; scy++) {
+      for (let scx = cx - 1; scx <= cx + 1; scx++) {
+        if (scx < 0 || scy < 0 || scx >= maxChunkX || scy >= maxChunkY) continue;
+        const meta = getChunkStructureMeta(scx, scy, this.state.worldSeed);
+        if (!meta) continue;
+
+        const dist = Math.hypot(px - meta.centerX, py - meta.centerY);
+        if (dist <= 10 && !this.state.discoveredPOIs!.some((p) => p.id === meta.id)) {
+          this.state.discoveredPOIs!.push({
+            id: meta.id,
+            name: meta.name,
+            kind: meta.kind,
+            biome: meta.biome,
+            x: meta.centerX,
+            y: meta.centerY,
+          });
+          sound.playPickup();
+          this.awardPlayerXp(10);
+          this.notify(`¡Lugar descubierto: ${meta.name}!`);
+          this.emitHud(true);
+        }
+
+        if (
+          meta.hasGuardian &&
+          !this.state.clearedChallenges!.includes(meta.id) &&
+          dist <= 18 &&
+          !this.entities.some((e) => e.challengeId === meta.id)
+        ) {
+          this.spawnStructureGuardian(meta);
+        }
+      }
+    }
+  }
+
+  private spawnStructureGuardian(meta: ChunkStructureMeta): void {
+    this.chunks.ensureWindowAround(meta.centerX, meta.centerY, 1);
+    const candidateOffsets: Array<[number, number]> = [
+      [0, 2],
+      [0, 3],
+      [-1, 2],
+      [1, 2],
+      [0, 6],
+    ];
+    let gx = meta.centerX;
+    let gy = meta.centerY + 6;
+    for (const [ox, oy] of candidateOffsets) {
+      const tx = meta.centerX + ox;
+      const ty = meta.centerY + oy;
+      const t = this.chunks.getTile(tx, ty);
+      if (!isTileSolid(t) && !isTileHazard(t) && t !== TileType.WATER) {
+        gx = tx;
+        gy = ty;
+        break;
+      }
+    }
+
+    const guardianSpeciesMap: Record<BiomeId, string> = {
+      Magma: 'piroclasto',
+      Heladas: 'glaciomita',
+      Sombrias: 'umbrospect',
+      Verdes: 'thorny',
+    };
+    const levelMap: Record<BiomeId, number> = {
+      Verdes: 5,
+      Magma: 6,
+      Heladas: 6,
+      Sombrias: 8,
+    };
+
+    this.entities.push({
+      uid: `guardian_${meta.id}`,
+      kind: 'mercenary',
+      challengeId: meta.id,
+      speciesId: guardianSpeciesMap[meta.biome],
+      name: meta.kind === 'crystal_chamber' ? 'Guardián Cristalino' : 'Guardián de Ruinas',
+      icon: meta.kind === 'crystal_chamber' ? '💠' : '🛡️',
+      x: gx,
+      y: gy,
+      homeX: gx,
+      homeY: gy,
+      biome: meta.biome,
+      level: levelMap[meta.biome],
+      hp: 80,
+      dir: 0,
+      cooldown: 1.0,
+    });
   }
 
   private updateShelterAura(dt: number): void {
@@ -880,24 +1002,22 @@ export class BajoterraEngine {
       tile === TileType.SHADOW_CRYSTAL ||
       tile === TileType.ENERGY_CRYSTAL ||
       tile === TileType.WALL ||
-      tile === TileType.TORCH
+      tile === TileType.TORCH ||
+      tile === TileType.MAGMA_COAL ||
+      tile === TileType.THERMAL_COPPER ||
+      tile === TileType.ICE_CRYSTAL ||
+      tile === TileType.BLUE_QUARTZ ||
+      tile === TileType.DARK_IRON ||
+      tile === TileType.NEON_MUSHROOM ||
+      tile === TileType.KELP ||
+      tile === TileType.VOLCANIC_ROCK ||
+      tile === TileType.EVO_STONE_VEIN
     );
   }
 
   private mineTile(tx: number, ty: number, tile: TileType): void {
     const b = getBiomeAt(tx, ty, this.state.worldSeed);
-    if (
-      tile === TileType.ORE ||
-      tile === TileType.ROCK ||
-      tile === TileType.CRACKED_WALL ||
-      tile === TileType.WOOD_PILLAR ||
-      tile === TileType.MUSHROOM ||
-      tile === TileType.ICE ||
-      tile === TileType.SHADOW_CRYSTAL ||
-      tile === TileType.ENERGY_CRYSTAL ||
-      tile === TileType.WALL ||
-      tile === TileType.TORCH
-    ) {
+    if (this.isMineableTile(tile)) {
       sound.playMine();
       this.renderer.triggerShake(2.5, 0.1);
 
@@ -910,9 +1030,11 @@ export class BajoterraEngine {
         this.renderer.addFloatingText(tx, ty, `+${gain} Mineral`, '#fde047');
         this.awardPlayerXp(4);
       } else if (tile === TileType.WOOD_PILLAR) {
+        const rootGain = b === 'Verdes' ? 2 : 1;
         this.state.inventory.wood += 2;
+        this.state.inventory.rootWood += rootGain;
         this.renderer.spawnBurst(tx, ty, '#a16207', 10);
-        this.renderer.addFloatingText(tx, ty, '+2 Madera', '#fbbf24');
+        this.renderer.addFloatingText(tx, ty, `+2 Madera · +${rootGain} Raíz`, '#fbbf24');
       } else if (tile === TileType.MUSHROOM) {
         this.state.inventory.berries += 1;
         this.renderer.spawnBurst(tx, ty, '#34d399', 10);
@@ -928,6 +1050,65 @@ export class BajoterraEngine {
         this.renderer.spawnBurst(tx, ty, '#c084fc', 16);
         this.renderer.addFloatingText(tx, ty, '+2 Frag. Sombrío', '#d8b4fe');
         this.awardPlayerXp(8);
+      } else if (tile === TileType.MAGMA_COAL) {
+        this.state.inventory.magmaCoal += 2;
+        this.state.stats.oreMined += 1;
+        this.renderer.spawnBurst(tx, ty, '#fb923c', 14);
+        this.renderer.addFloatingText(tx, ty, '+2 Carbón Magma', '#fdba74');
+        this.awardPlayerXp(5);
+      } else if (tile === TileType.THERMAL_COPPER) {
+        this.state.inventory.thermalCopper += 2;
+        this.state.inventory.ore += 1;
+        this.state.stats.oreMined += 1;
+        this.renderer.spawnBurst(tx, ty, '#ea580c', 14);
+        this.renderer.addFloatingText(tx, ty, '+2 Cobre Térmico', '#fed7aa');
+        this.awardPlayerXp(6);
+      } else if (tile === TileType.ICE_CRYSTAL) {
+        this.state.inventory.iceCrystal += 2;
+        this.state.stats.oreMined += 1;
+        this.renderer.spawnBurst(tx, ty, '#67e8f9', 14);
+        this.renderer.addFloatingText(tx, ty, '+2 Cristal Hielo', '#a5f3fc');
+        this.awardPlayerXp(5);
+      } else if (tile === TileType.BLUE_QUARTZ) {
+        this.state.inventory.blueQuartz += 2;
+        this.state.stats.oreMined += 1;
+        this.renderer.spawnBurst(tx, ty, '#38bdf8', 15);
+        this.renderer.addFloatingText(tx, ty, '+2 Cuarzo Azul', '#7dd3fc');
+        this.awardPlayerXp(6);
+      } else if (tile === TileType.DARK_IRON) {
+        this.state.inventory.darkIron += 2;
+        this.state.inventory.ore += 1;
+        this.state.stats.oreMined += 1;
+        this.renderer.spawnBurst(tx, ty, '#a855f7', 14);
+        this.renderer.addFloatingText(tx, ty, '+2 Hierro Oscuro', '#e9d5ff');
+        this.awardPlayerXp(7);
+      } else if (tile === TileType.NEON_MUSHROOM) {
+        this.state.inventory.neonMushroom += 2;
+        this.renderer.spawnBurst(tx, ty, '#c084fc', 12);
+        this.renderer.addFloatingText(tx, ty, '+2 Hongo Neón', '#d8b4fe');
+        this.awardPlayerXp(4);
+      } else if (tile === TileType.KELP) {
+        this.state.inventory.berries += 1;
+        this.state.inventory.rootWood += 1;
+        this.renderer.spawnBurst(tx, ty, '#22c55e', 10);
+        this.renderer.addFloatingText(tx, ty, '+1 Baya · +1 Raíz', '#86efac');
+      } else if (tile === TileType.VOLCANIC_ROCK) {
+        this.state.inventory.stone += 1;
+        if ((tx + ty) % 3 === 0) {
+          this.state.inventory.magmaCoal += 1;
+          this.renderer.addFloatingText(tx, ty, '+1 Piedra · +1 Carbón', '#fdba74');
+        } else {
+          this.renderer.addFloatingText(tx, ty, '+1 Roca Volcánica', '#fca5a5');
+        }
+        this.renderer.spawnBurst(tx, ty, '#b91c1c', 10);
+      } else if (tile === TileType.EVO_STONE_VEIN) {
+        this.state.inventory.evoStone += 1;
+        this.state.inventory.crystal += 1;
+        this.state.stats.oreMined += 1;
+        sound.playPickup();
+        this.renderer.spawnBurst(tx, ty, '#f472b6', 20);
+        this.renderer.addFloatingText(tx, ty, '+1 Piedra Evolutiva', '#f9a8d4');
+        this.awardPlayerXp(12);
       } else if (tile === TileType.CRACKED_WALL) {
         this.state.inventory.stone += 2;
         this.renderer.spawnBurst(tx, ty, '#94a3b8', 18);
@@ -1023,6 +1204,7 @@ export class BajoterraEngine {
   private openChest(tx: number, ty: number): void {
     this.chunks.setTile(tx, ty, TileType.CHEST_OPEN);
     this.state.stats.chestsOpened++;
+    const b = getBiomeAt(tx, ty, this.state.worldSeed);
     const ore = 3 + Math.floor(Math.random() * 4);
     const berries = 1 + Math.floor(Math.random() * 2);
     const crystal = Math.random() < 0.65 ? 2 : 1;
@@ -1033,11 +1215,34 @@ export class BajoterraEngine {
     this.state.inventory.capsules += cap;
     if (Math.random() < 0.35) this.state.inventory.relics += 1;
 
+    let biomeNote = '';
+    if (b === 'Verdes') {
+      this.state.inventory.rootWood += 2;
+      biomeNote = ' · +2 Madera Raíz';
+    } else if (b === 'Magma') {
+      this.state.inventory.magmaCoal += 2;
+      this.state.inventory.thermalCopper += 1;
+      biomeNote = ' · +2 Carbón Magma, +1 Cobre Térmico';
+    } else if (b === 'Heladas') {
+      this.state.inventory.iceCrystal += 2;
+      this.state.inventory.blueQuartz += 1;
+      biomeNote = ' · +2 Cristal Hielo, +1 Cuarzo Azul';
+    } else if (b === 'Sombrias') {
+      this.state.inventory.darkIron += 2;
+      this.state.inventory.neonMushroom += 2;
+      this.state.inventory.evoStone += 1;
+      biomeNote = ' · +2 Hierro Oscuro, +2 Hongo Neón, +1 Piedra Evolutiva';
+    }
+    if (b !== 'Sombrias' && Math.random() < 0.25) {
+      this.state.inventory.evoStone += 1;
+      biomeNote += ' · +1 Piedra Evolutiva';
+    }
+
     sound.playPickup();
     this.renderer.spawnBurst(tx, ty, '#facc15', 18);
     this.renderer.addFloatingText(tx, ty, `+${ore} Min · +${crystal} Cris`, '#fde047');
     this.awardPlayerXp(14);
-    this.notify(`¡Cofre abierto! +${ore} mineral, +${crystal} cristal, +${berries} bayas.`);
+    this.notify(`¡Cofre abierto! +${ore} mineral, +${crystal} cristal, +${berries} bayas${biomeNote}.`);
     this.emitHud(true);
   }
 
@@ -1118,7 +1323,17 @@ export class BajoterraEngine {
         } else if (t === TileType.CRACKED_WALL) {
           this.renderer.addFloatingText(px + dx, py + dy, '✦ Muro Secreto', '#67e8f9');
           foundMsg = '¡Muro agrietado secreto detectado!';
-        } else if (t === TileType.ENERGY_CRYSTAL || t === TileType.SHADOW_CRYSTAL) {
+        } else if (t === TileType.EVO_STONE_VEIN) {
+          this.renderer.addFloatingText(px + dx, py + dy, '✦ Piedra Evolutiva', '#f472b6');
+          foundMsg = '¡Veta de Piedra Evolutiva detectada!';
+        } else if (
+          t === TileType.ENERGY_CRYSTAL ||
+          t === TileType.SHADOW_CRYSTAL ||
+          t === TileType.BLUE_QUARTZ ||
+          t === TileType.ICE_CRYSTAL ||
+          t === TileType.THERMAL_COPPER ||
+          t === TileType.DARK_IRON
+        ) {
           this.renderer.spawnBurst(px + dx, py + dy, '#5eead4', 6);
         }
       }
@@ -1197,15 +1412,19 @@ export class BajoterraEngine {
     }
 
     this.replenishWildEntities();
+    this.checkSurroundingPOIs(
+      Math.floor(this.state.player.x + 0.5),
+      Math.floor(this.state.player.y + 0.5)
+    );
   }
 
   private replenishWildEntities(): void {
     const px = Math.floor(this.state.player.x + 0.5);
     const py = Math.floor(this.state.player.y + 0.5);
-    const wildCount = this.entities.filter((e) => e.kind === 'wild' || e.kind === 'mercenary').length;
+    let wildCount = this.entities.filter((e) => e.kind === 'wild' || e.kind === 'mercenary').length;
     if (wildCount >= 14) return;
 
-    for (let tries = 0; tries < 20 && this.entities.length < 22; tries++) {
+    for (let tries = 0; tries < 20 && wildCount < 14 && this.entities.length < 22; tries++) {
       const ang = Math.random() * Math.PI * 2;
       const rad = 11 + Math.random() * 20;
       const wx = Math.floor(px + Math.cos(ang) * rad);
@@ -1213,11 +1432,10 @@ export class BajoterraEngine {
       if (wx < 5 || wy < 5 || wx >= WORLD_W - 5 || wy >= WORLD_H - 5) continue;
       if (Math.hypot(wx - SPAWN_X, wy - SPAWN_Y) < 9) continue;
       const t = this.chunks.getTile(wx, wy);
-      if (isTileSolid(t) || isTileHazard(t)) continue;
+      if (isTileSolid(t) || isTileHazard(t) || t === TileType.WATER) continue;
 
       const b = getBiomeAt(wx, wy, this.state.worldSeed);
-      const pool = SPECIES_LIST.filter((s) => s.habitat === b);
-      const sp = pool[Math.floor(Math.random() * pool.length)] || SPECIES_LIST[0];
+      const sp = pickWeightedSpeciesByBiome(b);
       const isMerc = Math.random() < 0.16;
       const baseLvl = b === 'Verdes' ? 1 : b === 'Magma' || b === 'Heladas' ? 3 : 5;
       const lvl = Math.max(1, baseLvl + Math.floor(Math.random() * 3));
@@ -1238,6 +1456,7 @@ export class BajoterraEngine {
         dir: Math.random() * Math.PI * 2,
         cooldown: 1.5,
       });
+      wildCount++;
     }
   }
 
@@ -1307,9 +1526,25 @@ export class BajoterraEngine {
       onStateChange: () => {
         this.emitHud(true);
       },
-      onEnd: () => {
-        if (this.combat.battle?.outcome === 'victory' || this.combat.battle?.outcome === 'captured') {
+      onEnd: (endedBattle) => {
+        const outcome = endedBattle?.outcome;
+        if (outcome === 'victory' || outcome === 'captured') {
           this.entities = this.entities.filter((x) => x.uid !== ent.uid);
+          if (ent.challengeId) {
+            this.ensureExplorationFields();
+            if (!this.state.clearedChallenges!.includes(ent.challengeId)) {
+              this.state.clearedChallenges!.push(ent.challengeId);
+              if (ent.name.includes('Cristalino')) {
+                this.state.inventory.evoStone += 1;
+                this.state.inventory.capsules += 1;
+                this.notify('¡Desafío cristalino superado! +1 Piedra Evolutiva y +1 Cilindro.');
+              } else {
+                this.state.inventory.relics += 1;
+                this.state.inventory.capsules += 1;
+                this.notify('¡Ruinas aseguradas! +1 Reliquia Antigua y +1 Cilindro.');
+              }
+            }
+          }
         }
         void this.runBackgroundSave('battle');
         this.emitHud(true);

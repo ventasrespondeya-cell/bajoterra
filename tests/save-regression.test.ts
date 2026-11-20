@@ -207,7 +207,21 @@ const {
   resetSaveRuntimeForTests,
 } = await import('../src/game/save.ts');
 const { CombatManager } = await import('../src/game/combat.ts');
-const { QUEST_LIST, SPAWN_X, SPAWN_Y, createSlugInstance, getSpecies } = await import('../src/game/data.ts');
+const {
+  BOSS_DEFINITIONS,
+  CHUNK_SIZE,
+  CRAFT_RECIPES,
+  QUEST_LIST,
+  RARITY_WEIGHTS,
+  SPAWN_X,
+  SPAWN_Y,
+  SPECIES_LIST,
+  WORLD_H,
+  WORLD_W,
+  createSlugInstance,
+  getSpecies,
+  pickWeightedSpeciesByBiome,
+} = await import('../src/game/data.ts');
 const { gameEngine } = await import('../src/game/engine.ts');
 const {
   canHomeSlugWalk,
@@ -219,13 +233,22 @@ const {
   MAX_SLUG_LEVEL,
   awardSlugExperience,
   checkMegamorphEligibility,
+  evolveSlugToMegamorph,
   getBondTierInfo,
   getEffectiveMoveEnergyCost,
   getMoveMasteryInfo,
+  getXpForNextLevel,
   grantMoveMastery,
   grantSlugBond,
 } = await import('../src/game/progression.ts');
 const { TileType } = await import('../src/game/types.ts');
+const {
+  ChunkManager,
+  getBiomeAt,
+  getChunkStructureMeta,
+  isTileHazard,
+  isTileSolid,
+} = await import('../src/game/world.ts');
 
 beforeEach(() => {
   mockLs.clear();
@@ -1505,4 +1528,443 @@ describe('Bajoterra 4.0 — FASE 4: Vínculos, Maestría y Evolución de Babosas
     assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(corruptMastery)).ok, false);
   });
 });
+
+describe('Bajoterra 4.0 — PARTE A (FASE 5 Gate): Correcciones Obligatorias de FASE 4', () => {
+  test('A1. Nivel máximo unificado (MAX_SLUG_LEVEL = 20), tope XP y validación estricta en guardado/migración', () => {
+    const state = createInitialGameState();
+    const s = state.party[0];
+    awardSlugExperience(state, s, 999_999, { bondDelta: 0 });
+    assert.equal(s.level, MAX_SLUG_LEVEL);
+    assert.equal(s.xp, 0);
+
+    // Max-level slug never accumulates XP past cap
+    const hpBefore = s.maxHp;
+    const atkBefore = s.atk;
+    awardSlugExperience(state, s, 500, { bondDelta: 0 });
+    assert.equal(s.level, MAX_SLUG_LEVEL);
+    assert.equal(s.xp, 0);
+    assert.equal(s.maxHp, hpBefore);
+    assert.equal(s.atk, atkBefore);
+
+    // Reject levels outside 1..MAX_SLUG_LEVEL or incoherent XP
+    for (const badLevel of [0, -1, 2.5, MAX_SLUG_LEVEL + 1, 10000]) {
+      const bad = createInitialGameState();
+      (bad.party[0] as unknown as Record<string, unknown>).level = badLevel;
+      assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(bad)).ok, false);
+    }
+
+    const maxWithXp = createInitialGameState();
+    maxWithXp.party[0].level = MAX_SLUG_LEVEL;
+    maxWithXp.party[0].xp = 15;
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(maxWithXp)).ok, false);
+
+    const lv1OverXp = createInitialGameState();
+    lv1OverXp.party[0].level = 1;
+    lv1OverXp.party[0].xp = getXpForNextLevel(1);
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(lv1OverXp)).ok, false);
+
+    // V3 legacy save with level > 20 clamps cleanly without crashing or creating invalid state
+    const v3High = {
+      player: { x: 56, y: 56, hp: 100, maxHp: 100, level: 25, xp: 10 },
+      party: [{ id: 'infurnus', level: 42, xp: 500, hp: 90, maxHp: 90, atk: 30, spd: 20, friend: 50 }],
+      tiles: { '56,56': 11 },
+      worldSeed: 74192,
+    };
+    const migrated = migrateV3ToV4(v3High);
+    assert.equal(migrated.party[0].level, MAX_SLUG_LEVEL);
+    assert.equal(migrated.party[0].xp, 0);
+  });
+
+  test('A2. Maestría de técnicas: solo avanza en ejecución real, sin ganancia en bloqueo y coste coherente', () => {
+    const state = createInitialGameState();
+    const ally = state.party[0];
+    grantMoveMastery(ally, 1, 100); // Rank 3 -> -1 EN on base cost 7 => effective 6
+
+    const cm = new CombatManager();
+    cm.startBattle(state, { kind: 'wild', speciesId: 'aquabeak', level: 1 });
+
+    // Move 1 costs 6 EN; insufficient energy blocks execution & awards 0 mastery
+    ally.energy = 5;
+    const m1Before = ally.moveMastery![1];
+    const m0Before = ally.moveMastery![0];
+    cm.executeSpecialMove(state, 1);
+    assert.equal(ally.moveMastery![1], m1Before);
+    assert.equal(ally.energy, 5);
+    assert.equal(cm.battle?.turn, 'player');
+
+    // Execute Move 0 legitimately -> deducts exact effective cost and grants +10 mastery
+    ally.energy = 10;
+    const sp = getSpecies(ally.id);
+    const expectedCost0 = getEffectiveMoveEnergyCost(sp.specialMoves[0].energyCost, m0Before);
+    cm.executeSpecialMove(state, 0);
+    assert.equal(ally.energy, 10 - expectedCost0);
+    assert.equal(ally.moveMastery![0], m0Before + 10);
+
+    // Trying to execute again during enemy turn or cooldown awards 0 mastery
+    cm.executeSpecialMove(state, 0);
+    assert.equal(ally.moveMastery![0], m0Before + 10);
+
+    cm.battle!.turn = 'player';
+    cm.executeSpecialMove(state, 0); // on cooldown
+    assert.equal(ally.moveMastery![0], m0Before + 10);
+    cm.closeBattle();
+  });
+
+  test('A3. Megamorph y bonusTrait sin duplicación entre equipo, reserva, hogar y guardado', async () => {
+    gameEngine.startNewGame();
+    const homeSlug = createSlugInstance('aquabeak', 5, { isBred: true, bonusTrait: 'Vitalidad +' });
+    homeSlug.bond = 65;
+    grantMoveMastery(homeSlug, 0, 40);
+    homeSlug.xp = 12;
+    gameEngine.state.storage.push(homeSlug);
+    assert.equal(gameEngine.assignSlugToHome(homeSlug.uid, 'habitat_aquatic'), true);
+
+    gameEngine.state.inventory.elixirs = 2;
+    const hpBeforeMega = homeSlug.maxHp;
+    const atkBeforeMega = homeSlug.atk;
+
+    // Evolves once for resident in home, deducts 1 elixir
+    assert.equal(gameEngine.evolveSlugToMegamorph(homeSlug.uid), true);
+    assert.equal(gameEngine.state.inventory.elixirs, 1);
+    assert.equal(homeSlug.mega, true);
+    assert.equal(homeSlug.name, getSpecies('aquabeak').evoName);
+    assert.equal(homeSlug.maxHp, hpBeforeMega + 22);
+    assert.equal(homeSlug.atk, atkBeforeMega + 6);
+    assert.equal(homeSlug.xp, 12);
+    assert.equal(homeSlug.bond, 65);
+    assert.deepEqual(homeSlug.moveMastery, [40, 0]);
+    assert.equal(homeSlug.bonusTrait, 'Vitalidad +');
+
+    // Second evolution attempt fails without consuming elixir
+    assert.equal(gameEngine.evolveSlugToMegamorph(homeSlug.uid), false);
+    assert.equal(gameEngine.state.inventory.elixirs, 1);
+
+    // Save -> reload preserves stats WITHOUT re-applying bonusTrait or Megamorph bonuses
+    const saveRes = await saveGameV4(gameEngine.state, { reason: 'manual' });
+    assert.equal(saveRes.ok, true);
+    const loaded = await loadGameV4();
+    assert.ok(loaded);
+    const loadedRes = loaded.home!.residents[0].slug;
+    assert.equal(loadedRes.uid, homeSlug.uid);
+    assert.equal(loadedRes.id, 'aquabeak');
+    assert.equal(loadedRes.mega, true);
+    assert.equal(loadedRes.name, getSpecies('aquabeak').evoName);
+    assert.equal(loadedRes.maxHp, hpBeforeMega + 22);
+    assert.equal(loadedRes.atk, atkBeforeMega + 6);
+    assert.equal(loadedRes.bonusTrait, 'Vitalidad +');
+    assert.deepEqual(loadedRes.moveMastery, [40, 0]);
+  });
+});
+
+describe('Bajoterra 4.0 — FASE 5: Expansión del Mundo Subterráneo', () => {
+  test('F5.1 Mundo determinista por semilla, refugio preservado y rutas conectadas entre los 4 biomas', () => {
+    const cmA = new ChunkManager(74192, {});
+    const cmB = new ChunkManager(74192, {});
+
+    for (const [tx, ty] of [
+      [SPAWN_X, SPAWN_Y],
+      [160, 250],
+      [42, 160],
+      [274, 160],
+      [88, 160],
+      [160, 88],
+    ]) {
+      assert.equal(cmA.getTile(tx, ty), cmB.getTile(tx, ty));
+    }
+
+    // Starter shelter key landmarks stay intact
+    assert.equal(cmA.getTile(SPAWN_X - 3, SPAWN_Y - 3), TileType.RECHARGE_STATION);
+    assert.equal(cmA.getTile(SPAWN_X + 3, SPAWN_Y - 3), TileType.CHEST_CLOSED);
+    assert.equal(cmA.getTile(SPAWN_X, SPAWN_Y - 5), TileType.DOOR_OPEN);
+
+    // All 4 biomes exist across cardinal directions and roads stay walkable
+    const biomesFound = new Set([
+      getBiomeAt(SPAWN_X, SPAWN_Y, 74192),
+      getBiomeAt(SPAWN_X, 255, 74192),
+      getBiomeAt(42, SPAWN_Y, 74192),
+      getBiomeAt(276, SPAWN_Y, 74192),
+    ]);
+    assert.deepEqual(
+      Array.from(biomesFound).sort(),
+      ['Heladas', 'Magma', 'Sombrias', 'Verdes']
+    );
+
+    // Cardinal arteries & ring roads are never blocked by solid tiles
+    for (let i = 10; i < WORLD_W - 10; i += 3) {
+      if (Math.abs(i - SPAWN_X) > 6) {
+        assert.equal(isTileSolid(cmA.getTile(i, SPAWN_Y)), false, `Eje X bloqueado en ${i}`);
+      }
+      if (Math.abs(i - SPAWN_Y) > 6) {
+        assert.equal(isTileSolid(cmA.getTile(SPAWN_X, i)), false, `Eje Y bloqueado en ${i}`);
+      }
+    }
+  });
+
+  test('F5.2 Caché LRU <= 64 chunks y persistencia de tilesDelta FASE 5 tras expulsión de chunks', async () => {
+    const state = createInitialGameState();
+    const cm = new ChunkManager(state.worldSeed, state.tilesDelta);
+
+    // Visit > 80 distinct chunks to trigger LRU eviction cleanly
+    for (let cy = 0; cy < 10; cy++) {
+      for (let cx = 0; cx < 10; cx++) {
+        cm.getChunk(cx, cy);
+      }
+    }
+    assert.ok(cm.getLoadedCount() <= 64);
+
+    // Modify tile in chunk (0,0) with new FASE 5 tile ID, evict chunk (0,0), reload from save
+    cm.setTile(10, 10, TileType.EVO_STONE_VEIN);
+    cm.setTile(11, 10, TileType.FLOOR);
+    for (let cy = 5; cy < 15; cy++) {
+      for (let cx = 5; cx < 15; cx++) {
+        cm.getChunk(cx, cy);
+      }
+    }
+    assert.equal(cm.getTile(10, 10), TileType.EVO_STONE_VEIN);
+
+    const saveRes = await saveGameV4(state, { reason: 'manual' });
+    assert.equal(saveRes.ok, true);
+    const loaded = await loadGameV4();
+    assert.ok(loaded);
+    const cmReloaded = new ChunkManager(loaded.worldSeed, loaded.tilesDelta);
+    assert.equal(cmReloaded.getTile(10, 10), TileType.EVO_STONE_VEIN);
+    assert.equal(cmReloaded.getTile(11, 10), TileType.FLOOR);
+  });
+
+  test('F5.3 Los 5 arquetipos de estructuras tienen accesos transitables y no invaden refugio ni jefes', () => {
+    const cm = new ChunkManager(74192, {});
+    const foundKinds = new Set<string>();
+    const bossChunkKeys = new Set(
+      BOSS_DEFINITIONS.map((b) => `${Math.floor(b.x / CHUNK_SIZE)},${Math.floor(b.y / CHUNK_SIZE)}`)
+    );
+
+    for (let cy = 0; cy < WORLD_H / CHUNK_SIZE; cy++) {
+      for (let cx = 0; cx < WORLD_W / CHUNK_SIZE; cx++) {
+        const meta = getChunkStructureMeta(cx, cy, 74192);
+        if (!meta) continue;
+        foundKinds.add(meta.kind);
+
+        // Must never overlap cardinal routes, spawn chunks, or boss chunks
+        assert.notEqual(cx, 9);
+        assert.notEqual(cx, 10);
+        assert.notEqual(cy, 9);
+        assert.notEqual(cy, 10);
+        assert.equal(bossChunkKeys.has(`${cx},${cy}`), false);
+
+        // Verify unobstructed southern entrance courtyard (lx 5..9, ly 12..14)
+        const x0 = cx * CHUNK_SIZE;
+        const y0 = cy * CHUNK_SIZE;
+        for (let ly = 12; ly <= 14; ly++) {
+          for (let lx = 5; lx <= 9; lx++) {
+            assert.equal(cm.getTile(x0 + lx, y0 + ly), TileType.FLOOR);
+          }
+        }
+
+        // Verify entrance doorway / arch / cracked wall at ly = 11, lx = 7
+        const gateTile = cm.getTile(x0 + 7, y0 + 11);
+        assert.ok(
+          gateTile === TileType.FLOOR ||
+            gateTile === TileType.BUILT_FLOOR ||
+            gateTile === TileType.DOOR_CLOSED ||
+            gateTile === TileType.CRACKED_WALL
+        );
+      }
+    }
+
+    assert.deepEqual(
+      Array.from(foundKinds).sort(),
+      ['abandoned_mine', 'ancient_ruins', 'crystal_chamber', 'outpost', 'secret_chamber']
+    );
+  });
+
+  test('F5.4 Minería y recolección de los recursos por bioma y no reaparición de cofres abiertos', async () => {
+    gameEngine.startNewGame();
+    const eng = gameEngine as unknown as {
+      mineTile: (tx: number, ty: number, tile: number) => void;
+      openChest: (tx: number, ty: number) => void;
+    };
+
+    const rx = SPAWN_X + 12;
+    const ry = SPAWN_Y;
+
+    eng.mineTile(rx, ry, TileType.MAGMA_COAL);
+    eng.mineTile(rx, ry, TileType.THERMAL_COPPER);
+    eng.mineTile(rx, ry, TileType.ICE_CRYSTAL);
+    eng.mineTile(rx, ry, TileType.BLUE_QUARTZ);
+    eng.mineTile(rx, ry, TileType.DARK_IRON);
+    eng.mineTile(rx, ry, TileType.NEON_MUSHROOM);
+    eng.mineTile(rx, ry, TileType.KELP);
+    eng.mineTile(rx, ry, TileType.EVO_STONE_VEIN);
+    eng.mineTile(rx, ry, TileType.WOOD_PILLAR);
+
+    assert.ok(gameEngine.state.inventory.magmaCoal >= 2);
+    assert.ok(gameEngine.state.inventory.thermalCopper >= 2);
+    assert.ok(gameEngine.state.inventory.iceCrystal >= 2);
+    assert.ok(gameEngine.state.inventory.blueQuartz >= 2);
+    assert.ok(gameEngine.state.inventory.darkIron >= 2);
+    assert.ok(gameEngine.state.inventory.neonMushroom >= 2);
+    assert.ok(gameEngine.state.inventory.rootWood >= 2);
+    assert.ok(gameEngine.state.inventory.evoStone >= 1);
+
+    // Chest turns permanently into CHEST_OPEN and never respawns across reload
+    gameEngine.chunks.setTile(rx, ry + 1, TileType.CHEST_CLOSED);
+    eng.openChest(rx, ry + 1);
+    assert.equal(gameEngine.chunks.getTile(rx, ry + 1), TileType.CHEST_OPEN);
+    assert.equal(gameEngine.state.stats.chestsOpened, 1);
+
+    const saved = await saveGameV4(gameEngine.state, { reason: 'manual' });
+    assert.equal(saved.ok, true);
+    await gameEngine.continueSavedGame();
+    assert.equal(gameEngine.chunks.getTile(rx, ry + 1), TileType.CHEST_OPEN);
+  });
+
+  test('F5.5 Recetas con recursos de bioma y Piedra Evolutiva para Megamorph', () => {
+    gameEngine.startNewGame();
+    // Test biome crafting recipe (masterCapsules_quartz: 2 blueQuartz + 2 darkIron)
+    gameEngine.state.inventory.blueQuartz = 2;
+    gameEngine.state.inventory.darkIron = 2;
+    const mcBefore = gameEngine.state.inventory.masterCapsules;
+    assert.equal(CRAFT_RECIPES.some((r) => r.id === 'masterCapsules_quartz'), true);
+    assert.equal(gameEngine.craftItem('masterCapsules_quartz'), true);
+    assert.equal(gameEngine.state.inventory.masterCapsules, mcBefore + 1);
+    assert.equal(gameEngine.state.inventory.blueQuartz, 0);
+    assert.equal(gameEngine.state.inventory.darkIron, 0);
+
+    // Test Megamorph using evoStone when elixirs & relics are 0
+    const slug = gameEngine.state.party[0];
+    slug.level = 6;
+    slug.bond = 70;
+    gameEngine.state.inventory.elixirs = 0;
+    gameEngine.state.inventory.relics = 0;
+    gameEngine.state.inventory.evoStone = 1;
+
+    const elig = checkMegamorphEligibility(gameEngine.state, slug);
+    assert.equal(elig.eligible, true);
+    assert.equal(elig.resourceKind, 'evoStone');
+
+    const evoRes = evolveSlugToMegamorph(gameEngine.state, slug.uid);
+    assert.equal(evoRes.ok, true);
+    assert.equal(slug.mega, true);
+    assert.equal(gameEngine.state.inventory.evoStone, 0);
+    assert.equal(gameEngine.state.stats.megaUnlocked, 1);
+  });
+
+  test('F5.6 Aparición ponderada por bioma/rareza sin rocas, lava ni agua y con límite de entidades', () => {
+    assert.ok(RARITY_WEIGHTS.Común > RARITY_WEIGHTS.Rara);
+    assert.ok(RARITY_WEIGHTS.Rara > RARITY_WEIGHTS.Épica);
+    assert.ok(RARITY_WEIGHTS.Épica > RARITY_WEIGHTS.Legendaria);
+
+    // Every biome picks only species native to that biome
+    for (const biome of ['Verdes', 'Magma', 'Heladas', 'Sombrias'] as const) {
+      for (let r = 0; r < 1; r += 0.13) {
+        const picked = pickWeightedSpeciesByBiome(biome, () => r);
+        assert.equal(picked.habitat, biome);
+      }
+    }
+
+    // Wild replenishment never spawns on solid tiles, lava, or water and obeys caps
+    gameEngine.startNewGame();
+    gameEngine.state.player.x = 120;
+    gameEngine.state.player.y = 120;
+    gameEngine.chunks.ensureWindowAround(120, 120, 2);
+    const eng = gameEngine as unknown as { replenishWildEntities: () => void };
+    for (let i = 0; i < 6; i++) eng.replenishWildEntities();
+
+    const wildAndMerc = gameEngine.entities.filter((e) => e.kind === 'wild' || e.kind === 'mercenary');
+    assert.ok(wildAndMerc.length <= 14);
+    assert.ok(gameEngine.entities.length <= 22);
+    for (const e of wildAndMerc) {
+      const tile = gameEngine.chunks.getTile(Math.floor(e.x), Math.floor(e.y));
+      assert.equal(isTileSolid(tile), false);
+      assert.equal(isTileHazard(tile), false);
+      assert.notEqual(tile, TileType.WATER);
+    }
+  });
+
+  test('F5.7 Descubrimiento progresivo de POIs sin revelar secretos anticipados y desafíos de guardián sin farm infinito', async () => {
+    gameEngine.startNewGame();
+    // Before exploring outward, no POIs are pre-revealed
+    assert.equal(gameEngine.state.discoveredPOIs?.length, 0);
+    assert.equal(gameEngine.getSnapshot().discoveredPOIs.length, 0);
+
+    // Locate first deterministic crystal_chamber or ancient_ruins
+    let targetMeta: ReturnType<typeof getChunkStructureMeta> = null;
+    for (let cy = 1; cy < WORLD_H / CHUNK_SIZE - 1 && !targetMeta; cy++) {
+      for (let cx = 1; cx < WORLD_W / CHUNK_SIZE - 1 && !targetMeta; cx++) {
+        const m = getChunkStructureMeta(cx, cy, gameEngine.state.worldSeed);
+        if (m && m.hasGuardian) targetMeta = m;
+      }
+    }
+    assert.ok(targetMeta);
+
+    // Move player to POI center via checkSurroundingPOIs (triggered on movement)
+    gameEngine.state.player.x = targetMeta.centerX;
+    gameEngine.state.player.y = targetMeta.centerY;
+    const eng = gameEngine as unknown as { checkSurroundingPOIs: (px: number, py: number) => void };
+    eng.checkSurroundingPOIs(targetMeta.centerX, targetMeta.centerY);
+
+    assert.equal(gameEngine.state.discoveredPOIs?.some((p) => p.id === targetMeta!.id), true);
+    const guardian = gameEngine.entities.find((e) => e.challengeId === targetMeta!.id);
+    assert.ok(guardian, 'El guardián del desafío debe aparecer la primera vez');
+
+    // Fleeing does not mark challenge cleared
+    gameEngine.engageEntity(guardian);
+    gameEngine.combat.battle!.outcome = 'escaped';
+    gameEngine.combat.closeBattle();
+    assert.equal(gameEngine.state.clearedChallenges?.includes(targetMeta.id), false);
+
+    // Victory clears challenge once, grants reward, and prevents re-spawn after reload
+    const evoBefore = gameEngine.state.inventory.evoStone;
+    const relBefore = gameEngine.state.inventory.relics;
+    gameEngine.engageEntity(guardian);
+    gameEngine.combat.battle!.outcome = 'victory';
+    gameEngine.combat.closeBattle();
+
+    assert.equal(gameEngine.state.clearedChallenges?.includes(targetMeta.id), true);
+    assert.ok(
+      gameEngine.state.inventory.evoStone > evoBefore || gameEngine.state.inventory.relics > relBefore
+    );
+    assert.equal(gameEngine.entities.some((e) => e.challengeId === targetMeta!.id), false);
+
+    await saveGameV4(gameEngine.state, { reason: 'manual' });
+    await gameEngine.continueSavedGame();
+    assert.equal(gameEngine.entities.some((e) => e.challengeId === targetMeta!.id), false);
+    eng.checkSurroundingPOIs(targetMeta.centerX, targetMeta.centerY);
+    assert.equal(gameEngine.entities.some((e) => e.challengeId === targetMeta!.id), false);
+  });
+
+  test('F5.8 Compatibilidad con partidas previas y rechazo estricto de POIs/desafíos/tiles corruptos', () => {
+    // Pre-FASE-5 V4 save lacking discoveredPOIs, clearedChallenges, and new inventory fields
+    const preF5 = JSON.parse(JSON.stringify(createInitialGameState()));
+    delete preF5.discoveredPOIs;
+    delete preF5.clearedChallenges;
+    for (const k of ['rootWood', 'magmaCoal', 'thermalCopper', 'iceCrystal', 'blueQuartz', 'darkIron', 'neonMushroom', 'evoStone']) {
+      delete preF5.inventory[k];
+    }
+    const parsedPre = parseImportedJsonSaveDetailed(JSON.stringify(preF5));
+    assert.equal(parsedPre.ok, true);
+    assert.deepEqual(parsedPre.state?.discoveredPOIs, []);
+    assert.deepEqual(parsedPre.state?.clearedChallenges, []);
+    assert.equal(parsedPre.state?.inventory.evoStone, 0);
+
+    // Reject invalid POIKind
+    const badPoi = createInitialGameState();
+    badPoi.discoveredPOIs = [
+      { id: 'poi_1_1', name: 'Falso', kind: 'portal_hack' as never, biome: 'Verdes', x: 10, y: 10 },
+    ];
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badPoi)).ok, false);
+
+    // Reject duplicate clearedChallenges
+    const dupChal = createInitialGameState();
+    dupChal.clearedChallenges = ['poi_2_2', 'poi_2_2'];
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(dupChal)).ok, false);
+
+    // Reject out-of-range tile ID (> EVO_STONE_VEIN)
+    const badTile = createInitialGameState();
+    badTile.tilesDelta['20,20'] = 999;
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badTile)).ok, false);
+  });
+});
+
+
 

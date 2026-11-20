@@ -1,10 +1,10 @@
-import { CHUNK_SIZE, SPAWN_X, SPAWN_Y, WORLD_H, WORLD_W } from './data';
-import { TileType, type BiomeId, type Chunk } from './types';
+import { BOSS_DEFINITIONS, CHUNK_SIZE, SPAWN_X, SPAWN_Y, WORLD_H, WORLD_W } from './data';
+import { TileType, type BiomeId, type Chunk, type POIKind } from './types';
 
 function hash2D(x: number, y: number, seed: number): number {
-  let h = (x * 374761393 + y * 668265263 + seed * 1442695041) | 0;
-  h = (h ^ (h >> 13)) * 1274126177;
-  h = h ^ (h >> 16);
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 1442695041)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h = h ^ (h >>> 16);
   return (h >>> 0) / 4294967296;
 }
 
@@ -43,6 +43,53 @@ export function getBiomeAt(x: number, y: number, seed = 74192): BiomeId {
   return 'Verdes';
 }
 
+export interface ChunkStructureMeta {
+  id: string;
+  name: string;
+  kind: POIKind;
+  biome: BiomeId;
+  cx: number;
+  cy: number;
+  centerX: number;
+  centerY: number;
+  hasGuardian: boolean;
+}
+
+const BOSS_CHUNK_KEYS = new Set<string>(
+  BOSS_DEFINITIONS.map((b) => `${Math.floor(b.x / CHUNK_SIZE)},${Math.floor(b.y / CHUNK_SIZE)}`)
+);
+
+export function getChunkStructureMeta(cx: number, cy: number, seed = 74192): ChunkStructureMeta | null {
+  if (cx <= 0 || cy <= 0 || cx >= WORLD_W / CHUNK_SIZE - 1 || cy >= WORLD_H / CHUNK_SIZE - 1) {
+    return null;
+  }
+  // Never carve over starter zone or main cardinal corridor chunks
+  if (cx === 9 || cx === 10 || cy === 9 || cy === 10) return null;
+  if (BOSS_CHUNK_KEYS.has(`${cx},${cy}`)) return null;
+
+  const roll = hash2D(cx, cy, seed + 909);
+  if (roll <= 0.85) return null;
+
+  const centerX = cx * CHUNK_SIZE + 7;
+  const centerY = cy * CHUNK_SIZE + 7;
+  const biome = getBiomeAt(centerX, centerY, seed);
+  const id = `poi_${cx}_${cy}`;
+
+  if (roll <= 0.89) {
+    return { id, name: 'Mina Abandonada', kind: 'abandoned_mine', biome, cx, cy, centerX, centerY, hasGuardian: false };
+  }
+  if (roll <= 0.93) {
+    return { id, name: 'Cámara Secreta', kind: 'secret_chamber', biome, cx, cy, centerX, centerY, hasGuardian: false };
+  }
+  if (roll <= 0.96) {
+    return { id, name: 'Puesto Subterráneo', kind: 'outpost', biome, cx, cy, centerX, centerY, hasGuardian: false };
+  }
+  if (roll <= 0.985) {
+    return { id, name: 'Ruinas Antiguas', kind: 'ancient_ruins', biome, cx, cy, centerX, centerY, hasGuardian: true };
+  }
+  return { id, name: 'Cámara de Cristales', kind: 'crystal_chamber', biome, cx, cy, centerX, centerY, hasGuardian: true };
+}
+
 export function isTileSolid(tile: TileType): boolean {
   return (
     tile === TileType.ROCK ||
@@ -58,7 +105,14 @@ export function isTileSolid(tile: TileType): boolean {
     tile === TileType.CHEST_CLOSED ||
     tile === TileType.CHEST_OPEN ||
     tile === TileType.ALTAR ||
-    tile === TileType.ANCIENT_BRICK
+    tile === TileType.ANCIENT_BRICK ||
+    tile === TileType.MAGMA_COAL ||
+    tile === TileType.THERMAL_COPPER ||
+    tile === TileType.ICE_CRYSTAL ||
+    tile === TileType.BLUE_QUARTZ ||
+    tile === TileType.DARK_IRON ||
+    tile === TileType.VOLCANIC_ROCK ||
+    tile === TileType.EVO_STONE_VEIN
   );
 }
 
@@ -75,7 +129,7 @@ export function getTileLabel(tile: TileType): string {
     case TileType.ROCK:
       return 'Roca sólida';
     case TileType.WOOD_PILLAR:
-      return 'Pilar de madera';
+      return 'Pilar de raíces';
     case TileType.MUSHROOM:
       return 'Hongo luminoso';
     case TileType.ORE:
@@ -112,6 +166,24 @@ export function getTileLabel(tile: TileType): string {
       return 'Suelo helado';
     case TileType.ANCIENT_BRICK:
       return 'Ruina antigua';
+    case TileType.MAGMA_COAL:
+      return 'Carbón de magma';
+    case TileType.THERMAL_COPPER:
+      return 'Cobre térmico';
+    case TileType.ICE_CRYSTAL:
+      return 'Cristal de hielo';
+    case TileType.BLUE_QUARTZ:
+      return 'Cuarzo azul';
+    case TileType.DARK_IRON:
+      return 'Hierro oscuro';
+    case TileType.NEON_MUSHROOM:
+      return 'Hongo de neón';
+    case TileType.KELP:
+      return 'Algas subterráneas';
+    case TileType.VOLCANIC_ROCK:
+      return 'Roca volcánica';
+    case TileType.EVO_STONE_VEIN:
+      return 'Veta de Piedra Evolutiva';
     default:
       return 'Terreno';
   }
@@ -221,12 +293,6 @@ export class ChunkManager {
     const x0 = cx * CHUNK_SIZE;
     const y0 = cy * CHUNK_SIZE;
 
-    // Deterministic structure check per chunk: abandoned outpost or secret chamber
-    const structRoll = hash2D(cx, cy, this.worldSeed + 909);
-    const isStarterChunk = cx === Math.floor(SPAWN_X / CHUNK_SIZE) && cy === Math.floor(SPAWN_Y / CHUNK_SIZE);
-    const hasSecretRoom = !isStarterChunk && structRoll > 0.89 && structRoll <= 0.96;
-    const hasOutpost = !isStarterChunk && structRoll > 0.96;
-
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       const y = y0 + ly;
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -235,13 +301,12 @@ export class ChunkManager {
       }
     }
 
-    if (hasSecretRoom) {
-      this.carveSecretRoom(tiles);
-    } else if (hasOutpost) {
-      this.carveOutpost(tiles);
+    const structMeta = getChunkStructureMeta(cx, cy, this.worldSeed);
+    if (structMeta) {
+      this.carveStructure(tiles, structMeta);
     }
 
-    // Apply starter shelter safely over spawn area (154..166, 154..166)
+    // Apply starter shelter safely over spawn area (153..167, 153..167) and player deltas
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       const y = y0 + ly;
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -250,7 +315,6 @@ export class ChunkManager {
         if (starterTile !== null) {
           tiles[ly * CHUNK_SIZE + lx] = starterTile;
         }
-        // Apply player modifications
         const dk = `${x},${y}`;
         if (this.tilesDelta[dk] !== undefined) {
           tiles[ly * CHUNK_SIZE + lx] = this.tilesDelta[dk];
@@ -271,11 +335,16 @@ export class ChunkManager {
       return TileType.ROCK;
     }
 
-    // Main cardinal arteries so players can always reach all 4 biomes & bosses without deadlocks
-    const onHorizontalRoad = Math.abs(y - SPAWN_Y) <= 1;
-    const onVerticalRoad = Math.abs(x - SPAWN_X) <= 1;
-    if (onHorizontalRoad || onVerticalRoad) {
-      if (hash2D(x, y, this.worldSeed + 41) < 0.04) return TileType.MUSHROOM;
+    // Main cardinal arteries + two ring tunnels so all 4 biomes & outer routes stay reliably connected
+    const dx = x - SPAWN_X;
+    const dy = y - SPAWN_Y;
+    const dist = Math.hypot(dx, dy);
+    const onHorizontalRoad = Math.abs(dy) <= 1;
+    const onVerticalRoad = Math.abs(dx) <= 1;
+    const onInnerRing = Math.abs(dist - 72) <= 1.2;
+    const onOuterRing = Math.abs(dist - 118) <= 1.2;
+    if (onHorizontalRoad || onVerticalRoad || onInnerRing || onOuterRing) {
+      if (hash2D(x, y, this.worldSeed + 41) < 0.03) return TileType.MUSHROOM;
       return TileType.FLOOR;
     }
 
@@ -286,50 +355,123 @@ export class ChunkManager {
 
     // Cave walls vs open passages
     if (caveNoise > 0.67) {
-      if (r < 0.14) return TileType.ORE;
-      if (b === 'Sombrias' && r < 0.23) return TileType.SHADOW_CRYSTAL;
-      if (b === 'Heladas' && r < 0.25) return TileType.ICE;
+      if (b === 'Magma') {
+        if (r < 0.14) return TileType.MAGMA_COAL;
+        if (r < 0.22) return TileType.THERMAL_COPPER;
+        return TileType.VOLCANIC_ROCK;
+      }
+      if (b === 'Heladas') {
+        if (r < 0.16) return TileType.ICE_CRYSTAL;
+        if (r < 0.24) return TileType.BLUE_QUARTZ;
+        if (r < 0.42) return TileType.ICE;
+        return TileType.ROCK;
+      }
+      if (b === 'Sombrias') {
+        if (r < 0.14) return TileType.DARK_IRON;
+        if (r < 0.24) return TileType.SHADOW_CRYSTAL;
+        if (r < 0.252) return TileType.EVO_STONE_VEIN;
+        return TileType.ROCK;
+      }
+      if (r < 0.16) return TileType.ORE;
       return TileType.ROCK;
     }
 
-    // Underground lakes & lava pools
-    if (lakeNoise < 0.26) {
+    // Underground lakes & lava pools (with navigable shoreline)
+    if (lakeNoise < 0.25) {
       if (b === 'Magma') return TileType.LAVA;
-      if (b === 'Heladas') return TileType.ICE_FLOOR;
+      if (b === 'Heladas') {
+        return lakeNoise < 0.15 ? TileType.WATER : TileType.ICE_FLOOR;
+      }
       return TileType.WATER;
+    }
+    if (lakeNoise < 0.29 && (b === 'Verdes' || b === 'Heladas') && r < 0.22) {
+      return TileType.KELP;
     }
 
     // Biome flora, ores & crystals
     if (b === 'Verdes') {
-      if (r < 0.032) return TileType.WOOD_PILLAR;
-      if (r < 0.07) return TileType.ORE;
-      if (r < 0.13) return TileType.MUSHROOM;
-      if (r < 0.142) return TileType.ENERGY_CRYSTAL;
+      if (r < 0.036) return TileType.WOOD_PILLAR;
+      if (r < 0.078) return TileType.ORE;
+      if (r < 0.135) return TileType.MUSHROOM;
+      if (r < 0.148) return TileType.ENERGY_CRYSTAL;
       return TileType.FLOOR;
     }
 
     if (b === 'Magma') {
-      if (r < 0.055) return TileType.LAVA;
-      if (r < 0.12) return TileType.ORE;
-      if (r < 0.145) return TileType.ROCK;
-      if (r < 0.16) return TileType.ENERGY_CRYSTAL;
+      if (r < 0.045) return TileType.LAVA;
+      if (r < 0.088) return TileType.MAGMA_COAL;
+      if (r < 0.12) return TileType.THERMAL_COPPER;
+      if (r < 0.155) return TileType.VOLCANIC_ROCK;
+      if (r < 0.175) return TileType.ORE;
+      if (r < 0.188) return TileType.ENERGY_CRYSTAL;
       return TileType.FLOOR;
     }
 
     if (b === 'Heladas') {
-      if (r < 0.06) return TileType.ICE;
-      if (r < 0.12) return TileType.ORE;
-      if (r < 0.26) return TileType.ICE_FLOOR;
-      if (r < 0.28) return TileType.ENERGY_CRYSTAL;
+      if (r < 0.05) return TileType.ICE;
+      if (r < 0.09) return TileType.ICE_CRYSTAL;
+      if (r < 0.122) return TileType.BLUE_QUARTZ;
+      if (r < 0.155) return TileType.ORE;
+      if (r < 0.28) return TileType.ICE_FLOOR;
+      if (r < 0.295) return TileType.ENERGY_CRYSTAL;
       return TileType.FLOOR;
     }
 
     // Sombrias
-    if (r < 0.045) return TileType.SHADOW_CRYSTAL;
-    if (r < 0.075) return TileType.ENERGY_CRYSTAL;
-    if (r < 0.14) return TileType.ORE;
-    if (r < 0.19) return TileType.MUSHROOM;
+    if (r < 0.042) return TileType.SHADOW_CRYSTAL;
+    if (r < 0.08) return TileType.DARK_IRON;
+    if (r < 0.115) return TileType.NEON_MUSHROOM;
+    if (r < 0.14) return TileType.ENERGY_CRYSTAL;
+    if (r < 0.17) return TileType.ORE;
+    if (r < 0.185) return TileType.ANCIENT_BRICK;
     return TileType.FLOOR;
+  }
+
+  private clearEntranceApproach(tiles: Uint8Array): void {
+    // Guarantee unobstructed walkable courtyard south of the structure entrance (lx 5..9, ly 12..14)
+    for (let ly = 12; ly <= 14; ly++) {
+      for (let lx = 5; lx <= 9; lx++) {
+        tiles[ly * CHUNK_SIZE + lx] = TileType.FLOOR;
+      }
+    }
+  }
+
+  private getBiomeVeinTile(biome: BiomeId): TileType {
+    switch (biome) {
+      case 'Magma':
+        return TileType.THERMAL_COPPER;
+      case 'Heladas':
+        return TileType.BLUE_QUARTZ;
+      case 'Sombrias':
+        return TileType.DARK_IRON;
+      default:
+        return TileType.ORE;
+    }
+  }
+
+  private carveStructure(tiles: Uint8Array, meta: ChunkStructureMeta): void {
+    if (meta.kind === 'secret_chamber') {
+      this.carveSecretRoom(tiles);
+      this.clearEntranceApproach(tiles);
+      return;
+    }
+    if (meta.kind === 'outpost') {
+      this.carveOutpost(tiles);
+      this.clearEntranceApproach(tiles);
+      return;
+    }
+    if (meta.kind === 'abandoned_mine') {
+      this.carveAbandonedMine(tiles, meta.biome);
+      this.clearEntranceApproach(tiles);
+      return;
+    }
+    if (meta.kind === 'ancient_ruins') {
+      this.carveAncientRuins(tiles, meta.biome);
+      this.clearEntranceApproach(tiles);
+      return;
+    }
+    this.carveCrystalChamber(tiles, meta.biome);
+    this.clearEntranceApproach(tiles);
   }
 
   private carveSecretRoom(tiles: Uint8Array): void {
@@ -364,17 +506,85 @@ export class ChunkManager {
     tiles[8 * CHUNK_SIZE + 7] = TileType.RECHARGE_STATION;
   }
 
+  private carveAbandonedMine(tiles: Uint8Array, biome: BiomeId): void {
+    const vein = this.getBiomeVeinTile(biome);
+    const supportWall = biome === 'Magma' ? TileType.VOLCANIC_ROCK : TileType.ROCK;
+    for (let ly = 3; ly <= 11; ly++) {
+      for (let lx = 3; lx <= 11; lx++) {
+        const isBorder = lx === 3 || lx === 11 || ly === 3 || ly === 11;
+        if (isBorder) {
+          tiles[ly * CHUNK_SIZE + lx] = ly === 11 && lx >= 6 && lx <= 8 ? TileType.FLOOR : supportWall;
+        } else {
+          tiles[ly * CHUNK_SIZE + lx] = TileType.FLOOR;
+        }
+      }
+    }
+    tiles[4 * CHUNK_SIZE + 4] = TileType.WOOD_PILLAR;
+    tiles[4 * CHUNK_SIZE + 10] = TileType.WOOD_PILLAR;
+    tiles[9 * CHUNK_SIZE + 5] = TileType.TORCH;
+    tiles[5 * CHUNK_SIZE + 5] = vein;
+    tiles[5 * CHUNK_SIZE + 9] = vein;
+    tiles[6 * CHUNK_SIZE + 7] = TileType.CHEST_CLOSED;
+    tiles[8 * CHUNK_SIZE + 9] = TileType.ORE;
+  }
+
+  private carveAncientRuins(tiles: Uint8Array, biome: BiomeId): void {
+    for (let ly = 3; ly <= 11; ly++) {
+      for (let lx = 3; lx <= 11; lx++) {
+        const isBorder = lx === 3 || lx === 11 || ly === 3 || ly === 11;
+        if (isBorder) {
+          const isOpenArch = ly === 11 && lx >= 6 && lx <= 8;
+          tiles[ly * CHUNK_SIZE + lx] = isOpenArch ? TileType.BUILT_FLOOR : TileType.ANCIENT_BRICK;
+        } else {
+          tiles[ly * CHUNK_SIZE + lx] = TileType.BUILT_FLOOR;
+        }
+      }
+    }
+    tiles[5 * CHUNK_SIZE + 5] = TileType.ANCIENT_BRICK;
+    tiles[5 * CHUNK_SIZE + 9] = TileType.ANCIENT_BRICK;
+    tiles[4 * CHUNK_SIZE + 7] = TileType.CHEST_CLOSED;
+    tiles[7 * CHUNK_SIZE + 5] = TileType.ALTAR;
+    tiles[7 * CHUNK_SIZE + 9] =
+      biome === 'Sombrias' ? TileType.SHADOW_CRYSTAL : TileType.ENERGY_CRYSTAL;
+  }
+
+  private carveCrystalChamber(tiles: Uint8Array, biome: BiomeId): void {
+    const wallTile = biome === 'Heladas' ? TileType.ICE : biome === 'Magma' ? TileType.VOLCANIC_ROCK : TileType.ROCK;
+    const secondaryCrystal =
+      biome === 'Heladas'
+        ? TileType.ICE_CRYSTAL
+        : biome === 'Magma'
+        ? TileType.MAGMA_COAL
+        : biome === 'Sombrias'
+        ? TileType.NEON_MUSHROOM
+        : TileType.ENERGY_CRYSTAL;
+
+    for (let ly = 3; ly <= 11; ly++) {
+      for (let lx = 3; lx <= 11; lx++) {
+        const isBorder = lx === 3 || lx === 11 || ly === 3 || ly === 11;
+        if (isBorder) {
+          tiles[ly * CHUNK_SIZE + lx] = ly === 11 && lx >= 6 && lx <= 8 ? TileType.FLOOR : wallTile;
+        } else {
+          tiles[ly * CHUNK_SIZE + lx] = TileType.FLOOR;
+        }
+      }
+    }
+    tiles[5 * CHUNK_SIZE + 5] = TileType.ENERGY_CRYSTAL;
+    tiles[5 * CHUNK_SIZE + 9] = secondaryCrystal;
+    tiles[7 * CHUNK_SIZE + 4] = secondaryCrystal;
+    tiles[4 * CHUNK_SIZE + 7] = TileType.EVO_STONE_VEIN;
+    tiles[6 * CHUNK_SIZE + 7] = TileType.CHEST_CLOSED;
+  }
+
   private getStarterTile(x: number, y: number): TileType | null {
     const dx = x - SPAWN_X;
     const dy = y - SPAWN_Y;
     if (Math.abs(dx) > 7 || Math.abs(dy) > 7) return null;
 
-    // Clear outer ring around shelter
     if (Math.abs(dx) === 7 || Math.abs(dy) === 7) {
       return TileType.FLOOR;
     }
 
-    // Shelter walls (5-tile radius)
     if (Math.abs(dx) === 5 || Math.abs(dy) === 5) {
       if ((dx === 0 && dy === -5) || (dx === 0 && dy === 5) || (dx === -5 && dy === 0) || (dx === 5 && dy === 0)) {
         return TileType.DOOR_OPEN;
@@ -394,3 +604,4 @@ export class ChunkManager {
     return TileType.FLOOR;
   }
 }
+

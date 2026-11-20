@@ -52,6 +52,14 @@ const INV_LABELS: Array<{ key: InventoryKey; label: string }> = [
   { key: 'decor', label: 'Lámparas Cristal' },
   { key: 'elixirs', label: 'Elixires Megamorph' },
   { key: 'relics', label: 'Reliquias Antiguas' },
+  { key: 'evoStone', label: 'Piedra Evolutiva' },
+  { key: 'rootWood', label: 'Madera Raíz' },
+  { key: 'magmaCoal', label: 'Carbón Magma' },
+  { key: 'thermalCopper', label: 'Cobre Térmico' },
+  { key: 'iceCrystal', label: 'Cristal Hielo' },
+  { key: 'blueQuartz', label: 'Cuarzo Azul' },
+  { key: 'darkIron', label: 'Hierro Oscuro' },
+  { key: 'neonMushroom', label: 'Hongo Neón' },
 ];
 
 export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
@@ -258,7 +266,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   })}
                 </div>
                 <p className="text-[11px] text-slate-400 mt-2">
-                  Evolución Megamorph intencional desde la Ficha de babosa: requiere Nivel 5+, Amistad 60+ y 1 Elixir o Reliquia.
+                  Evolución Megamorph intencional desde la Ficha de babosa: requiere Nivel 5+, Amistad 60+ y 1 Elixir, Reliquia o Piedra Evolutiva.
                 </p>
               </div>
 

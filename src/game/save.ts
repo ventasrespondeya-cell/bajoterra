@@ -18,11 +18,12 @@ import {
   isSpeciesCompatibleWithHabitat,
 } from './data';
 import { createDefaultHomeState, isInShelterZone } from './home';
-import { MAX_MOVE_MASTERY } from './progression';
+import { MAX_MOVE_MASTERY, MAX_SLUG_LEVEL, getXpForNextLevel } from './progression';
 import {
   TileType,
   type BiomeId,
   type BreedingEgg,
+  type DiscoveredPOI,
   type FurnitureKind,
   type GameState,
   type HabitatId,
@@ -32,6 +33,7 @@ import {
   type HomeSlugEntry,
   type HomeState,
   type InventoryKey,
+  type POIKind,
   type SaveMetadata,
   type SlugInstance,
 } from './types';
@@ -43,6 +45,13 @@ export const V3_DB_NAME = 'BajoterraDB';
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024; // 2 MB limit to prevent browser freeze
 
 const VALID_BIOMES = new Set<BiomeId>(['Verdes', 'Magma', 'Heladas', 'Sombrias']);
+const VALID_POI_KINDS = new Set<POIKind>([
+  'secret_chamber',
+  'outpost',
+  'abandoned_mine',
+  'ancient_ruins',
+  'crystal_chamber',
+]);
 const VALID_SPECIES_IDS = new Set<string>(SPECIES_LIST.map((s) => s.id));
 const VALID_QUEST_IDS = new Set<string>(QUEST_LIST.map((q) => q.id));
 const VALID_BOSS_IDS = new Set<string>(BOSS_DEFINITIONS.map((b) => b.id));
@@ -62,7 +71,7 @@ const VALID_STAT_KEYS = new Set<string>([
   'megaUnlocked',
   'steps',
 ]);
-const MAX_TILE_ID = TileType.ANCIENT_BRICK;
+const MAX_TILE_ID = TileType.EVO_STONE_VEIN;
 const MAX_CHUNK_X = Math.ceil(WORLD_W / CHUNK_SIZE);
 const MAX_CHUNK_Y = Math.ceil(WORLD_H / CHUNK_SIZE);
 const IDB_TIMEOUT_MS = 4500;
@@ -178,6 +187,8 @@ export function createInitialGameState(): GameState {
     tilesDelta: {},
     exploredChunks: { '10,10': 1 },
     discoveries: ['Verdes'],
+    discoveredPOIs: [],
+    clearedChallenges: [],
     seenSpecies: { infurnus: true, aquabeak: true, tazerling: true },
     capturedSpecies: { infurnus: 1, aquabeak: 1, tazerling: 1 },
     eggs: [],
@@ -715,11 +726,25 @@ function validateSlug(
   if (typeof rawSlug.name !== 'string' || rawSlug.name.trim().length === 0) {
     return { ok: false, error: `Nombre de babosa inválido en ${idxLabel}.` };
   }
-  if (!isFiniteNum(rawSlug.level) || rawSlug.level < 1 || rawSlug.level > 10000) {
-    return { ok: false, error: `Nivel de babosa inválido en ${idxLabel}.` };
+  if (
+    !isFiniteNum(rawSlug.level) ||
+    !Number.isInteger(rawSlug.level) ||
+    rawSlug.level < 1 ||
+    rawSlug.level > MAX_SLUG_LEVEL
+  ) {
+    return {
+      ok: false,
+      error: `Nivel de babosa inválido en ${idxLabel} (rango permitido 1..${MAX_SLUG_LEVEL}).`,
+    };
   }
   if (!isFiniteNum(rawSlug.xp) || rawSlug.xp < 0) {
     return { ok: false, error: `Experiencia de babosa inválida en ${idxLabel}.` };
+  }
+  if (rawSlug.level >= MAX_SLUG_LEVEL && rawSlug.xp > 0) {
+    return { ok: false, error: `Una babosa de nivel máximo (${MAX_SLUG_LEVEL}) no puede acumular EXP en ${idxLabel}.` };
+  }
+  if (rawSlug.level < MAX_SLUG_LEVEL && rawSlug.xp >= getXpForNextLevel(rawSlug.level)) {
+    return { ok: false, error: `Experiencia de babosa incoherente con su nivel en ${idxLabel}.` };
   }
   if (!isFiniteNum(rawSlug.maxHp) || rawSlug.maxHp <= 0) {
     return { ok: false, error: `Salud máxima de babosa inválida en ${idxLabel}.` };
@@ -1329,6 +1354,67 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     };
   }
 
+  // discoveredPOIs validation (backward-compatible default [])
+  const validDiscoveredPOIs: DiscoveredPOI[] = [];
+  if (raw.discoveredPOIs !== undefined) {
+    if (!Array.isArray(raw.discoveredPOIs) || raw.discoveredPOIs.length > 400) {
+      return { ok: false, error: 'Lista de lugares descubiertos inválida.' };
+    }
+    const seenPoiIds = new Set<string>();
+    for (let i = 0; i < raw.discoveredPOIs.length; i++) {
+      const poiRaw = raw.discoveredPOIs[i];
+      if (!isPlainObject(poiRaw)) {
+        return { ok: false, error: `Lugar descubierto inválido en índice ${i}.` };
+      }
+      if (typeof poiRaw.id !== 'string' || poiRaw.id.trim().length === 0) {
+        return { ok: false, error: `ID de lugar descubierto inválido en índice ${i}.` };
+      }
+      if (seenPoiIds.has(poiRaw.id)) {
+        return { ok: false, error: `ID de lugar descubierto duplicado: ${poiRaw.id}.` };
+      }
+      seenPoiIds.add(poiRaw.id);
+      if (typeof poiRaw.name !== 'string' || poiRaw.name.trim().length === 0) {
+        return { ok: false, error: `Nombre de lugar descubierto inválido en índice ${i}.` };
+      }
+      if (typeof poiRaw.kind !== 'string' || !VALID_POI_KINDS.has(poiRaw.kind as POIKind)) {
+        return { ok: false, error: `Tipo de lugar descubierto desconocido en índice ${i}.` };
+      }
+      if (typeof poiRaw.biome !== 'string' || !VALID_BIOMES.has(poiRaw.biome as BiomeId)) {
+        return { ok: false, error: `Bioma de lugar descubierto inválido en índice ${i}.` };
+      }
+      if (!isFiniteNum(poiRaw.x) || poiRaw.x < 0 || poiRaw.x >= WORLD_W || !isFiniteNum(poiRaw.y) || poiRaw.y < 0 || poiRaw.y >= WORLD_H) {
+        return { ok: false, error: `Coordenadas de lugar descubierto fuera de rango en índice ${i}.` };
+      }
+      validDiscoveredPOIs.push({
+        id: poiRaw.id,
+        name: poiRaw.name,
+        kind: poiRaw.kind as POIKind,
+        biome: poiRaw.biome as BiomeId,
+        x: poiRaw.x,
+        y: poiRaw.y,
+      });
+    }
+  }
+
+  // clearedChallenges validation (backward-compatible default [])
+  const validClearedChallenges: string[] = [];
+  if (raw.clearedChallenges !== undefined) {
+    if (!Array.isArray(raw.clearedChallenges) || raw.clearedChallenges.length > 400) {
+      return { ok: false, error: 'Lista de desafíos completados inválida.' };
+    }
+    const seenChal = new Set<string>();
+    for (const cId of raw.clearedChallenges) {
+      if (typeof cId !== 'string' || cId.trim().length === 0) {
+        return { ok: false, error: `ID de desafío inválido: ${String(cId)}.` };
+      }
+      if (seenChal.has(cId)) {
+        return { ok: false, error: `ID de desafío duplicado: ${cId}.` };
+      }
+      seenChal.add(cId);
+      validClearedChallenges.push(cId);
+    }
+  }
+
   return {
     ok: true,
     value: {
@@ -1358,6 +1444,8 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
       tilesDelta: validTilesDelta,
       exploredChunks: validExplored,
       discoveries: validDiscoveries,
+      discoveredPOIs: validDiscoveredPOIs,
+      clearedChallenges: validClearedChallenges,
       seenSpecies: validSeen,
       capturedSpecies: validCaptured,
       eggs: validEggs,
@@ -1575,13 +1663,19 @@ export function validateAndMigrateV3(raw: unknown): ValidationResult<GameState> 
 
   const assignedUids = new Set<string>();
   const convertSlug = (s: LegacyV3Slug): SlugInstance => {
-    const inst = createSlugInstance(s.id || 'infurnus', Math.floor(s.level || 1));
+    const rawLevel = Number.isFinite(s.level) ? Math.floor(s.level as number) : 1;
+    const clampedLevel = Math.max(1, Math.min(MAX_SLUG_LEVEL, rawLevel));
+    const inst = createSlugInstance(s.id || 'infurnus', clampedLevel);
     while (assignedUids.has(inst.uid)) {
       inst.uid = `${inst.id}_${Math.random().toString(36).slice(2, 9)}`;
     }
     assignedUids.add(inst.uid);
     const sp = getSpecies(inst.id);
-    inst.xp = s.xp ?? 0;
+    const rawXp = Number.isFinite(s.xp) ? Math.max(0, Math.round(s.xp as number)) : 0;
+    inst.xp =
+      clampedLevel >= MAX_SLUG_LEVEL
+        ? 0
+        : Math.min(rawXp, Math.max(0, getXpForNextLevel(clampedLevel) - 1));
     inst.maxHp = Math.max(inst.maxHp, s.maxHp ?? inst.maxHp);
     inst.hp = Math.min(inst.maxHp, s.hp ?? inst.maxHp);
     inst.atk = Math.max(inst.atk, s.atk ?? inst.atk);

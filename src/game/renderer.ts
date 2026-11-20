@@ -223,19 +223,36 @@ export class WorldRenderer {
         } else if (tile === TileType.TORCH) {
           const flick = 6 + Math.sin(timeSec * 14 + tx * 3) * 2.5;
           lightSources.push({ sx: sx + 14, sy: sy + 10, r: 108 + flick, color: 'rgba(253, 186, 116, 0.85)' });
-        } else if (tile === TileType.ENERGY_CRYSTAL || tile === TileType.ALTAR) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 84, color: 'rgba(45, 212, 191, 0.65)' });
+        } else if (tile === TileType.ENERGY_CRYSTAL || tile === TileType.ALTAR || tile === TileType.ICE_CRYSTAL) {
+          lightSources.push({
+            sx: sx + 14,
+            sy: sy + 14,
+            r: tile === TileType.ICE_CRYSTAL ? 64 : 84,
+            color: tile === TileType.ICE_CRYSTAL ? 'rgba(125, 211, 252, 0.55)' : 'rgba(45, 212, 191, 0.65)',
+          });
           if (Math.sin(timeSec * 5 + tx) > 0.65) {
             ctx.fillStyle = 'rgba(255,255,255,0.65)';
             ctx.fillRect(sx + 11, sy + 5, 3, 3);
           }
         } else if (tile === TileType.SHADOW_CRYSTAL) {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 76, color: 'rgba(192, 132, 252, 0.6)' });
+        } else if (tile === TileType.EVO_STONE_VEIN) {
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 92, color: 'rgba(250, 204, 21, 0.72)' });
+        } else if (tile === TileType.NEON_MUSHROOM) {
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 62, color: 'rgba(34, 211, 238, 0.55)' });
+        } else if (tile === TileType.MAGMA_COAL) {
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 44, color: 'rgba(249, 115, 22, 0.4)' });
         } else if (tile === TileType.RECHARGE_STATION) {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 112, color: 'rgba(56, 189, 248, 0.78)' });
         } else if (tile === TileType.MUSHROOM) {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 50, color: 'rgba(52, 211, 153, 0.4)' });
-        } else if (tile === TileType.ORE && state.player.perks.includes('Visión de Cristal')) {
+        } else if (
+          (tile === TileType.ORE ||
+            tile === TileType.THERMAL_COPPER ||
+            tile === TileType.BLUE_QUARTZ ||
+            tile === TileType.DARK_IRON) &&
+          state.player.perks.includes('Visión de Cristal')
+        ) {
           const glint = 0.25 + Math.sin(timeSec * 6 + tx) * 0.2;
           ctx.strokeStyle = `rgba(250, 204, 21, ${glint})`;
           ctx.lineWidth = 1.5;
@@ -563,6 +580,20 @@ export class WorldRenderer {
       }
     }
 
+    // Discovered POI markers on minimap (never show undiscovered secrets)
+    if (state.discoveredPOIs) {
+      for (const poi of state.discoveredPOIs) {
+        const dx = poi.x - px;
+        const dy = poi.y - py;
+        if (Math.abs(dx) <= viewRange && Math.abs(dy) <= viewRange) {
+          const mx = ((dx + viewRange) / (viewRange * 2)) * w;
+          const my = ((dy + viewRange) / (viewRange * 2)) * h;
+          g.fillStyle = poi.kind === 'crystal_chamber' ? '#38bdf8' : poi.kind === 'ancient_ruins' ? '#c084fc' : '#2dd4bf';
+          g.fillRect(mx - 2, my - 2, 4, 4);
+        }
+      }
+    }
+
     // Shelter marker (160,160)
     const sdx = 160 - px;
     const sdy = 160 - py;
@@ -600,11 +631,21 @@ export class WorldRenderer {
         const b = getBiomeAt(wx, wy, state.worldSeed);
         const explored = !!state.exploredChunks[`${cx},${cy}`];
         g.fillStyle = BIOME_INFO[b].mapColor;
-        g.globalAlpha = explored ? 0.95 : 0.16;
+        g.globalAlpha = explored ? 0.95 : 0.14;
         g.fillRect(cx * cw, cy * ch, cw - 0.5, ch - 0.5);
       }
     }
     g.globalAlpha = 1;
+
+    // Discovered POIs only (undiscovered chambers/ruins stay hidden until explored)
+    if (state.discoveredPOIs) {
+      for (const poi of state.discoveredPOIs) {
+        const px = (poi.x / WORLD_W) * w;
+        const py = (poi.y / WORLD_H) * h;
+        g.fillStyle = poi.kind === 'crystal_chamber' ? '#38bdf8' : poi.kind === 'ancient_ruins' ? '#c084fc' : '#2dd4bf';
+        g.fillRect(px - 3, py - 3, 6, 6);
+      }
+    }
 
     // Shelter icon
     const sx = (160 / WORLD_W) * w;
