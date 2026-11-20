@@ -4,19 +4,28 @@ import {
   BIOME_INFO,
   CRAFT_RECIPES,
   ELEMENT_CHART,
+  FURNITURE_DEFS,
+  HABITAT_DEFS,
+  HOME_FOOD_DEFS,
+  MAX_ACTIVE_HOME_SLUGS,
+  MAX_SLUGS_PER_HABITAT,
   QUEST_LIST,
   SPECIES_LIST,
+  getFavoriteFoodForSpecies,
   getSpecies,
+  isSpeciesCompatibleWithHabitat,
 } from '../game/data';
 import { gameEngine } from '../game/engine';
-import type { HudSnapshot, InventoryKey } from '../game/types';
+import { getMoodLabel } from '../game/home';
+import type { FurnitureKind, HabitatId, HudSnapshot, InventoryKey } from '../game/types';
+
+export type ExpeditionTabKey = 'taller' | 'criaturas' | 'hogar' | 'babosapedia' | 'misiones';
 
 interface ExpeditionModalProps {
   snap: HudSnapshot;
+  initialTab?: ExpeditionTabKey;
   onClose: () => void;
 }
-
-type TabKey = 'taller' | 'criaturas' | 'babosapedia' | 'misiones';
 
 const INV_LABELS: Array<{ key: InventoryKey; label: string }> = [
   { key: 'ore', label: 'Minerales' },
@@ -25,6 +34,8 @@ const INV_LABELS: Array<{ key: InventoryKey; label: string }> = [
   { key: 'crystal', label: 'Cristal de Energía' },
   { key: 'shadowShard', label: 'Frag. Sombrío' },
   { key: 'berries', label: 'Bayas' },
+  { key: 'emberSnack', label: 'Bocado Ígneo' },
+  { key: 'frostNectar', label: 'Néctar Glacial' },
   { key: 'core', label: 'Núcleos' },
   { key: 'capsules', label: 'Cilindros' },
   { key: 'masterCapsules', label: 'Cilindros Maestros' },
@@ -33,15 +44,24 @@ const INV_LABELS: Array<{ key: InventoryKey; label: string }> = [
   { key: 'floors', label: 'Suelos' },
   { key: 'doors', label: 'Puertas' },
   { key: 'stations', label: 'Estaciones' },
+  { key: 'nest', label: 'Nidos' },
+  { key: 'bed', label: 'Camas' },
+  { key: 'feeder', label: 'Comederos' },
+  { key: 'decor', label: 'Lámparas Cristal' },
   { key: 'elixirs', label: 'Elixires Megamorph' },
   { key: 'relics', label: 'Reliquias Antiguas' },
 ];
 
-export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({ snap, onClose }) => {
-  const [tab, setTab] = useState<TabKey>('taller');
+export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
+  snap,
+  initialTab = 'taller',
+  onClose,
+}) => {
+  const [tab, setTab] = useState<ExpeditionTabKey>(initialTab);
   const [parentA, setParentA] = useState<string>('');
   const [parentB, setParentB] = useState<string>('');
   const [swapTargetPartyIdx, setSwapTargetPartyIdx] = useState<number>(0);
+  const [assignPick, setAssignPick] = useState<Partial<Record<HabitatId, string>>>({});
 
   const allSlugs = [...snap.party, ...snap.storage];
   const capturedCount = Object.keys(snap.capturedSpecies).length;
@@ -70,6 +90,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({ snap, onClose 
             [
               ['taller', 'Inventario y Taller'],
               ['criaturas', 'Babosas y Crianza'],
+              ['hogar', `Hogar y Hábitats (${snap.home.residents.length}/${MAX_ACTIVE_HOME_SLUGS})`],
               ['babosapedia', 'Babosapedia'],
               ['misiones', 'Misiones y Refugio'],
             ] as const
@@ -296,6 +317,310 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({ snap, onClose 
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {tab === 'hogar' && (
+            <div className="space-y-4">
+              {/* Room Validation & Furniture Controls */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <h3 className="text-xs font-extrabold text-cyan-300 uppercase tracking-wider">
+                      Habitaciones del Refugio
+                    </h3>
+                    <span className="text-[11px] text-slate-400">
+                      Muebles: {snap.home.furniture.length}
+                    </span>
+                  </div>
+                  {snap.rooms.length === 0 ? (
+                    <p className="text-xs text-slate-400">
+                      No se detectan estancias construidas cerca del Refugio Central.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {snap.rooms.map((rm) => (
+                        <div
+                          key={rm.id}
+                          className={`rounded-lg border p-2.5 text-xs ${
+                            rm.closed && rm.issues.length === 0
+                              ? 'bg-[#0f2128] border-emerald-500/40'
+                              : 'bg-[#171824] border-amber-500/40'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between font-bold text-white">
+                            <span>
+                              {rm.label} · {rm.closed ? 'Cerrada' : 'Abierta'}
+                            </span>
+                            <span className="text-amber-300 tabular-nums">
+                              Comodidad {rm.comfortScore}/100
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-300 mt-1">
+                            Suelo libre: {rm.walkableCount} · Puerta: {rm.hasDoor ? 'Sí' : 'No'} · Luz:{' '}
+                            {rm.hasLight ? 'Sí' : 'No'} · Muebles: {rm.furnitureCount}
+                          </div>
+                          {rm.issues.length > 0 ? (
+                            <div className="text-[11px] text-amber-300 mt-1">
+                              Pendiente: {rm.issues.join(' · ')}
+                            </div>
+                          ) : (
+                            <div className="text-[11px] text-emerald-300 mt-1">
+                              Habitación apta y acogedora para tus babosas.
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5">
+                  <h3 className="text-xs font-extrabold text-amber-300 uppercase tracking-wider mb-2.5">
+                    Mobiliario del Hogar
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {(Object.keys(FURNITURE_DEFS) as FurnitureKind[]).map((kind) => {
+                      const def = FURNITURE_DEFS[kind];
+                      const count = snap.inventory[kind] || 0;
+                      return (
+                        <div
+                          key={kind}
+                          className="bg-[#0f1f2d] border border-slate-700/80 rounded-lg p-2.5 flex flex-col justify-between gap-2 text-xs"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between font-bold text-white">
+                              <span>{def.name}</span>
+                              <span className="text-cyan-300 tabular-nums">×{count}</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">{def.description}</p>
+                          </div>
+                          <button
+                            disabled={count <= 0}
+                            onClick={() => gameEngine.placeFurnitureInFront(kind)}
+                            className="w-full py-1.5 rounded bg-cyan-400 text-slate-950 font-extrabold text-[11px] hover:bg-cyan-300 disabled:opacity-35 cursor-pointer"
+                          >
+                            Colocar frente a ti
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {snap.home.furniture.length > 0 && (
+                    <div className="mt-3 pt-2.5 border-t border-white/10">
+                      <div className="text-[11px] font-bold text-slate-300 mb-1.5">
+                        Colocados en el refugio (también puedes recogerlos con el Pico):
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {snap.home.furniture.map((f) => (
+                          <button
+                            key={f.id}
+                            onClick={() => gameEngine.pickupFurnitureById(f.id)}
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] text-slate-200 cursor-pointer"
+                          >
+                            {FURNITURE_DEFS[f.kind].name} ({f.x},{f.y}) · Recoger
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Habitats & Residents */}
+              <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-xs font-extrabold text-emerald-300 uppercase tracking-wider">
+                      Hábitats del Refugio ({snap.home.residents.length}/{MAX_ACTIVE_HOME_SLUGS} Babosas en Hogar)
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Asigna babosas compatibles desde tu reserva para que vivan libres, descansen y fortalezcan su vínculo.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {HABITAT_DEFS.map((hab) => {
+                    const residents = snap.home.residents.filter((r) => r.habitatId === hab.id);
+                    const compatibleReserve = snap.storage.filter((s) =>
+                      isSpeciesCompatibleWithHabitat(s.id, hab.id)
+                    );
+                    const selectedUid =
+                      assignPick[hab.id] && compatibleReserve.some((s) => s.uid === assignPick[hab.id])
+                        ? assignPick[hab.id]!
+                        : compatibleReserve[0]?.uid || '';
+                    const canAssign =
+                      residents.length < MAX_SLUGS_PER_HABITAT &&
+                      snap.home.residents.length < MAX_ACTIVE_HOME_SLUGS &&
+                      Boolean(selectedUid);
+
+                    return (
+                      <div
+                        key={hab.id}
+                        className="bg-[#0d1a26] border border-slate-700 rounded-xl p-3 flex flex-col gap-2.5"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                              <span
+                                className="inline-block w-2.5 h-2.5 rounded-full"
+                                style={{ backgroundColor: hab.accentColor }}
+                              />
+                              {hab.name}
+                            </div>
+                            <div className="text-[11px] text-cyan-300 font-semibold">
+                              Elementos: {hab.acceptedTypes.join(' · ')}
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">{hab.description}</p>
+                          </div>
+                          <span className="text-xs font-bold text-slate-300 tabular-nums whitespace-nowrap">
+                            {residents.length}/{MAX_SLUGS_PER_HABITAT}
+                          </span>
+                        </div>
+
+                        {/* Assign control */}
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={selectedUid}
+                            onChange={(e) => setAssignPick((prev) => ({ ...prev, [hab.id]: e.target.value }))}
+                            disabled={compatibleReserve.length === 0}
+                            className="flex-1 bg-[#08111a] border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-white disabled:opacity-50"
+                          >
+                            {compatibleReserve.length === 0 ? (
+                              <option value="">Sin babosas compatibles en reserva</option>
+                            ) : (
+                              compatibleReserve.map((s) => (
+                                <option key={s.uid} value={s.uid}>
+                                  {s.icon} {s.name} ({s.type} · Nv.{s.level})
+                                </option>
+                              ))
+                            )}
+                          </select>
+                          <button
+                            disabled={!canAssign}
+                            onClick={() => {
+                              if (selectedUid) gameEngine.assignSlugToHome(selectedUid, hab.id);
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-400 text-slate-950 font-extrabold text-xs hover:bg-emerald-300 disabled:opacity-35 cursor-pointer whitespace-nowrap"
+                          >
+                            Asignar
+                          </button>
+                        </div>
+
+                        {/* Resident cards */}
+                        {residents.length > 0 && (
+                          <div className="space-y-2 pt-1">
+                            {residents.map((res) => {
+                              const fav = getFavoriteFoodForSpecies(res.slug.id);
+                              return (
+                                <div
+                                  key={res.slug.uid}
+                                  className="bg-[#09131c] border border-slate-700/80 rounded-lg p-2.5 text-xs space-y-2"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="font-bold text-white">
+                                      {res.slug.icon} {res.slug.name} ·{' '}
+                                      <span className="text-amber-300">Amistad {res.slug.bond}/100</span>
+                                    </div>
+                                    <span className="px-2 py-0.5 rounded bg-slate-800 text-[11px] font-bold text-cyan-200">
+                                      {getMoodLabel(res.mood)}
+                                    </span>
+                                  </div>
+
+                                  <div className="grid grid-cols-3 gap-2 text-[10px]">
+                                    <div>
+                                      <div className="flex justify-between text-slate-300 mb-0.5">
+                                        <span>Saciedad</span>
+                                        <span className="tabular-nums">{Math.round(res.hunger)}%</span>
+                                      </div>
+                                      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                        <div
+                                          className="h-full bg-emerald-400"
+                                          style={{ width: `${Math.round(res.hunger)}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="flex justify-between text-slate-300 mb-0.5">
+                                        <span>Energía</span>
+                                        <span className="tabular-nums">{Math.round(res.energy)}%</span>
+                                      </div>
+                                      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                        <div
+                                          className="h-full bg-cyan-400"
+                                          style={{ width: `${Math.round(res.energy)}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="flex justify-between text-slate-300 mb-0.5">
+                                        <span>Alegría</span>
+                                        <span className="tabular-nums">{Math.round(res.happiness)}%</span>
+                                      </div>
+                                      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                        <div
+                                          className="h-full bg-amber-400"
+                                          style={{ width: `${Math.round(res.happiness)}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="text-[11px] text-slate-400">
+                                    Alimento favorito: <span className="text-amber-200">{fav.label}</span>
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <button
+                                      onClick={() => gameEngine.petHomeSlug(res.slug.uid)}
+                                      className="px-2.5 py-1.5 rounded bg-pink-500/20 border border-pink-400/50 text-pink-200 font-bold text-[11px] hover:bg-pink-500/30 cursor-pointer"
+                                    >
+                                      Acariciar
+                                    </button>
+                                    <button
+                                      onClick={() => gameEngine.playWithHomeSlug(res.slug.uid)}
+                                      className="px-2.5 py-1.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-200 font-bold text-[11px] hover:bg-amber-500/30 cursor-pointer"
+                                    >
+                                      Jugar
+                                    </button>
+                                    {HOME_FOOD_DEFS.map((food) => {
+                                      const qty = snap.inventory[food.key] || 0;
+                                      const isFav =
+                                        Array.isArray(food.favoriteFor) &&
+                                        food.favoriteFor.includes(res.slug.type);
+                                      return (
+                                        <button
+                                          key={food.key}
+                                          disabled={qty <= 0}
+                                          onClick={() => gameEngine.feedHomeSlug(res.slug.uid, food.key)}
+                                          className={`px-2 py-1.5 rounded border text-[11px] font-bold cursor-pointer disabled:opacity-35 ${
+                                            isFav
+                                              ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200'
+                                              : 'bg-slate-800 border-slate-600 text-slate-200'
+                                          }`}
+                                        >
+                                          {food.label} ({qty})
+                                        </button>
+                                      );
+                                    })}
+                                    <button
+                                      onClick={() => gameEngine.withdrawSlugFromHome(res.slug.uid)}
+                                      className="ml-auto px-2.5 py-1.5 rounded bg-slate-800 border border-slate-600 text-slate-300 font-bold text-[11px] hover:text-white cursor-pointer"
+                                    >
+                                      A cápsula
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}

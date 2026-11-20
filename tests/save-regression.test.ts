@@ -23,6 +23,8 @@ const canvasStub = () => ({
     scale: () => {},
     setTransform: () => {},
     fillText: () => {},
+    strokeRect: () => {},
+    ellipse: () => {},
   }),
 });
 
@@ -205,8 +207,14 @@ const {
   resetSaveRuntimeForTests,
 } = await import('../src/game/save.ts');
 const { CombatManager } = await import('../src/game/combat.ts');
-const { QUEST_LIST, createSlugInstance, getSpecies } = await import('../src/game/data.ts');
+const { QUEST_LIST, SPAWN_X, SPAWN_Y, createSlugInstance, getSpecies } = await import('../src/game/data.ts');
 const { gameEngine } = await import('../src/game/engine.ts');
+const {
+  canHomeSlugWalk,
+  tickHomeNeeds,
+  updateHomeResidents,
+  validateShelterRooms,
+} = await import('../src/game/home.ts');
 const { TileType } = await import('../src/game/types.ts');
 
 beforeEach(() => {
@@ -829,5 +837,345 @@ describe('Bajoterra 4.0 — Regresión permanente de FASE 1 (7 comprobaciones)',
     const pauseSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/PauseModal.tsx'), 'utf8');
     assert.ok(pauseSrc.includes("window.location.protocol === 'file:'"));
     assert.ok(pauseSrc.includes('href="./Bajoterra_4_0.html"'));
+  });
+});
+
+describe('Bajoterra 4.0 — FASE 3: Hogar Viviente y Babosas Compañeras', () => {
+  test('F3.1 Asignar babosa desde reserva al hogar sin duplicación y respetar límites por hábitat y total', () => {
+    gameEngine.startNewGame();
+    const fire1 = createSlugInstance('flaringo', 2);
+    const fire2 = createSlugInstance('piroclasto', 2);
+    const fire3 = createSlugInstance('infurnus', 2);
+    const water1 = createSlugInstance('aquabeak', 2);
+    const ice1 = createSlugInstance('frostcrawler', 2);
+    const elec1 = createSlugInstance('voltrix', 2);
+    const shadow1 = createSlugInstance('umbrospect', 2);
+    const grass1 = createSlugInstance('musgacorn', 2);
+    gameEngine.state.storage.push(fire1, fire2, fire3, water1, ice1, elec1, shadow1, grass1);
+
+    assert.equal(gameEngine.assignSlugToHome(fire1.uid, 'habitat_thermal'), true);
+    assert.equal(gameEngine.state.storage.some((s) => s.uid === fire1.uid), false);
+    assert.equal(gameEngine.state.home?.residents.length, 1);
+
+    assert.equal(gameEngine.assignSlugToHome(fire2.uid, 'habitat_thermal'), true);
+    // 3rd slug in same habitat (>2) rejected
+    assert.equal(gameEngine.assignSlugToHome(fire3.uid, 'habitat_thermal'), false);
+    assert.equal(gameEngine.state.storage.some((s) => s.uid === fire3.uid), true);
+
+    // Fill up to global max of 6
+    assert.equal(gameEngine.assignSlugToHome(water1.uid, 'habitat_aquatic'), true);
+    assert.equal(gameEngine.assignSlugToHome(ice1.uid, 'habitat_aquatic'), true);
+    assert.equal(gameEngine.assignSlugToHome(elec1.uid, 'habitat_crystal'), true);
+    assert.equal(gameEngine.assignSlugToHome(shadow1.uid, 'habitat_shadow'), true);
+    assert.equal(gameEngine.state.home?.residents.length, 6);
+
+    // 7th active home slug rejected cleanly
+    assert.equal(gameEngine.assignSlugToHome(grass1.uid, 'habitat_garden'), false);
+    assert.equal(gameEngine.state.home?.residents.length, 6);
+  });
+
+  test('F3.2 Retirar babosa del hogar a la reserva conservando UID y atributos intactos', () => {
+    gameEngine.startNewGame();
+    const slug = createSlugInstance('aquabeak', 3, { bonusTrait: 'Vitalidad +' });
+    slug.bond = 44;
+    const origAtk = slug.atk;
+    const origHp = slug.maxHp;
+    gameEngine.state.storage.push(slug);
+
+    assert.equal(gameEngine.assignSlugToHome(slug.uid, 'habitat_aquatic'), true);
+    assert.equal(gameEngine.withdrawSlugFromHome(slug.uid), true);
+    assert.equal(gameEngine.state.home?.residents.length, 0);
+    const back = gameEngine.state.storage.find((s) => s.uid === slug.uid);
+    assert.ok(back);
+    assert.equal(back.atk, origAtk);
+    assert.equal(back.maxHp, origHp);
+    assert.equal(back.bond, 44);
+  });
+
+  test('F3.3 y F3.4 Persistencia de hogar, mobiliario, necesidades, limpieza transitoria y rechazo de duplicados en save/load', async () => {
+    gameEngine.startNewGame();
+    const slug = createSlugInstance('musgacorn', 2);
+    gameEngine.state.storage.push(slug);
+    gameEngine.state.inventory.bed = 1;
+    assert.equal(gameEngine.assignSlugToHome(slug.uid, 'habitat_garden'), true);
+    assert.equal(gameEngine.placeFurnitureAt('bed', SPAWN_X + 1, SPAWN_Y + 1), true);
+
+    const resRef = gameEngine.state.home!.residents[0];
+    resRef.hunger = 61;
+    resRef.energy = 73;
+    resRef.happiness = 88;
+    resRef.reactionText = 'Temporal';
+    resRef.reactionTimer = 1.5;
+
+    const saveRes = await saveGameV4(gameEngine.state, { reason: 'manual' });
+    assert.equal(saveRes.ok, true);
+
+    const loaded = await loadGameV4();
+    assert.ok(loaded);
+    assert.equal(loaded.home?.residents.length, 1);
+    assert.equal(loaded.home?.residents[0].slug.uid, slug.uid);
+    assert.equal(loaded.home?.residents[0].hunger, 61);
+    assert.equal(loaded.home?.residents[0].reactionText, undefined);
+    assert.equal(loaded.home?.furniture.length, 1);
+    assert.equal(loaded.home?.furniture[0].kind, 'bed');
+    assert.equal(loaded.storage.some((s) => s.uid === slug.uid), false);
+
+    // Reject duplicate UID across party and home.residents
+    const corruptedDup = JSON.parse(JSON.stringify(loaded));
+    corruptedDup.storage.push({ ...corruptedDup.home.residents[0].slug });
+    const parsedDup = parseImportedJsonSaveDetailed(JSON.stringify(corruptedDup));
+    assert.equal(parsedDup.ok, false);
+    assert.ok(parsedDup.error?.toLowerCase().includes('duplicado'));
+  });
+
+  test('F3.5 Colisiones del hogar: paredes, puertas cerradas, agua/lava según especie y permanencia al salir', () => {
+    gameEngine.startNewGame();
+    const fire = createSlugInstance('infurnus', 1);
+    const water = createSlugInstance('aquabeak', 1);
+    gameEngine.state.storage.push(fire, water);
+    gameEngine.assignSlugToHome(fire.uid, 'habitat_thermal');
+    gameEngine.assignSlugToHome(water.uid, 'habitat_aquatic');
+
+    // Starter shelter perimeter wall at (SPAWN_X + 5, SPAWN_Y + 1) is solid
+    assert.equal(canHomeSlugWalk(gameEngine.chunks, 'infurnus', SPAWN_X + 5, SPAWN_Y + 1), false);
+
+    // Door closed blocks movement; door open allows movement
+    gameEngine.chunks.setTile(SPAWN_X + 5, SPAWN_Y, TileType.DOOR_CLOSED);
+    assert.equal(canHomeSlugWalk(gameEngine.chunks, 'infurnus', SPAWN_X + 5, SPAWN_Y), false);
+    gameEngine.chunks.setTile(SPAWN_X + 5, SPAWN_Y, TileType.DOOR_OPEN);
+    assert.equal(canHomeSlugWalk(gameEngine.chunks, 'infurnus', SPAWN_X + 5, SPAWN_Y), true);
+
+    // Water only walkable by Agua species
+    gameEngine.chunks.setTile(SPAWN_X + 1, SPAWN_Y + 1, TileType.WATER);
+    assert.equal(canHomeSlugWalk(gameEngine.chunks, 'aquabeak', SPAWN_X + 1, SPAWN_Y + 1), true);
+    assert.equal(canHomeSlugWalk(gameEngine.chunks, 'infurnus', SPAWN_X + 1, SPAWN_Y + 1), false);
+
+    // Lava only walkable by Fuego species
+    gameEngine.chunks.setTile(SPAWN_X + 2, SPAWN_Y + 1, TileType.LAVA);
+    assert.equal(canHomeSlugWalk(gameEngine.chunks, 'infurnus', SPAWN_X + 2, SPAWN_Y + 1), true);
+    assert.equal(canHomeSlugWalk(gameEngine.chunks, 'aquabeak', SPAWN_X + 2, SPAWN_Y + 1), false);
+
+    // When player leaves shelter far away, resident outside shelter snaps back safely into home
+    const res = gameEngine.state.home!.residents[0];
+    res.x = SPAWN_X + 60;
+    res.y = SPAWN_Y + 60;
+    updateHomeResidents(0.1, gameEngine.state, gameEngine.chunks, gameEngine.getRoomValidations(true), false);
+    assert.ok(Math.abs(res.x - SPAWN_X) <= 16);
+    assert.ok(Math.abs(res.y - SPAWN_Y) <= 16);
+  });
+
+  test('F3.6 Rechazo de hábitat incompatible según elemento', () => {
+    gameEngine.startNewGame();
+    const water = createSlugInstance('aquabeak', 1);
+    const shadow = createSlugInstance('darkfurnus', 1);
+    gameEngine.state.storage.push(water, shadow);
+
+    assert.equal(gameEngine.assignSlugToHome(water.uid, 'habitat_thermal'), false);
+    assert.equal(gameEngine.assignSlugToHome(shadow.uid, 'habitat_garden'), false);
+    assert.equal(gameEngine.state.home?.residents.length, 0);
+  });
+
+  test('F3.7 Alimentación en hogar actualiza saciedad, ánimo y amistad con bono de alimento favorito', () => {
+    gameEngine.startNewGame();
+    const fire = createSlugInstance('flaringo', 1);
+    fire.bond = 20;
+    gameEngine.state.storage.push(fire);
+    gameEngine.state.inventory.berries = 2;
+    gameEngine.state.inventory.emberSnack = 1;
+    assert.equal(gameEngine.assignSlugToHome(fire.uid, 'habitat_thermal'), true);
+
+    const res = gameEngine.state.home!.residents[0];
+    res.hunger = 20;
+    res.happiness = 40;
+    res.energy = 80;
+    gameEngine.state.playTimeSec = 100;
+
+    // Favorite food gives bigger boost (+55 hunger, +5 bond)
+    assert.equal(gameEngine.feedHomeSlug(fire.uid, 'emberSnack'), true);
+    assert.equal(gameEngine.state.inventory.emberSnack, 0);
+    assert.equal(res.hunger, 75);
+    assert.equal(res.slug.bond, 25);
+    assert.equal(res.mood, 'tranquila');
+
+    // Non-favorite berries also feed
+    res.hunger = 50;
+    gameEngine.state.playTimeSec = 130;
+    assert.equal(gameEngine.feedHomeSlug(fire.uid, 'berries'), true);
+    assert.equal(res.hunger, 88);
+    assert.equal(res.mood, 'contenta');
+
+    // Out of stock food fails cleanly
+    assert.equal(gameEngine.feedHomeSlug(fire.uid, 'emberSnack'), false);
+  });
+
+  test('F3.8 Acariciar y jugar respetan enfriamientos sin alterar equipo activo ni estadísticas de combate', () => {
+    gameEngine.startNewGame();
+    const slug = createSlugInstance('tazerling', 2);
+    slug.bond = 30;
+    const origAtk = slug.atk;
+    const origDef = slug.def;
+    const origSpd = slug.spd;
+    const origHp = slug.maxHp;
+    const origParty = gameEngine.state.party.map((s) => s.uid);
+    const origActiveIdx = gameEngine.state.activePartyIndex;
+
+    gameEngine.state.storage.push(slug);
+    assert.equal(gameEngine.assignSlugToHome(slug.uid, 'habitat_crystal'), true);
+    const res = gameEngine.state.home!.residents[0];
+
+    gameEngine.state.playTimeSec = 50;
+    assert.equal(gameEngine.petHomeSlug(slug.uid), true);
+    assert.equal(res.slug.bond, 33);
+    // Repeated pet within 25s cooldown does not spam bond
+    gameEngine.state.playTimeSec = 60;
+    assert.equal(gameEngine.petHomeSlug(slug.uid), true);
+    assert.equal(res.slug.bond, 33);
+
+    // Playing works when energy >= 18
+    gameEngine.state.playTimeSec = 70;
+    assert.equal(gameEngine.playWithHomeSlug(slug.uid), true);
+    assert.equal(res.slug.bond, 37);
+
+    // Exhausted slug refuses play gently
+    res.energy = 10;
+    gameEngine.state.playTimeSec = 120;
+    assert.equal(gameEngine.playWithHomeSlug(slug.uid), false);
+
+    // Combat stats and active party untouched
+    assert.equal(res.slug.atk, origAtk);
+    assert.equal(res.slug.def, origDef);
+    assert.equal(res.slug.spd, origSpd);
+    assert.equal(res.slug.maxHp, origHp);
+    assert.deepEqual(gameEngine.state.party.map((s) => s.uid), origParty);
+    assert.equal(gameEngine.state.activePartyIndex, origActiveIdx);
+  });
+
+  test('F3.9 Mobiliario y validación de habitaciones (cerrada, abierta, sin puerta/luz y bloqueada)', () => {
+    gameEngine.startNewGame();
+    gameEngine.state.inventory.nest = 1;
+    gameEngine.state.inventory.decor = 1;
+
+    // 1) Intact starter shelter is closed, lit, has doors
+    const intact = gameEngine.getRoomValidations(true);
+    const main = intact.find((r) => r.id === 'room_main');
+    assert.ok(main);
+    assert.equal(main.closed, true);
+    assert.equal(main.hasDoor, true);
+    assert.equal(main.hasLight, true);
+    assert.equal(main.issues.length, 0);
+
+    // Placing furniture boosts comfort & pickup refunds inventory
+    assert.equal(gameEngine.placeFurnitureAt('nest', SPAWN_X + 1, SPAWN_Y + 1), true);
+    const withFurn = gameEngine.getRoomValidations(true).find((r) => r.id === 'room_main')!;
+    assert.ok(withFurn.comfortScore > main.comfortScore);
+    assert.equal(gameEngine.pickupFurnitureAt(SPAWN_X + 1, SPAWN_Y + 1), true);
+    assert.equal(gameEngine.state.inventory.nest, 1);
+
+    // 2) Breaching a shelter wall makes main shelter open (closed: false)
+    gameEngine.chunks.setTile(SPAWN_X - 2, SPAWN_Y - 5, TileType.FLOOR);
+    const breached = gameEngine.getRoomValidations(true);
+    assert.ok(breached.some((r) => r.closed === false));
+
+    // Repair wall, then build a separate sealed 3x3 interior room without door or light
+    gameEngine.chunks.setTile(SPAWN_X - 2, SPAWN_Y - 5, TileType.WALL);
+    for (let ry = SPAWN_Y + 8; ry <= SPAWN_Y + 12; ry++) {
+      for (let rx = SPAWN_X + 8; rx <= SPAWN_X + 12; rx++) {
+        const border = rx === SPAWN_X + 8 || rx === SPAWN_X + 12 || ry === SPAWN_Y + 8 || ry === SPAWN_Y + 12;
+        gameEngine.chunks.setTile(rx, ry, border ? TileType.WALL : TileType.BUILT_FLOOR);
+      }
+    }
+    const extraRoom = validateShelterRooms(gameEngine.chunks, gameEngine.state.home!).find(
+      (r) => r.id !== 'room_main'
+    );
+    assert.ok(extraRoom);
+    assert.equal(extraRoom.closed, true);
+    assert.equal(extraRoom.hasDoor, false);
+    assert.equal(extraRoom.hasLight, false);
+
+    // Tiny 1-tile enclosed cell reports insufficient walkable space
+    for (let ry = SPAWN_Y - 12; ry <= SPAWN_Y - 10; ry++) {
+      for (let rx = SPAWN_X - 12; rx <= SPAWN_X - 10; rx++) {
+        const border = rx === SPAWN_X - 12 || rx === SPAWN_X - 10 || ry === SPAWN_Y - 12 || ry === SPAWN_Y - 10;
+        gameEngine.chunks.setTile(rx, ry, border ? TileType.WALL : TileType.BUILT_FLOOR);
+      }
+    }
+    const allRooms = validateShelterRooms(gameEngine.chunks, gameEngine.state.home!);
+    assert.ok(allRooms.some((r) => r.walkableCount < 2 && r.issues.some((i) => i.includes('Espacio insuficiente'))));
+  });
+
+  test('F3.10 Compatibilidad con partidas V4 anteriores a FASE 3 (sin home ni nuevos ítems)', () => {
+    const legacyV4 = createInitialGameState() as unknown as Record<string, unknown>;
+    delete legacyV4.home;
+    const inv = legacyV4.inventory as Record<string, unknown>;
+    delete inv.emberSnack;
+    delete inv.frostNectar;
+    delete inv.nest;
+    delete inv.bed;
+    delete inv.feeder;
+    delete inv.decor;
+
+    const res = parseImportedJsonSaveDetailed(JSON.stringify(legacyV4));
+    assert.equal(res.ok, true);
+    assert.equal(res.kind, 'v4');
+    assert.ok(res.state?.home);
+    assert.equal(res.state?.home.residents.length, 0);
+    assert.equal(res.state?.inventory.emberSnack, 0);
+    assert.equal(res.state?.inventory.bed, 0);
+  });
+
+  test('F3.11 Migración Bajoterra 3.0 intacta con hogar inicializado y desgaste basado en tiempo de juego', () => {
+    const v3 = {
+      player: { x: 56, y: 56, hp: 100, maxHp: 100, level: 2, xp: 10 },
+      party: [{ id: 'infurnus', level: 2, hp: 60, maxHp: 60, atk: 16, spd: 12, friend: 30 }],
+      pets: [{ id: 'aquabeak', level: 1, hp: 50, maxHp: 50, atk: 12, spd: 10, friend: 20 }],
+      tiles: { '56,56': 11 },
+      worldSeed: 74192,
+    };
+    const migrated = migrateV3ToV4(v3);
+    assert.ok(migrated.home);
+    assert.equal(migrated.home.residents.length, 0);
+    assert.equal(migrated.storage.length, 1);
+
+    // Needs tick only uses playTimeSec, not offline Date.now
+    gameEngine.startNewGame();
+    const s = createSlugInstance('aquabeak', 1);
+    gameEngine.state.storage.push(s);
+    gameEngine.assignSlugToHome(s.uid, 'habitat_aquatic');
+    const hBefore = gameEngine.state.home!.residents[0].hunger;
+    gameEngine.state.playTimeSec += 10;
+    tickHomeNeeds(gameEngine.state, 70);
+    assert.ok(gameEngine.state.home!.residents[0].hunger < hBefore);
+    assert.ok(gameEngine.state.home!.residents[0].hunger > 0);
+  });
+
+  test('F3.12 Combate, crianza y movimiento del jugador siguen funcionando sin interferencias', () => {
+    gameEngine.startNewGame();
+    const homeSlug = createSlugInstance('doc', 2);
+    gameEngine.state.storage.push(homeSlug);
+    gameEngine.assignSlugToHome(homeSlug.uid, 'habitat_crystal');
+
+    // Breeding works normally
+    gameEngine.state.party[0].bond = 30;
+    gameEngine.state.party[1].bond = 30;
+    assert.equal(gameEngine.startBreeding(gameEngine.state.party[0].uid, gameEngine.state.party[1].uid), true);
+
+    // Player movement advances steps & hatches egg cleanly
+    const engInternal = gameEngine as unknown as {
+      keysHeld: Set<string>;
+      updatePlayerMovement: (dt: number) => void;
+    };
+    const startY = gameEngine.state.player.y;
+    engInternal.keysHeld.clear();
+    engInternal.keysHeld.add('s');
+    engInternal.updatePlayerMovement(0.05);
+    assert.ok(gameEngine.state.player.y > startY);
+    engInternal.keysHeld.clear();
+
+    // Combat starts & resolves cleanly while home residents exist
+    const cm = new CombatManager();
+    cm.startBattle(gameEngine.state, { kind: 'wild', speciesId: 'infurnus', level: 1 });
+    assert.ok(cm.battle?.active);
+    cm.executeNormalAttack(gameEngine.state);
+    cm.closeBattle();
   });
 });

@@ -1,5 +1,5 @@
 import { BIOME_INFO, TILE_PX } from './data';
-import { TileType, type BiomeId } from './types';
+import { TileType, type BiomeId, type FurnitureKind } from './types';
 
 function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
@@ -272,6 +272,50 @@ class SpriteAtlas {
     p(6, 5, 1, 1, '#090d16');
     // Tail
     p(2, 7, 2, 2, color);
+
+    this.charCache.set(key, c);
+    return c;
+  }
+
+  public getFurnitureSprite(kind: FurnitureKind): HTMLCanvasElement {
+    const key = `furniture_${kind}`;
+    const existing = this.charCache.get(key);
+    if (existing) return existing;
+
+    const [c, g] = makeCanvas(TILE_PX, TILE_PX);
+    const S = 2;
+    const p = (gx: number, gy: number, gw: number, gh: number, col: string) =>
+      px(g, gx * S, gy * S, gw * S, gh * S, col);
+
+    if (kind === 'nest') {
+      p(2, 4, 10, 7, '#7c5333');
+      p(3, 3, 8, 9, '#9a6b44');
+      p(4, 5, 6, 5, '#4ade80');
+      p(5, 6, 4, 3, '#bbf7d0');
+      p(3, 10, 8, 1, '#54351e');
+    } else if (kind === 'bed') {
+      p(2, 3, 10, 9, '#5c3c24');
+      p(3, 4, 8, 7, '#0e7490');
+      p(3, 4, 8, 3, '#e0f2fe');
+      p(3, 7, 8, 4, '#22d3ee');
+      p(2, 11, 2, 2, '#3b2514');
+      p(10, 11, 2, 2, '#3b2514');
+    } else if (kind === 'feeder') {
+      p(2, 5, 10, 6, '#6b4226');
+      p(3, 6, 8, 4, '#92400e');
+      p(4, 6, 2, 2, '#4ade80');
+      p(6, 7, 2, 2, '#fb923c');
+      p(8, 6, 2, 2, '#38bdf8');
+      p(2, 10, 10, 2, '#472b18');
+    } else {
+      // decor crystal lamp
+      p(5, 9, 4, 4, '#475569');
+      p(4, 11, 6, 2, '#334155');
+      p(5, 4, 4, 5, '#2dd4bf');
+      p(6, 3, 2, 5, '#ccfbf1');
+      p(4, 6, 1, 3, '#14b8a6');
+      p(9, 6, 1, 3, '#14b8a6');
+    }
 
     this.charCache.set(key, c);
     return c;

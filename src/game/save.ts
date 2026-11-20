@@ -1,7 +1,9 @@
 import {
   BOSS_DEFINITIONS,
   CHUNK_SIZE,
+  HABITAT_DEFS,
   HOTBAR_SLOTS,
+  MAX_ACTIVE_HOME_SLUGS,
   QUEST_LIST,
   SPAWN_X,
   SPAWN_Y,
@@ -12,11 +14,19 @@ import {
   createSlugInstance,
   getSpecies,
 } from './data';
+import { createDefaultHomeState } from './home';
 import {
   TileType,
   type BiomeId,
   type BreedingEgg,
+  type FurnitureKind,
   type GameState,
+  type HabitatId,
+  type HomeBehavior,
+  type HomeFurniture,
+  type HomeMood,
+  type HomeSlugEntry,
+  type HomeState,
   type InventoryKey,
   type SaveMetadata,
   type SlugInstance,
@@ -33,6 +43,10 @@ const VALID_SPECIES_IDS = new Set<string>(SPECIES_LIST.map((s) => s.id));
 const VALID_QUEST_IDS = new Set<string>(QUEST_LIST.map((q) => q.id));
 const VALID_BOSS_IDS = new Set<string>(BOSS_DEFINITIONS.map((b) => b.id));
 const VALID_INVENTORY_KEYS = new Set<string>(Object.keys(createDefaultInventory()));
+const VALID_HABITAT_IDS = new Set<HabitatId>(HABITAT_DEFS.map((h) => h.id));
+const VALID_FURNITURE_KINDS = new Set<FurnitureKind>(['nest', 'bed', 'feeder', 'decor']);
+const VALID_HOME_MOODS = new Set<HomeMood>(['contenta', 'tranquila', 'hambrienta', 'cansada']);
+const VALID_HOME_BEHAVIORS = new Set<HomeBehavior>(['pasear', 'descansar', 'acercarse', 'jugar']);
 const VALID_STAT_KEYS = new Set<string>([
   'oreMined',
   'wins',
@@ -164,6 +178,7 @@ export function createInitialGameState(): GameState {
     capturedSpecies: { infurnus: 1, aquabeak: 1, tazerling: 1 },
     eggs: [],
     shelterTier: 1,
+    home: createDefaultHomeState(),
     stats: {
       oreMined: 0,
       wins: 0,
@@ -472,7 +487,9 @@ export async function saveGameV4(state: GameState, opts?: SaveOptions): Promise<
 
   let payload: string;
   try {
-    payload = JSON.stringify(state);
+    payload = JSON.stringify(state, (key, value) =>
+      key === 'reactionText' || key === 'reactionTimer' ? undefined : value
+    );
   } catch (err) {
     const errMsg = formatError(err);
     return {
@@ -1140,6 +1157,130 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     };
   }
 
+  // home validation (backward compatible if raw.home is undefined in pre-FASE-3 V4 saves)
+  let validHome: HomeState = createDefaultHomeState();
+  if (raw.home !== undefined) {
+    if (!isPlainObject(raw.home)) {
+      return { ok: false, error: 'Datos del hogar inválidos.' };
+    }
+    const rawLastTick = raw.home.lastNeedsTickSec !== undefined ? raw.home.lastNeedsTickSec : 0;
+    if (!isFiniteNum(rawLastTick) || rawLastTick < 0) {
+      return { ok: false, error: 'Temporizador de necesidades del hogar inválido.' };
+    }
+
+    const validResidents: HomeSlugEntry[] = [];
+    if (raw.home.residents !== undefined) {
+      if (!Array.isArray(raw.home.residents) || raw.home.residents.length > MAX_ACTIVE_HOME_SLUGS) {
+        return { ok: false, error: 'Lista de residentes del hogar inválida o excede el límite.' };
+      }
+      for (let i = 0; i < raw.home.residents.length; i++) {
+        const resRaw = raw.home.residents[i];
+        if (!isPlainObject(resRaw)) {
+          return { ok: false, error: `Residente del hogar inválido en índice ${i}.` };
+        }
+        const slugRes = validateSlug(resRaw.slug, seenSlugUids, `hogar[${i}]`);
+        if (!slugRes.ok || !slugRes.value) {
+          return { ok: false, error: slugRes.error };
+        }
+        if (typeof resRaw.habitatId !== 'string' || !VALID_HABITAT_IDS.has(resRaw.habitatId as HabitatId)) {
+          return { ok: false, error: `Hábitat inválido en hogar[${i}].` };
+        }
+        if (!isFiniteNum(resRaw.x) || resRaw.x < 0 || resRaw.x >= WORLD_W || !isFiniteNum(resRaw.y) || resRaw.y < 0 || resRaw.y >= WORLD_H) {
+          return { ok: false, error: `Posición de residente fuera de rango en hogar[${i}].` };
+        }
+        const targetX = resRaw.targetX !== undefined ? resRaw.targetX : resRaw.x;
+        const targetY = resRaw.targetY !== undefined ? resRaw.targetY : resRaw.y;
+        if (!isFiniteNum(targetX) || targetX < 0 || targetX >= WORLD_W || !isFiniteNum(targetY) || targetY < 0 || targetY >= WORLD_H) {
+          return { ok: false, error: `Destino de residente inválido en hogar[${i}].` };
+        }
+        const behavior = resRaw.behavior !== undefined ? resRaw.behavior : 'pasear';
+        if (typeof behavior !== 'string' || !VALID_HOME_BEHAVIORS.has(behavior as HomeBehavior)) {
+          return { ok: false, error: `Comportamiento inválido en hogar[${i}].` };
+        }
+        const behaviorTimer = resRaw.behaviorTimer !== undefined ? resRaw.behaviorTimer : 2;
+        if (!isFiniteNum(behaviorTimer) || behaviorTimer < 0) {
+          return { ok: false, error: `Temporizador de comportamiento inválido en hogar[${i}].` };
+        }
+        const mood = resRaw.mood !== undefined ? resRaw.mood : 'tranquila';
+        if (typeof mood !== 'string' || !VALID_HOME_MOODS.has(mood as HomeMood)) {
+          return { ok: false, error: `Estado de ánimo inválido en hogar[${i}].` };
+        }
+        for (const [nKey, nVal] of [
+          ['hunger', resRaw.hunger],
+          ['energy', resRaw.energy],
+          ['happiness', resRaw.happiness],
+        ] as const) {
+          if (!isFiniteNum(nVal) || nVal < 0 || nVal > 100) {
+            return { ok: false, error: `Valor ${nKey} inválido en hogar[${i}].` };
+          }
+        }
+        const lastPetAt = resRaw.lastPetAt !== undefined ? resRaw.lastPetAt : -100;
+        const lastPlayAt = resRaw.lastPlayAt !== undefined ? resRaw.lastPlayAt : -100;
+        const lastFeedAt = resRaw.lastFeedAt !== undefined ? resRaw.lastFeedAt : -100;
+        if (!isFiniteNum(lastPetAt) || !isFiniteNum(lastPlayAt) || !isFiniteNum(lastFeedAt)) {
+          return { ok: false, error: `Marcas de interacción inválidas en hogar[${i}].` };
+        }
+
+        validResidents.push({
+          slug: slugRes.value,
+          habitatId: resRaw.habitatId as HabitatId,
+          x: resRaw.x,
+          y: resRaw.y,
+          targetX,
+          targetY,
+          behavior: behavior as HomeBehavior,
+          behaviorTimer,
+          mood: mood as HomeMood,
+          hunger: resRaw.hunger as number,
+          energy: resRaw.energy as number,
+          happiness: resRaw.happiness as number,
+          lastPetAt,
+          lastPlayAt,
+          lastFeedAt,
+        });
+      }
+    }
+
+    const validFurniture: HomeFurniture[] = [];
+    const seenFurnIds = new Set<string>();
+    if (raw.home.furniture !== undefined) {
+      if (!Array.isArray(raw.home.furniture) || raw.home.furniture.length > 64) {
+        return { ok: false, error: 'Lista de mobiliario del hogar inválida.' };
+      }
+      for (let i = 0; i < raw.home.furniture.length; i++) {
+        const fRaw = raw.home.furniture[i];
+        if (!isPlainObject(fRaw)) {
+          return { ok: false, error: `Mueble inválido en índice ${i}.` };
+        }
+        if (typeof fRaw.id !== 'string' || fRaw.id.trim().length === 0) {
+          return { ok: false, error: `ID de mueble inválido en índice ${i}.` };
+        }
+        if (seenFurnIds.has(fRaw.id)) {
+          return { ok: false, error: `ID de mueble duplicado: ${fRaw.id}.` };
+        }
+        seenFurnIds.add(fRaw.id);
+        if (typeof fRaw.kind !== 'string' || !VALID_FURNITURE_KINDS.has(fRaw.kind as FurnitureKind)) {
+          return { ok: false, error: `Tipo de mueble desconocido en índice ${i}.` };
+        }
+        if (!isNonNegInt(fRaw.x) || fRaw.x >= WORLD_W || !isNonNegInt(fRaw.y) || fRaw.y >= WORLD_H) {
+          return { ok: false, error: `Coordenadas de mueble inválidas en índice ${i}.` };
+        }
+        validFurniture.push({
+          id: fRaw.id,
+          kind: fRaw.kind as FurnitureKind,
+          x: fRaw.x,
+          y: fRaw.y,
+        });
+      }
+    }
+
+    validHome = {
+      residents: validResidents,
+      furniture: validFurniture,
+      lastNeedsTickSec: rawLastTick,
+    };
+  }
+
   return {
     ok: true,
     value: {
@@ -1173,6 +1314,7 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
       capturedSpecies: validCaptured,
       eggs: validEggs,
       shelterTier,
+      home: validHome,
       stats: mergedStats,
       defeatedBosses: validDefeatedBosses,
       claimedQuests: validClaimedQuests,

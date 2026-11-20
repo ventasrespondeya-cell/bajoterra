@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BattleModal } from './components/BattleModal';
-import { ExpeditionModal } from './components/ExpeditionModal';
+import { ExpeditionModal, type ExpeditionTabKey } from './components/ExpeditionModal';
 import { FullMapModal } from './components/FullMapModal';
 import { GameHUD } from './components/GameHUD';
 import { PauseModal } from './components/PauseModal';
@@ -10,6 +10,7 @@ import type { HudSnapshot } from './game/types';
 
 export default function App() {
   const [snap, setSnap] = useState<HudSnapshot>(() => gameEngine.getSnapshot());
+  const [expeditionTab, setExpeditionTab] = useState<ExpeditionTabKey>('taller');
   const mainCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const minimapRef = useRef<HTMLCanvasElement | null>(null);
   const fullMapRef = useRef<HTMLCanvasElement | null>(null);
@@ -85,7 +86,14 @@ export default function App() {
           minimapRef={minimapRef}
           onSelectHotbar={(idx) => gameEngine.setHotbar(idx)}
           onSelectParty={(idx) => gameEngine.setActivePartyIndex(idx)}
-          onOpenExpedition={() => gameEngine.setScreen('EXPEDITION')}
+          onOpenExpedition={() => {
+            setExpeditionTab('taller');
+            gameEngine.setScreen('EXPEDITION');
+          }}
+          onOpenHome={() => {
+            setExpeditionTab('hogar');
+            gameEngine.setScreen('EXPEDITION');
+          }}
           onOpenMap={() => gameEngine.setScreen('FULL_MAP')}
           onOpenPause={() => gameEngine.setScreen('PAUSED')}
           onToggleSound={() =>
@@ -93,6 +101,9 @@ export default function App() {
           }
           onAction={() => gameEngine.performPrimaryAction()}
           onPulse={() => gameEngine.triggerExplorationPulse()}
+          onPetHomeSlug={(uid) => gameEngine.petHomeSlug(uid)}
+          onFeedHomeSlug={(uid, foodKey) => gameEngine.feedHomeSlug(uid, foodKey)}
+          onPlayHomeSlug={(uid) => gameEngine.playWithHomeSlug(uid)}
           onJoystick={(x, y) => gameEngine.setJoystick(x, y)}
           onTouchSprint={(active) => gameEngine.setTouchSprint(active)}
         />
@@ -108,7 +119,11 @@ export default function App() {
       )}
 
       {snap.screen === 'EXPEDITION' && !snap.battle && (
-        <ExpeditionModal snap={snap} onClose={() => gameEngine.setScreen('PLAYING')} />
+        <ExpeditionModal
+          snap={snap}
+          initialTab={expeditionTab}
+          onClose={() => gameEngine.setScreen('PLAYING')}
+        />
       )}
 
       {snap.screen === 'FULL_MAP' && !snap.battle && (

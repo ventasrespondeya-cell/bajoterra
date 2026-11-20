@@ -30,14 +30,33 @@ import {
   type StorageCapabilities,
 } from './save';
 import {
+  assignSlugToHabitat,
+  cloneHomeState,
+  ensureHomeState,
+  feedHomeSlug as feedHomeSlugHelper,
+  findNearbyHomeSlug,
+  moveHomeSlugToHabitat,
+  petHomeSlug as petHomeSlugHelper,
+  pickupHomeFurnitureAt,
+  pickupHomeFurnitureById,
+  placeHomeFurniture,
+  playWithHomeSlug as playWithHomeSlugHelper,
+  updateHomeResidents,
+  validateShelterRooms,
+  withdrawSlugFromHome as withdrawSlugFromHomeHelper,
+} from './home';
+import {
   TileType,
   type BiomeId,
+  type FurnitureKind,
   type GameOptions,
   type GameState,
+  type HabitatId,
   type HudSnapshot,
   type InventoryKey,
   type QuestDef,
   type RoamingEntity,
+  type RoomValidationInfo,
   type UIScreen,
 } from './types';
 import { ChunkManager, getBiomeAt, isTileHazard, isTileSolid } from './world';
@@ -76,12 +95,28 @@ export class BajoterraEngine {
   private autoSaveErrorNotified = false;
   public lastSaveResult: SaveResult | null = null;
   public storageCapabilities: StorageCapabilities | null = null;
+  private cachedRooms: RoomValidationInfo[] = [];
+  private roomsDirty = true;
 
   constructor() {
+    ensureHomeState(this.state);
     this.chunks = new ChunkManager(this.state.worldSeed, this.state.tilesDelta);
     this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
     this.seedInitialEntities();
     this.checkSavesAvailability();
+  }
+
+  public getRoomValidations(force = false): RoomValidationInfo[] {
+    if (this.roomsDirty || force) {
+      this.chunks.ensureWindowAround(SPAWN_X, SPAWN_Y, 2);
+      this.cachedRooms = validateShelterRooms(this.chunks, ensureHomeState(this.state));
+      this.roomsDirty = false;
+    }
+    return this.cachedRooms.map((r) => ({ ...r, issues: [...r.issues] }));
+  }
+
+  private invalidateRoomCache(): void {
+    this.roomsDirty = true;
   }
 
   public async checkSavesAvailability(): Promise<void> {
@@ -103,6 +138,7 @@ export class BajoterraEngine {
   public getSnapshot(): HudSnapshot {
     const px = Math.floor(this.state.player.x + 0.5);
     const py = Math.floor(this.state.player.y + 0.5);
+    const nearHome = findNearbyHomeSlug(this.state);
     return {
       screen: this.screen,
       player: { ...this.state.player, perks: [...this.state.player.perks] },
@@ -117,6 +153,9 @@ export class BajoterraEngine {
       capturedSpecies: { ...this.state.capturedSpecies },
       eggs: this.state.eggs.map((e) => ({ ...e })),
       shelterTier: this.state.shelterTier,
+      home: cloneHomeState(this.state.home),
+      rooms: this.getRoomValidations(false),
+      nearbyHomeSlug: nearHome ? { ...nearHome, slug: { ...nearHome.slug } } : null,
       stats: { ...this.state.stats },
       defeatedBosses: [...this.state.defeatedBosses],
       claimedQuests: [...this.state.claimedQuests],
@@ -200,6 +239,8 @@ export class BajoterraEngine {
 
   public startNewGame(): void {
     this.state = createInitialGameState();
+    ensureHomeState(this.state);
+    this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
     this.chunks.reset(this.state.worldSeed, this.state.tilesDelta);
@@ -219,6 +260,8 @@ export class BajoterraEngine {
       return;
     }
     this.state = loadRes.state;
+    ensureHomeState(this.state);
+    this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
     this.chunks.reset(this.state.worldSeed, this.state.tilesDelta);
@@ -249,6 +292,8 @@ export class BajoterraEngine {
       return false;
     }
     this.state = parsed.state;
+    ensureHomeState(this.state);
+    this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
     this.chunks.reset(this.state.worldSeed, this.state.tilesDelta);
@@ -276,6 +321,8 @@ export class BajoterraEngine {
       return null;
     }
     this.state = res.state;
+    ensureHomeState(this.state);
+    this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
     this.chunks.reset(this.state.worldSeed, this.state.tilesDelta);
@@ -525,6 +572,8 @@ export class BajoterraEngine {
 
       this.updatePlayerMovement(dt);
       this.updateEntities(dt);
+      const playerNearShelter = Math.hypot(this.state.player.x - SPAWN_X, this.state.player.y - SPAWN_Y) <= 22;
+      updateHomeResidents(dt, this.state, this.chunks, this.getRoomValidations(false), playerNearShelter);
       this.updateShelterAura(dt);
 
       const biome = getBiomeAt(
@@ -729,12 +778,14 @@ export class BajoterraEngine {
     // Interactive world objects regardless of tool
     if (tile === TileType.DOOR_CLOSED) {
       this.chunks.setTile(target.x, target.y, TileType.DOOR_OPEN);
+      this.invalidateRoomCache();
       sound.playPlace();
       this.renderer.addFloatingText(target.x, target.y, 'Puerta abierta', '#fde047');
       return;
     }
     if (tile === TileType.DOOR_OPEN && slot.id === 'mine') {
       this.chunks.setTile(target.x, target.y, TileType.DOOR_CLOSED);
+      this.invalidateRoomCache();
       sound.playPlace();
       this.renderer.addFloatingText(target.x, target.y, 'Puerta cerrada', '#cbd5e1');
       return;
@@ -768,8 +819,37 @@ export class BajoterraEngine {
       return;
     }
 
+    // Pick up home furniture or interact with nearby home slug if target tile isn't mineable
+    if (this.state.home?.furniture.some((f) => f.x === target.x && f.y === target.y)) {
+      this.pickupFurnitureAt(target.x, target.y);
+      return;
+    }
+
+    if (!this.isMineableTile(tile)) {
+      const nearHome = findNearbyHomeSlug(this.state, 2.1);
+      if (nearHome) {
+        this.petHomeSlug(nearHome.slug.uid);
+        return;
+      }
+    }
+
     // Mining & Harvesting (Pico)
     this.mineTile(target.x, target.y, tile);
+  }
+
+  private isMineableTile(tile: TileType): boolean {
+    return (
+      tile === TileType.ORE ||
+      tile === TileType.ROCK ||
+      tile === TileType.CRACKED_WALL ||
+      tile === TileType.WOOD_PILLAR ||
+      tile === TileType.MUSHROOM ||
+      tile === TileType.ICE ||
+      tile === TileType.SHADOW_CRYSTAL ||
+      tile === TileType.ENERGY_CRYSTAL ||
+      tile === TileType.WALL ||
+      tile === TileType.TORCH
+    );
   }
 
   private mineTile(tx: number, ty: number, tile: TileType): void {
@@ -834,6 +914,7 @@ export class BajoterraEngine {
       }
 
       this.chunks.setTile(tx, ty, TileType.FLOOR);
+      this.invalidateRoomCache();
       this.emitHud(true);
       return;
     }
@@ -867,6 +948,7 @@ export class BajoterraEngine {
       }
       this.state.inventory[invKey]--;
       this.chunks.setTile(tx, ty, TileType.BUILT_FLOOR);
+      this.invalidateRoomCache();
       this.state.stats.structuresBuilt++;
       sound.playPlace();
       this.renderer.addFloatingText(tx, ty, 'Suelo colocado', '#fde68a');
@@ -902,6 +984,7 @@ export class BajoterraEngine {
       sound.playPulse();
       this.renderer.addFloatingText(tx, ty, 'Estación instalada', '#67e8f9');
     }
+    this.invalidateRoomCache();
     this.emitHud(true);
   }
 
@@ -1395,6 +1478,119 @@ export class BajoterraEngine {
     this.notify(`Misión completada: ${q.title}`);
     this.emitHud(true);
     return true;
+  }
+
+  // Living Home & Habitats Management (FASE 3)
+  public assignSlugToHome(slugUid: string, habitatId: HabitatId): boolean {
+    this.chunks.ensureWindowAround(SPAWN_X, SPAWN_Y, 2);
+    const res = assignSlugToHabitat(this.state, slugUid, habitatId, this.chunks);
+    if (res.ok) sound.playCapture();
+    else sound.playUi();
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
+  }
+
+  public withdrawSlugFromHome(slugUid: string): boolean {
+    const res = withdrawSlugFromHomeHelper(this.state, slugUid);
+    if (res.ok) sound.playUi();
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
+  }
+
+  public moveHomeSlugHabitat(slugUid: string, habitatId: HabitatId): boolean {
+    this.chunks.ensureWindowAround(SPAWN_X, SPAWN_Y, 2);
+    const res = moveHomeSlugToHabitat(this.state, slugUid, habitatId, this.chunks);
+    sound.playUi();
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
+  }
+
+  public petHomeSlug(slugUid: string): boolean {
+    const res = petHomeSlugHelper(this.state, slugUid);
+    const resident = this.state.home?.residents.find((r) => r.slug.uid === slugUid);
+    if (resident) {
+      this.renderer.addFloatingText(Math.round(resident.x), Math.round(resident.y), '♥', '#f472b6');
+      this.renderer.spawnBurst(Math.round(resident.x), Math.round(resident.y), '#f472b6', 8);
+    }
+    if (res.ok) sound.playHeal();
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
+  }
+
+  public playWithHomeSlug(slugUid: string): boolean {
+    const res = playWithHomeSlugHelper(this.state, slugUid);
+    const resident = this.state.home?.residents.find((r) => r.slug.uid === slugUid);
+    if (resident && res.ok) {
+      this.renderer.addFloatingText(Math.round(resident.x), Math.round(resident.y), '★', '#fde047');
+      this.renderer.spawnBurst(Math.round(resident.x), Math.round(resident.y), '#fde047', 10);
+      sound.playPickup();
+    } else {
+      sound.playUi();
+    }
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
+  }
+
+  public feedHomeSlug(slugUid: string, foodKey: InventoryKey): boolean {
+    const res = feedHomeSlugHelper(this.state, slugUid, foodKey);
+    const resident = this.state.home?.residents.find((r) => r.slug.uid === slugUid);
+    if (resident && res.ok) {
+      this.renderer.addFloatingText(Math.round(resident.x), Math.round(resident.y), '🍖', '#4ade80');
+      this.renderer.spawnBurst(Math.round(resident.x), Math.round(resident.y), '#4ade80', 10);
+      sound.playHeal();
+    } else {
+      sound.playUi();
+    }
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
+  }
+
+  public placeFurnitureAt(kind: FurnitureKind, tx: number, ty: number): boolean {
+    this.chunks.ensureWindowAround(tx, ty, 1);
+    const res = placeHomeFurniture(this.state, this.chunks, kind, tx, ty);
+    if (res.ok) {
+      this.invalidateRoomCache();
+      sound.playPlace();
+      this.renderer.addFloatingText(tx, ty, 'Mobiliario', '#67e8f9');
+    } else {
+      sound.playUi();
+    }
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
+  }
+
+  public placeFurnitureInFront(kind: FurnitureKind): boolean {
+    const target = this.getTargetTile();
+    return this.placeFurnitureAt(kind, target.x, target.y);
+  }
+
+  public pickupFurnitureAt(tx: number, ty: number): boolean {
+    const res = pickupHomeFurnitureAt(this.state, tx, ty);
+    if (res.ok) {
+      this.invalidateRoomCache();
+      sound.playPickup();
+    }
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
+  }
+
+  public pickupFurnitureById(furnitureId: string): boolean {
+    const res = pickupHomeFurnitureById(this.state, furnitureId);
+    if (res.ok) {
+      this.invalidateRoomCache();
+      sound.playPickup();
+    }
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
   }
 }
 

@@ -2,8 +2,13 @@ import type {
   BiomeId,
   CraftRecipe,
   ElementType,
+  FurnitureDef,
+  FurnitureKind,
+  HabitatDef,
+  HabitatId,
   HotbarSlot,
   Inventory,
+  InventoryKey,
   QuestDef,
   SlugInstance,
   SlugSpecies,
@@ -15,6 +20,124 @@ export const CHUNK_SIZE = 16;
 export const TILE_PX = 28;
 export const SPAWN_X = 160;
 export const SPAWN_Y = 160;
+export const MAX_ACTIVE_HOME_SLUGS = 6;
+export const MAX_SLUGS_PER_HABITAT = 2;
+export const SHELTER_HOME_RADIUS = 16;
+
+export const HABITAT_DEFS: HabitatDef[] = [
+  {
+    id: 'habitat_thermal',
+    name: 'Rincón Térmico',
+    description: 'Zona cálida de brasas y piedra volcánica ideal para babosas de Fuego.',
+    acceptedTypes: ['Fuego'],
+    anchorX: SPAWN_X + 3,
+    anchorY: SPAWN_Y - 1,
+    accentColor: '#fb923c',
+    floorTint: 'rgba(249, 115, 22, 0.22)',
+  },
+  {
+    id: 'habitat_aquatic',
+    name: 'Estanque Fresco',
+    description: 'Rincón húmedo y cristalino pensado para babosas de Agua y Hielo.',
+    acceptedTypes: ['Agua', 'Hielo'],
+    anchorX: SPAWN_X - 3,
+    anchorY: SPAWN_Y - 1,
+    accentColor: '#38bdf8',
+    floorTint: 'rgba(56, 189, 248, 0.22)',
+  },
+  {
+    id: 'habitat_crystal',
+    name: 'Rincón Cristalino',
+    description: 'Cristales resonantes que recargan a babosas Eléctricas, de Energía y Luz.',
+    acceptedTypes: ['Electrico', 'Energia', 'Luz'],
+    anchorX: SPAWN_X - 1,
+    anchorY: SPAWN_Y - 2,
+    accentColor: '#facc15',
+    floorTint: 'rgba(45, 212, 191, 0.20)',
+  },
+  {
+    id: 'habitat_shadow',
+    name: 'Rincón Sombrío',
+    description: 'Penumbra serena con ecos oscuros adaptada a babosas de Sombra.',
+    acceptedTypes: ['Sombra'],
+    anchorX: SPAWN_X - 2,
+    anchorY: SPAWN_Y + 2,
+    accentColor: '#c084fc',
+    floorTint: 'rgba(168, 85, 247, 0.22)',
+  },
+  {
+    id: 'habitat_garden',
+    name: 'Jardín Subterráneo',
+    description: 'Musgo blando y tierra fértil para babosas de Planta y Tierra.',
+    acceptedTypes: ['Planta', 'Tierra'],
+    anchorX: SPAWN_X + 2,
+    anchorY: SPAWN_Y + 2,
+    accentColor: '#4ade80',
+    floorTint: 'rgba(74, 222, 128, 0.20)',
+  },
+];
+
+export const FURNITURE_DEFS: Record<FurnitureKind, FurnitureDef> = {
+  nest: {
+    kind: 'nest',
+    name: 'Nido Acogedor',
+    description: 'Refugio mullido donde las babosas recuperan energía más rápido.',
+    comfortBonus: 12,
+  },
+  bed: {
+    kind: 'bed',
+    name: 'Cama del Refugio',
+    description: 'Descanso profundo que aumenta la comodidad de la habitación.',
+    comfortBonus: 15,
+  },
+  feeder: {
+    kind: 'feeder',
+    name: 'Comedero Subterráneo',
+    description: 'Mantiene alimento fresco cerca y reduce la pérdida de saciedad.',
+    comfortBonus: 12,
+  },
+  decor: {
+    kind: 'decor',
+    name: 'Lámpara de Cristal',
+    description: 'Ilumina la estancia con luz suave y embellece el hogar.',
+    comfortBonus: 10,
+    emitsLight: true,
+  },
+};
+
+export interface HomeFoodDef {
+  key: InventoryKey;
+  label: string;
+  description: string;
+  favoriteFor: ElementType[] | 'all';
+}
+
+export const HOME_FOOD_DEFS: HomeFoodDef[] = [
+  {
+    key: 'berries',
+    label: 'Bayas',
+    description: 'Alimento universal del subsuelo (+38 Saciedad).',
+    favoriteFor: 'all',
+  },
+  {
+    key: 'emberSnack',
+    label: 'Bocado Ígneo',
+    description: 'Favorito de Fuego y Tierra (+55 Saciedad, +5 Amistad).',
+    favoriteFor: ['Fuego', 'Tierra'],
+  },
+  {
+    key: 'frostNectar',
+    label: 'Néctar Glacial',
+    description: 'Favorito de Agua, Hielo y Luz (+55 Saciedad, +5 Amistad).',
+    favoriteFor: ['Agua', 'Hielo', 'Luz'],
+  },
+  {
+    key: 'core',
+    label: 'Núcleo Energético',
+    description: 'Favorito de Eléctrico, Energía y Sombra (+55 Saciedad, +5 Amistad).',
+    favoriteFor: ['Electrico', 'Energia', 'Sombra'],
+  },
+];
 
 export const ELEMENT_CHART: Record<ElementType, { strong: ElementType[]; weak: ElementType[]; color: string }> = {
   Fuego: { strong: ['Hielo', 'Planta'], weak: ['Agua', 'Tierra'], color: '#f97316' },
@@ -478,6 +601,54 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
     outputQty: 1,
     cost: { shadowShard: 2, core: 1, berries: 2 },
   },
+  {
+    id: 'emberSnack',
+    name: '2× Bocado Ígneo',
+    description: 'Alimento favorito para babosas de Fuego y Tierra en el hogar.',
+    outputKey: 'emberSnack',
+    outputQty: 2,
+    cost: { berries: 1, ore: 1 },
+  },
+  {
+    id: 'frostNectar',
+    name: '2× Néctar Glacial',
+    description: 'Alimento favorito para babosas de Agua, Hielo y Luz en el hogar.',
+    outputKey: 'frostNectar',
+    outputQty: 2,
+    cost: { berries: 1, crystal: 1 },
+  },
+  {
+    id: 'nest',
+    name: '1× Nido Acogedor',
+    description: 'Mobiliario del hogar que acelera el descanso de tus babosas.',
+    outputKey: 'nest',
+    outputQty: 1,
+    cost: { wood: 3, berries: 1 },
+  },
+  {
+    id: 'bed',
+    name: '1× Cama del Refugio',
+    description: 'Aporta gran comodidad (+15) y mejora la recuperación en el hogar.',
+    outputKey: 'bed',
+    outputQty: 1,
+    cost: { wood: 4, stone: 2 },
+  },
+  {
+    id: 'feeder',
+    name: '1× Comedero Subterráneo',
+    description: 'Mobiliario del hogar que ralentiza la bajada de hambre.',
+    outputKey: 'feeder',
+    outputQty: 1,
+    cost: { wood: 2, ore: 2 },
+  },
+  {
+    id: 'decor',
+    name: '1× Lámpara de Cristal',
+    description: 'Ilumina habitaciones del hogar y suma comodidad ambiental.',
+    outputKey: 'decor',
+    outputQty: 1,
+    cost: { stone: 2, crystal: 1 },
+  },
 ];
 
 export const QUEST_LIST: QuestDef[] = [
@@ -636,11 +807,40 @@ export function createDefaultInventory(): Inventory {
     stations: 0,
     elixirs: 0,
     relics: 0,
+    emberSnack: 0,
+    frostNectar: 0,
+    nest: 0,
+    bed: 0,
+    feeder: 0,
+    decor: 0,
   };
 }
 
 export function getSpecies(id: string): SlugSpecies {
   return SPECIES_LIST.find((s) => s.id === id) || SPECIES_LIST[0];
+}
+
+export function getHabitatDef(id: HabitatId): HabitatDef {
+  return HABITAT_DEFS.find((h) => h.id === id) || HABITAT_DEFS[0];
+}
+
+export function isSpeciesCompatibleWithHabitat(speciesId: string, habitatId: HabitatId): boolean {
+  const sp = getSpecies(speciesId);
+  const hab = getHabitatDef(habitatId);
+  return hab.acceptedTypes.includes(sp.type);
+}
+
+export function getCompatibleHabitatsForSpecies(speciesId: string): HabitatDef[] {
+  const sp = getSpecies(speciesId);
+  return HABITAT_DEFS.filter((h) => h.acceptedTypes.includes(sp.type));
+}
+
+export function getFavoriteFoodForSpecies(speciesId: string): HomeFoodDef {
+  const sp = getSpecies(speciesId);
+  return (
+    HOME_FOOD_DEFS.find((f) => Array.isArray(f.favoriteFor) && f.favoriteFor.includes(sp.type)) ||
+    HOME_FOOD_DEFS[0]
+  );
 }
 
 let slugUidSeq = 1;

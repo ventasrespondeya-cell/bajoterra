@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Compass, Backpack, Pause, Volume2, VolumeX, Zap } from 'lucide-react';
-import { BIOME_INFO, HOTBAR_SLOTS, QUEST_LIST } from '../game/data';
-import type { HudSnapshot } from '../game/types';
+import { BIOME_INFO, HOME_FOOD_DEFS, HOTBAR_SLOTS, QUEST_LIST, getFavoriteFoodForSpecies } from '../game/data';
+import { getMoodLabel } from '../game/home';
+import type { HudSnapshot, InventoryKey } from '../game/types';
 
 interface GameHUDProps {
   snap: HudSnapshot;
@@ -9,11 +10,15 @@ interface GameHUDProps {
   onSelectHotbar: (idx: number) => void;
   onSelectParty: (idx: number) => void;
   onOpenExpedition: () => void;
+  onOpenHome: () => void;
   onOpenMap: () => void;
   onOpenPause: () => void;
   onToggleSound: () => void;
   onAction: () => void;
   onPulse: () => void;
+  onPetHomeSlug: (uid: string) => void;
+  onFeedHomeSlug: (uid: string, foodKey: InventoryKey) => void;
+  onPlayHomeSlug: (uid: string) => void;
   onJoystick: (x: number, y: number) => void;
   onTouchSprint: (active: boolean) => void;
 }
@@ -24,11 +29,15 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onSelectHotbar,
   onSelectParty,
   onOpenExpedition,
+  onOpenHome,
   onOpenMap,
   onOpenPause,
   onToggleSound,
   onAction,
   onPulse,
+  onPetHomeSlug,
+  onFeedHomeSlug,
+  onPlayHomeSlug,
   onJoystick,
   onTouchSprint,
 }) => {
@@ -196,8 +205,53 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         </div>
       )}
 
-      {/* Bottom Row: Party Strip + Hotbar + Optional Touch Controls */}
+      {/* Bottom Row: Optional Nearby Home Slug Prompt + Party Strip + Hotbar + Optional Touch Controls */}
       <div className="flex flex-col gap-2">
+        {snap.nearbyHomeSlug && (() => {
+          const near = snap.nearbyHomeSlug;
+          const fav = getFavoriteFoodForSpecies(near.slug.id);
+          const bestFood =
+            (snap.inventory[fav.key] || 0) > 0
+              ? fav
+              : HOME_FOOD_DEFS.find((f) => (snap.inventory[f.key] || 0) > 0) || fav;
+          const bestQty = snap.inventory[bestFood.key] || 0;
+          return (
+            <div className="pointer-events-auto mx-auto bg-[#0b151fe8] border border-cyan-400/50 rounded-xl px-3 py-2 flex flex-wrap items-center justify-center gap-2 shadow-lg">
+              <div className="text-xs font-bold text-white flex items-center gap-1.5 mr-1">
+                <span>{near.slug.icon}</span>
+                <span>{near.slug.name}</span>
+                <span className="text-[11px] text-cyan-300">({getMoodLabel(near.mood)})</span>
+                <span className="text-[11px] text-amber-300 tabular-nums">♥ {near.slug.bond}/100</span>
+              </div>
+              <button
+                onClick={() => onPetHomeSlug(near.slug.uid)}
+                className="min-h-[38px] px-3 py-1.5 rounded-lg bg-pink-500/25 border border-pink-400/60 text-pink-100 text-xs font-bold hover:bg-pink-500/35 cursor-pointer"
+              >
+                Acariciar
+              </button>
+              <button
+                disabled={bestQty <= 0}
+                onClick={() => onFeedHomeSlug(near.slug.uid, bestFood.key)}
+                className="min-h-[38px] px-3 py-1.5 rounded-lg bg-emerald-500/25 border border-emerald-400/60 text-emerald-100 text-xs font-bold hover:bg-emerald-500/35 disabled:opacity-40 cursor-pointer"
+              >
+                Dar {bestFood.label} ({bestQty})
+              </button>
+              <button
+                onClick={() => onPlayHomeSlug(near.slug.uid)}
+                className="min-h-[38px] px-3 py-1.5 rounded-lg bg-amber-500/25 border border-amber-400/60 text-amber-100 text-xs font-bold hover:bg-amber-500/35 cursor-pointer"
+              >
+                Jugar
+              </button>
+              <button
+                onClick={onOpenHome}
+                className="min-h-[38px] px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-slate-200 text-xs font-bold hover:text-white cursor-pointer"
+              >
+                Hogar
+              </button>
+            </div>
+          );
+        })()}
+
         {showTouch && (
           <div className="flex items-end justify-between px-1 mb-1">
             {/* Virtual Joystick */}

@@ -61,7 +61,13 @@ export type InventoryKey =
   | 'doors'
   | 'stations'
   | 'elixirs'
-  | 'relics';
+  | 'relics'
+  | 'emberSnack'
+  | 'frostNectar'
+  | 'nest'
+  | 'bed'
+  | 'feeder'
+  | 'decor';
 
 export type Inventory = Record<InventoryKey, number>;
 
@@ -279,6 +285,86 @@ export interface SaveMetadata {
   savedAt: number;
 }
 
+export type HabitatId =
+  | 'habitat_thermal'
+  | 'habitat_aquatic'
+  | 'habitat_crystal'
+  | 'habitat_shadow'
+  | 'habitat_garden';
+
+export type FurnitureKind = 'nest' | 'bed' | 'feeder' | 'decor';
+
+export type HomeMood = 'contenta' | 'tranquila' | 'hambrienta' | 'cansada';
+
+export type HomeBehavior = 'pasear' | 'descansar' | 'acercarse' | 'jugar';
+
+export interface HabitatDef {
+  id: HabitatId;
+  name: string;
+  description: string;
+  acceptedTypes: ElementType[];
+  anchorX: number;
+  anchorY: number;
+  accentColor: string;
+  floorTint: string;
+}
+
+export interface FurnitureDef {
+  kind: FurnitureKind;
+  name: string;
+  description: string;
+  comfortBonus: number;
+  emitsLight?: boolean;
+}
+
+export interface HomeFurniture {
+  id: string;
+  kind: FurnitureKind;
+  x: number;
+  y: number;
+}
+
+export interface HomeSlugEntry {
+  slug: SlugInstance;
+  habitatId: HabitatId;
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
+  behavior: HomeBehavior;
+  behaviorTimer: number;
+  mood: HomeMood;
+  hunger: number; // 0..100
+  energy: number; // 0..100
+  happiness: number; // 0..100
+  lastPetAt: number; // playTimeSec
+  lastPlayAt: number; // playTimeSec
+  lastFeedAt: number; // playTimeSec
+  reactionText?: string;
+  reactionTimer?: number;
+}
+
+export interface HomeState {
+  residents: HomeSlugEntry[];
+  furniture: HomeFurniture[];
+  lastNeedsTickSec: number;
+}
+
+export interface RoomValidationInfo {
+  id: string;
+  label: string;
+  closed: boolean;
+  hasDoor: boolean;
+  hasLight: boolean;
+  tileCount: number;
+  walkableCount: number;
+  furnitureCount: number;
+  comfortScore: number;
+  issues: string[];
+  centerX: number;
+  centerY: number;
+}
+
 export interface GameState {
   version: '4.0';
   saveMeta?: SaveMetadata;
@@ -298,6 +384,7 @@ export interface GameState {
   capturedSpecies: Record<string, number>;
   eggs: BreedingEgg[];
   shelterTier: number;
+  home?: HomeState;
   stats: {
     oreMined: number;
     wins: number;
@@ -331,6 +418,9 @@ export interface HudSnapshot {
   capturedSpecies: Record<string, number>;
   eggs: BreedingEgg[];
   shelterTier: number;
+  home: HomeState;
+  rooms: RoomValidationInfo[];
+  nearbyHomeSlug: HomeSlugEntry | null;
   stats: GameState['stats'];
   defeatedBosses: string[];
   claimedQuests: string[];

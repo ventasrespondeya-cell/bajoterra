@@ -1,4 +1,4 @@
-import { BIOME_INFO, BOSS_DEFINITIONS, TILE_PX, WORLD_H, WORLD_W, getSpecies } from './data';
+import { BIOME_INFO, BOSS_DEFINITIONS, FURNITURE_DEFS, HABITAT_DEFS, TILE_PX, WORLD_H, WORLD_W, getSpecies } from './data';
 import { sprites } from './sprites';
 import { TileType, type BiomeId, type GameState, type RoamingEntity } from './types';
 import { ChunkManager, getBiomeAt } from './world';
@@ -244,6 +244,34 @@ export class WorldRenderer {
       }
     }
 
+    // 1.5 Habitat floor accents & placed home furniture
+    for (const hab of HABITAT_DEFS) {
+      if (hab.anchorX < x0 - 1 || hab.anchorX > x1 + 1 || hab.anchorY < y0 - 1 || hab.anchorY > y1 + 1) {
+        continue;
+      }
+      const hsx = hab.anchorX * TILE_PX - ox;
+      const hsy = hab.anchorY * TILE_PX - oy;
+      ctx.fillStyle = hab.floorTint;
+      ctx.fillRect(hsx - 10, hsy - 10, TILE_PX + 20, TILE_PX + 20);
+      ctx.strokeStyle = hab.accentColor;
+      ctx.globalAlpha = 0.45;
+      ctx.lineWidth = 1.25;
+      ctx.strokeRect(hsx - 9, hsy - 9, TILE_PX + 18, TILE_PX + 18);
+      ctx.globalAlpha = 1;
+    }
+
+    if (state.home?.furniture) {
+      for (const furn of state.home.furniture) {
+        if (furn.x < x0 || furn.x > x1 || furn.y < y0 || furn.y > y1) continue;
+        const fsx = furn.x * TILE_PX - ox;
+        const fsy = furn.y * TILE_PX - oy;
+        ctx.drawImage(sprites.getFurnitureSprite(furn.kind), fsx, fsy);
+        if (FURNITURE_DEFS[furn.kind]?.emitsLight) {
+          lightSources.push({ sx: fsx + 14, sy: fsy + 14, r: 96, color: 'rgba(94, 234, 212, 0.72)' });
+        }
+      }
+    }
+
     // 2. Target tile highlight
     if (targetTile) {
       const tsx = targetTile.x * TILE_PX - ox;
@@ -283,6 +311,66 @@ export class WorldRenderer {
         ctx.fillText(ent.name, ex + 14, ey - 4 + bob);
         if (ent.kind === 'boss') {
           lightSources.push({ sx: ex + 14, sy: ey + 14, r: 95, color: 'rgba(248, 113, 113, 0.6)' });
+        }
+      }
+    }
+
+    // 3.5 Living home companion slugs roaming in the shelter
+    if (state.home?.residents) {
+      for (const res of state.home.residents) {
+        const rsx = res.x * TILE_PX - ox;
+        const rsy = res.y * TILE_PX - oy;
+        if (rsx < -40 || rsy < -40 || rsx > vw + 40 || rsy > vh + 40) continue;
+
+        const sp = getSpecies(res.slug.id);
+        const isResting = res.behavior === 'descansar';
+        const isPlaying = res.behavior === 'jugar';
+        const bobAmp = isResting ? 0.8 : isPlaying ? 4.2 : 2.2;
+        const bobSpd = isResting ? 2 : isPlaying ? 9 : 4.5;
+        const bob = Math.sin(timeSec * bobSpd + res.x * 2) * bobAmp;
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.34)';
+        ctx.beginPath();
+        ctx.ellipse(rsx + 14, rsy + 23, 8, 3.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        const spr = sprites.getSlugPixelSprite(sp.color, sp.accent, res.slug.mega);
+        ctx.drawImage(spr, rsx + 3, rsy + 3 + bob);
+
+        const nearPlayer = Math.hypot(res.x - state.player.x, res.y - state.player.y) <= 2.1;
+        if (nearPlayer) {
+          ctx.strokeStyle = 'rgba(103, 232, 249, 0.8)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(rsx + 14, rsy + 14, 15, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        const badge =
+          res.reactionText ||
+          (res.mood === 'hambrienta'
+            ? '🍖'
+            : res.mood === 'cansada' || isResting
+            ? '💤'
+            : nearPlayer
+            ? `${res.slug.name} · ♥`
+            : res.slug.name);
+
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#071018';
+        ctx.fillText(badge, rsx + 15, rsy - 2 + bob);
+        ctx.fillStyle = res.reactionText
+          ? '#fef08a'
+          : res.mood === 'hambrienta'
+          ? '#fdba74'
+          : res.mood === 'cansada'
+          ? '#bae6fd'
+          : '#a7f3d0';
+        ctx.fillText(badge, rsx + 14, rsy - 3 + bob);
+
+        if (sp.type === 'Fuego' || sp.type === 'Luz' || sp.type === 'Electrico' || sp.type === 'Energia') {
+          lightSources.push({ sx: rsx + 14, sy: rsy + 14, r: 46, color: sp.accent });
         }
       }
     }
