@@ -232,6 +232,7 @@ export interface DuelArenaObstacle {
 export interface DuelistArenaState {
   x: number;
   y: number;
+  vx: number;
   vy: number;
   aimAngle: number;
   charge: number; // 0..1
@@ -244,6 +245,7 @@ export interface DuelistArenaState {
   perfectFlash: number; // seconds
   telegraphProgress: number; // 0..1 for enemy
   aiCooldown: number; // seconds until next enemy decision
+  aiTargetX?: number;
   aiTargetY: number;
 }
 

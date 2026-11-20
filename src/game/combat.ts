@@ -7,7 +7,11 @@ import {
   DUELIST_MAX_Y,
   DUELIST_MIN_Y,
   ENEMY_LANE_X,
+  ENEMY_MAX_X,
+  ENEMY_MIN_X,
   PLAYER_LANE_X,
+  PLAYER_MAX_X,
+  PLAYER_MIN_X,
   buildArenaForBiome,
 } from './combatArenas';
 import { createSlugInstance, ELEMENT_CHART, getElementMultiplier, getSpecies } from './data';
@@ -36,15 +40,24 @@ let effectSeq = 1;
 let projSeq = 1;
 let waveSeq = 1;
 
+export interface ContextualActionInfo {
+  kind: 'guard' | 'capture' | 'heal' | 'energy';
+  label: string;
+  shortLabel: string;
+  keyHint: string;
+  disabled: boolean;
+}
+
 export class CombatManager {
   public battle: BattleState | null = null;
   public allyCooldowns: Record<string, number> = {}; // `${uid}_${moveId}` -> seconds remaining
-  public allyShieldTurns = 0; // kept for HUD summary compatibility (>0 when shield active)
+  public allyShieldTurns = 0; // summary indicator (>0 when shield active)
   public allyBurnTurns = 0;
   public allyChillTurns = 0;
   private participatedUids = new Set<string>();
-  private boostedPairs = new Set<string>(); // `${projId}_${obsId}`
-  private verticalInput: -1 | 0 | 1 = 0;
+  private boostedPairs = new Set<string>();
+  private moveInputX = 0;
+  private moveInputY = 0;
   private onBattleEndCallback: ((endedBattle: BattleState | null) => void) | null = null;
   private onStateChangeCallback: (() => void) | null = null;
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
@@ -80,7 +93,9 @@ export class CombatManager {
 
     this.participatedUids.clear();
     this.boostedPairs.clear();
-    this.verticalInput = 0;
+    this.moveInputX = 0;
+    this.moveInputY = 0;
+
     const starter = state.party[state.activePartyIndex];
     if (starter) {
       ensureSlugProgressionFields(starter);
@@ -150,10 +165,10 @@ export class CombatManager {
       biome,
       subtitle:
         opts.kind === 'boss'
-          ? `Jefe de Bioma · ${arena.title}`
+          ? `Jefe · ${arena.title}`
           : opts.kind === 'mercenary'
           ? `Duelo Blakk · ${arena.title}`
-          : `Babosa salvaje · Nv.${opts.level} (${strategy})`,
+          : `${arena.title} · Nv.${opts.level}`,
       enemy,
       turn: 'duel',
       selectedMode: 'quick',
@@ -166,8 +181,9 @@ export class CombatManager {
       playerDuelist: {
         x: PLAYER_LANE_X,
         y: 268,
+        vx: 0,
         vy: 0,
-        aimAngle: -0.14,
+        aimAngle: -0.1,
         charge: 0,
         charging: false,
         recoil: 0,
@@ -183,8 +199,9 @@ export class CombatManager {
       enemyDuelist: {
         x: ENEMY_LANE_X,
         y: 262,
+        vx: 0,
         vy: 0,
-        aimAngle: Math.PI + 0.12,
+        aimAngle: Math.PI + 0.1,
         charge: 0,
         charging: false,
         recoil: 0,
@@ -195,6 +212,7 @@ export class CombatManager {
         perfectFlash: 0,
         telegraphProgress: 0,
         aiCooldown: 1.05,
+        aiTargetX: ENEMY_LANE_X,
         aiTargetY: 250,
       },
       projectiles: [],
@@ -209,10 +227,10 @@ export class CombatManager {
       },
       log: [
         opts.kind === 'boss'
-          ? `¡${enemy.name} emerge en ${arena.title}! Carga tu bláster y dispara.`
+          ? `¡${enemy.name} emerge en ${arena.title}!`
           : opts.kind === 'mercenary'
-          ? `¡Duelo de lanzadores en ${arena.title}! Apunta y suelta en la zona dorada.`
-          : `¡${enemy.name} aparece! Selecciona babosa, carga y lanza.`,
+          ? `¡Duelo libre contra ${enemy.name}!`
+          : `¡${enemy.name} aparece en la caverna!`,
       ],
       effects: [],
     };
@@ -224,7 +242,7 @@ export class CombatManager {
   private pushEffect(ev: Omit<CombatEffectEvent, 'id'>): void {
     if (!this.battle) return;
     this.battle.effects = [
-      ...this.battle.effects.slice(-7),
+      ...this.battle.effects.slice(-6),
       { ...ev, id: effectSeq++, age: 0 },
     ];
   }
@@ -238,13 +256,16 @@ export class CombatManager {
     label?: string
   ): void {
     if (!this.battle) return;
+    if (this.battle.shockwaves.length >= 12) {
+      this.battle.shockwaves.shift();
+    }
     this.battle.shockwaves.push({
       id: waveSeq++,
       x,
       y,
       radius: 8,
       maxRadius,
-      alpha: 0.95,
+      alpha: 0.92,
       color,
       label,
       kind,
@@ -260,26 +281,47 @@ export class CombatManager {
     return Math.max(0, this.allyCooldowns[`${slug.uid}_${moveId}`] || 0);
   }
 
-  public setVerticalInput(dir: -1 | 0 | 1): void {
-    this.verticalInput = dir;
+  public setMoveInput(dx: number, dy: number): void {
+    const mag = Math.hypot(dx, dy);
+    if (mag > 1) {
+      this.moveInputX = dx / mag;
+      this.moveInputY = dy / mag;
+    } else {
+      this.moveInputX = Math.max(-1, Math.min(1, dx));
+      this.moveInputY = Math.max(-1, Math.min(1, dy));
+    }
   }
 
-  public moveDuelistStep(deltaY: number): void {
+  public setVerticalInput(dir: -1 | 0 | 1): void {
+    this.moveInputY = dir;
+  }
+
+  public moveDuelistStep(deltaY: number, deltaX = 0): void {
     if (!this.battle || this.battle.turn !== 'duel') return;
-    const nextY = this.battle.playerDuelist.y + deltaY;
-    this.battle.playerDuelist.y = Math.max(DUELIST_MIN_Y, Math.min(DUELIST_MAX_Y, nextY));
+    const pd = this.battle.playerDuelist;
+    pd.x = Math.max(PLAYER_MIN_X, Math.min(PLAYER_MAX_X, pd.x + deltaX));
+    pd.y = Math.max(DUELIST_MIN_Y, Math.min(DUELIST_MAX_Y, pd.y + deltaY));
   }
 
   public setAimAngle(angleRad: number): void {
     if (!this.battle || this.battle.turn !== 'duel') return;
-    this.battle.playerDuelist.aimAngle = Math.max(-0.98, Math.min(0.92, angleRad));
+    let a = angleRad;
+    while (a > Math.PI) a -= Math.PI * 2;
+    while (a < -Math.PI) a += Math.PI * 2;
+    this.battle.playerDuelist.aimAngle = a;
+  }
+
+  public setAimVector(dx: number, dy: number): void {
+    if (Math.hypot(dx, dy) < 4) return;
+    this.setAimAngle(Math.atan2(dy, dx));
   }
 
   public aimAtArenaPoint(arenaX: number, arenaY: number): void {
     if (!this.battle || this.battle.turn !== 'duel') return;
     const p = this.battle.playerDuelist;
-    const dx = Math.max(36, arenaX - p.x);
+    const dx = arenaX - p.x;
     const dy = arenaY - p.y;
+    if (Math.hypot(dx, dy) < 6) return;
     this.setAimAngle(Math.atan2(dy, dx));
   }
 
@@ -288,7 +330,7 @@ export class CombatManager {
     const ally = state.party[state.activePartyIndex];
     if (!ally) return false;
     if (mode === 'pulse' && !this.battle.pulseWindowActive) {
-      this.pushLog('El Pulso Maestro aún no está listo (carga el medidor o interrumpe al rival).');
+      this.pushLog('Pulso Maestro aún cargando.');
       return false;
     }
     if (mode === 0 || mode === 1) {
@@ -311,25 +353,51 @@ export class CombatManager {
     return true;
   }
 
+  public canUseMove(slug: SlugInstance, moveIdx: 0 | 1): boolean {
+    const sp = getSpecies(slug.id);
+    const mv = sp.specialMoves[moveIdx];
+    const cost = getEffectiveMoveEnergyCost(mv.energyCost, slug.moveMastery?.[moveIdx] ?? 0);
+    return this.getMoveCooldown(slug, mv.id) <= 0 && slug.energy >= cost;
+  }
+
   public beginCharge(state: GameState): void {
     if (!this.battle || this.battle.turn !== 'duel') return;
     const ally = state.party[state.activePartyIndex];
     if (!ally || ally.hp <= 0) return;
     if (this.battle.allyStatus.stunTimer > 0) {
-      this.pushLog(`${ally.name} está brevemente aturdida.`);
+      this.pushLog(`${ally.name} aturdida brevemente.`);
       return;
     }
     this.battle.playerDuelist.charging = true;
-    this.battle.playerDuelist.charge = Math.max(0.18, this.battle.playerDuelist.charge);
+    this.battle.playerDuelist.charge = Math.max(0.16, this.battle.playerDuelist.charge);
   }
 
   public releaseChargeAndFire(state: GameState): DuelProjectile | null {
     if (!this.battle || this.battle.turn !== 'duel') return null;
+    const ally = state.party[state.activePartyIndex];
     const pd = this.battle.playerDuelist;
-    const charge = pd.charging ? Math.max(0.28, pd.charge) : 0.72;
+    const charge = pd.charging ? Math.max(0.22, pd.charge) : 0.65;
     pd.charging = false;
     pd.charge = 0;
-    return this.fireBlasterShot(state, { charge });
+
+    // Unified charge-to-power escalation when player didn't manually lock a hotkey mode:
+    // Quick tap (<0.42) -> Quick Shot | Medium hold (0.42..0.78) -> Technique 1 | Full hold (>=0.78) -> Pulse or Technique 2
+    let modeOverride: BlasterShotMode | undefined;
+    if (this.battle.selectedMode === 'quick' && ally) {
+      if (charge >= 0.78) {
+        if (this.battle.pulseWindowActive) {
+          modeOverride = 'pulse';
+        } else if (this.canUseMove(ally, 1)) {
+          modeOverride = 1;
+        } else if (this.canUseMove(ally, 0)) {
+          modeOverride = 0;
+        }
+      } else if (charge >= 0.42 && this.canUseMove(ally, 0)) {
+        modeOverride = 0;
+      }
+    }
+
+    return this.fireBlasterShot(state, { charge, modeOverride });
   }
 
   public fireBlasterShot(
@@ -360,7 +428,9 @@ export class CombatManager {
     const requestedMode = opts?.modeOverride ?? this.battle.selectedMode;
     const charge = Math.max(0.15, Math.min(1, opts?.charge ?? 0.75));
     const perfectRelease = charge >= 0.62 && charge <= 0.88;
-    const angle = opts?.angle !== undefined ? Math.max(-0.98, Math.min(0.92, opts.angle)) : pd.aimAngle;
+    let angle = opts?.angle !== undefined ? opts.angle : pd.aimAngle;
+    while (angle > Math.PI) angle -= Math.PI * 2;
+    while (angle < -Math.PI) angle += Math.PI * 2;
     pd.aimAngle = angle;
 
     let actualMode: DuelProjectile['mode'] = 'quick';
@@ -383,7 +453,7 @@ export class CombatManager {
       const effectiveCost = getEffectiveMoveEnergyCost(mv.energyCost, masteryPts);
       const cd = this.getMoveCooldown(ally, mv.id);
       if (cd > 0) {
-        this.pushLog(`${mv.name} está en enfriamiento (${cd.toFixed(1)}s).`);
+        this.pushLog(`${mv.name} en enfriamiento (${cd.toFixed(1)}s).`);
         return null;
       }
       if (ally.energy < effectiveCost) {
@@ -397,9 +467,8 @@ export class CombatManager {
       moveIndex = requestedMode;
       moveId = mv.id;
       moveEffect = mv.effect;
-      movePowerMult = (mv.power > 0 ? mv.power : 0.7) * masteryInfo.powerMultiplier;
+      movePowerMult = (mv.power > 0 ? mv.power : 0.72) * masteryInfo.powerMultiplier;
 
-      // Support effects trigger visibly at blaster chamber + energy wave forward
       if (mv.effect === 'heal') {
         const healMult = 1 + masteryInfo.rank * 0.05;
         const healAmt = Math.max(12, Math.round(ally.maxHp * 0.38 * healMult));
@@ -419,8 +488,8 @@ export class CombatManager {
           x: pd.x,
           y: pd.y - 38,
         });
-        this.pushShockwave(pd.x, pd.y, 82, '#4ade80', 'heal', mv.name);
-        this.pushLog(`${ally.name} activa ${mv.name} (+${healAmt} PS) y dispara onda luminosa.`);
+        this.pushShockwave(pd.x, pd.y, 76, '#4ade80', 'heal', mv.name);
+        this.pushLog(`${ally.name}: ${mv.name} (+${healAmt} PS).`);
       } else if (mv.effect === 'shield') {
         this.battle.allyStatus.shieldTimer = 4.2;
         this.allyShieldTurns = 2;
@@ -428,12 +497,12 @@ export class CombatManager {
         this.pushEffect({
           target: 'ally',
           kind: 'shield',
-          text: '🛡 Escudo elemental',
+          text: '🛡 Escudo',
           color: '#38bdf8',
           x: pd.x,
           y: pd.y - 36,
         });
-        this.pushShockwave(pd.x, pd.y, 76, '#38bdf8', 'shield');
+        this.pushShockwave(pd.x, pd.y, 72, '#38bdf8', 'shield');
       }
 
       const masteryStep = grantMoveMastery(ally, requestedMode, 10);
@@ -447,8 +516,7 @@ export class CombatManager {
     const megaSpeedMult = ally.mega ? 1.12 : 1;
     const perfSpeedMult = perfectRelease ? 1.08 : 1;
     const speed =
-      (profile.baseLaunchSpeed +
-        (profile.maxLaunchSpeed - profile.baseLaunchSpeed) * charge) *
+      (profile.baseLaunchSpeed + (profile.maxLaunchSpeed - profile.baseLaunchSpeed) * charge) *
       megaSpeedMult *
       perfSpeedMult *
       (actualMode === 'pulse' ? 1.16 : 1);
@@ -503,7 +571,7 @@ export class CombatManager {
     };
 
     this.battle.projectiles.push(proj);
-    pd.reloadTimer = actualMode === 'quick' ? profile.reloadSec : profile.reloadSec * 1.25;
+    pd.reloadTimer = actualMode === 'quick' ? profile.reloadSec : profile.reloadSec * 1.22;
     pd.recoil = 0.16;
     if (perfectRelease) pd.perfectFlash = 0.35;
 
@@ -526,6 +594,68 @@ export class CombatManager {
 
     this.onStateChangeCallback?.();
     return proj;
+  }
+
+  public getContextualAction(state: GameState): ContextualActionInfo {
+    const b = this.battle;
+    const ally = state.party[state.activePartyIndex];
+    if (!b || !ally) {
+      return { kind: 'guard', label: 'Escudo', shortLabel: 'Escudo', keyHint: 'F', disabled: true };
+    }
+
+    const incomingDanger =
+      b.enemy.telegraphing === 'heavy' ||
+      b.projectiles.some((p) => p.owner === 'enemy' && p.alive && p.x < b.playerDuelist.x + 260);
+    const guardReady = b.playerDuelist.guardCooldown <= 0;
+
+    if (incomingDanger && guardReady) {
+      return { kind: 'guard', label: 'Escudo Bláster', shortLabel: 'Escudo', keyHint: 'F', disabled: false };
+    }
+
+    const canCaptureWild =
+      b.kind === 'wild' &&
+      (b.enemy.hp <= b.enemy.maxHp * 0.65 || (b.enemy.stunTimer || 0) > 0) &&
+      (state.inventory.masterCapsules > 0 || state.inventory.capsules > 0);
+    if (canCaptureWild) {
+      const hasMaster = state.inventory.masterCapsules > 0;
+      return {
+        kind: 'capture',
+        label: hasMaster ? 'Cilindro Maestro' : 'Capturar',
+        shortLabel: 'Capturar',
+        keyHint: 'F',
+        disabled: false,
+      };
+    }
+
+    if (ally.hp < ally.maxHp * 0.52 && state.inventory.berries > 0) {
+      return { kind: 'heal', label: 'Curar Baya', shortLabel: 'Curar', keyHint: 'F', disabled: false };
+    }
+
+    if (ally.energy < 4 && state.inventory.core > 0) {
+      return { kind: 'energy', label: 'Núcleo +8 EN', shortLabel: 'Núcleo', keyHint: 'F', disabled: false };
+    }
+
+    return {
+      kind: 'guard',
+      label: guardReady ? 'Escudo Bláster' : `Escudo (${b.playerDuelist.guardCooldown.toFixed(0)}s)`,
+      shortLabel: 'Escudo',
+      keyHint: 'F',
+      disabled: !guardReady,
+    };
+  }
+
+  public triggerContextualAction(state: GameState): boolean {
+    if (!this.battle || this.battle.turn !== 'duel') return false;
+    const ctx = this.getContextualAction(state);
+    if (ctx.disabled) return false;
+    if (ctx.kind === 'guard') return this.activateGuard(state);
+    if (ctx.kind === 'capture') {
+      const key = state.inventory.masterCapsules > 0 ? 'masterCapsules' : 'capsules';
+      return this.useItem(state, key);
+    }
+    if (ctx.kind === 'heal') return this.useItem(state, 'berries');
+    if (ctx.kind === 'energy') return this.useItem(state, 'core');
+    return false;
   }
 
   public activateGuard(state: GameState): boolean {
@@ -559,6 +689,18 @@ export class CombatManager {
     return true;
   }
 
+  public cycleSlug(state: GameState, dir: 1 | -1 = 1): boolean {
+    const len = state.party.length;
+    if (len <= 1) return false;
+    for (let offset = 1; offset <= len; offset++) {
+      const idx = (state.activePartyIndex + dir * offset + len) % len;
+      if (state.party[idx].hp > 0 && idx !== state.activePartyIndex) {
+        return this.swapSlug(state, idx);
+      }
+    }
+    return false;
+  }
+
   public swapSlug(state: GameState, partyIdx: number): boolean {
     if (!this.battle || this.battle.turn !== 'duel') return false;
     const target = state.party[partyIdx];
@@ -567,7 +709,7 @@ export class CombatManager {
     ensureSlugProgressionFields(target);
     this.participatedUids.add(target.uid);
     this.battle.selectedMode = 'quick';
-    this.battle.playerDuelist.reloadTimer = 0.22;
+    this.battle.playerDuelist.reloadTimer = 0.16;
     this.battle.playerDuelist.charging = false;
     this.battle.playerDuelist.charge = 0;
     this.battle.allyStatus.burnTimer = 0;
@@ -575,8 +717,8 @@ export class CombatManager {
     this.allyBurnTurns = 0;
     this.allyChillTurns = 0;
     sound.playBlasterSelect();
-    this.pushShockwave(this.battle.playerDuelist.x, this.battle.playerDuelist.y, 52, '#2dd4bf', 'transform');
-    this.pushLog(`¡Cámara cargada con ${target.name} (${target.type})!`);
+    this.pushShockwave(this.battle.playerDuelist.x, this.battle.playerDuelist.y, 48, '#2dd4bf', 'transform');
+    this.pushLog(`¡Cámara cargada con ${target.name}!`);
     this.onStateChangeCallback?.();
     return true;
   }
@@ -601,7 +743,7 @@ export class CombatManager {
       const heal = 34;
       ally.hp = Math.min(ally.maxHp, ally.hp + heal);
       sound.playHeal();
-      this.pushShockwave(this.battle.playerDuelist.x, this.battle.playerDuelist.y, 70, '#4ade80', 'heal');
+      this.pushShockwave(this.battle.playerDuelist.x, this.battle.playerDuelist.y, 68, '#4ade80', 'heal');
       this.pushEffect({
         target: 'ally',
         kind: 'heal',
@@ -610,7 +752,7 @@ export class CombatManager {
         x: this.battle.playerDuelist.x,
         y: this.battle.playerDuelist.y - 36,
       });
-      this.pushLog(`${ally.name} consume una baya y recupera ${heal} PS.`);
+      this.pushLog(`${ally.name} recupera ${heal} PS.`);
       this.onStateChangeCallback?.();
       return true;
     }
@@ -619,7 +761,7 @@ export class CombatManager {
       state.inventory.core--;
       ally.energy = Math.min(ally.maxEnergy, ally.energy + 8);
       sound.playPulse();
-      this.pushShockwave(this.battle.playerDuelist.x, this.battle.playerDuelist.y, 70, '#38bdf8', 'heal');
+      this.pushShockwave(this.battle.playerDuelist.x, this.battle.playerDuelist.y, 68, '#38bdf8', 'heal');
       this.pushEffect({
         target: 'ally',
         kind: 'heal',
@@ -628,7 +770,7 @@ export class CombatManager {
         x: this.battle.playerDuelist.x,
         y: this.battle.playerDuelist.y - 36,
       });
-      this.pushLog(`Núcleo de energía aplicado (+8 EN a ${ally.name}).`);
+      this.pushLog(`+8 Energía para ${ally.name}.`);
       this.onStateChangeCallback?.();
       return true;
     }
@@ -641,13 +783,13 @@ export class CombatManager {
     state.inventory[itemKey]--;
     const pd = this.battle.playerDuelist;
     const ed = this.battle.enemyDuelist;
-    const dx = ed.x - (pd.x + 32);
+    const dx = ed.x - (pd.x + 28);
     const dy = ed.y - pd.y;
     const speed = 780;
-    const flightT = Math.max(0.25, dx / speed);
+    const flightT = Math.max(0.25, Math.hypot(dx, dy) / speed);
     const g = BASE_GRAVITY * 0.45;
     const vy = dy / flightT - 0.5 * g * flightT;
-    const vx = speed;
+    const vx = dx / flightT;
 
     const capProj: DuelProjectile = {
       id: projSeq++,
@@ -658,9 +800,9 @@ export class CombatManager {
       mega: itemKey === 'masterCapsules',
       mode: 'capsule',
       capsuleKey: itemKey,
-      x: pd.x + 32,
+      x: pd.x + 28,
       y: pd.y,
-      prevX: pd.x + 32,
+      prevX: pd.x + 28,
       prevY: pd.y,
       vx,
       vy,
@@ -673,7 +815,7 @@ export class CombatManager {
       perfectRelease: true,
       powerScore: 0,
       gravityScale: 0.45,
-      homing: 1.8,
+      homing: 2.2,
       bouncesLeft: 1,
       phaseObstacles: true,
       pierceLeft: 0,
@@ -685,7 +827,7 @@ export class CombatManager {
     this.battle.projectiles.push(capProj);
     pd.recoil = 0.14;
     sound.playBlasterFire(false, true);
-    this.pushLog(`¡Lanzas ${capProj.slugName} hacia ${enemy.name}!`);
+    this.pushLog(`¡Lanzas ${capProj.slugName}!`);
     this.onStateChangeCallback?.();
     return true;
   }
@@ -697,7 +839,7 @@ export class CombatManager {
       return false;
     }
     const ally = state.party[state.activePartyIndex];
-    const chance = this.battle.kind === 'mercenary' ? 0.52 : 0.78 + (ally?.spd || 10) * 0.012;
+    const chance = this.battle.kind === 'mercenary' ? 0.55 : 0.8 + (ally?.spd || 10) * 0.012;
     if (Math.random() < chance) {
       sound.stopDuelMusic();
       this.battle.turn = 'ended';
@@ -707,12 +849,12 @@ export class CombatManager {
       this.onStateChangeCallback?.();
       return true;
     }
-    this.pushLog('¡El rival interceptó la salida! Esquiva o usa escudo.');
+    this.pushLog('¡El rival bloqueó la salida!');
     this.onStateChangeCallback?.();
     return false;
   }
 
-  public computeTrajectoryPreview(state: GameState, steps = 22, stepDt = 0.036): {
+  public computeTrajectoryPreview(state: GameState, steps = 20, stepDt = 0.036): {
     points: Array<{ x: number; y: number }>;
     transformPoint: { x: number; y: number } | null;
   } {
@@ -723,7 +865,7 @@ export class CombatManager {
     const sp = getSpecies(ally.id);
     const profile = getSlugCombatProfile(sp);
     const pd = this.battle.playerDuelist;
-    const charge = pd.charging ? Math.max(0.18, pd.charge) : 0.72;
+    const charge = pd.charging ? Math.max(0.18, pd.charge) : 0.65;
     const angle = pd.aimAngle;
 
     const speed =
@@ -755,8 +897,11 @@ export class CombatManager {
       if (!transformPoint && dist >= tDist) {
         transformPoint = { x, y };
       }
-      if (x > ARENA_WIDTH - 24 || y > ARENA_FLOOR_Y || y < ARENA_CEIL_Y) {
-        points.push({ x: Math.min(ARENA_WIDTH - 24, x), y: Math.max(ARENA_CEIL_Y, Math.min(ARENA_FLOOR_Y, y)) });
+      if (x > ARENA_WIDTH - 24 || x < 24 || y > ARENA_FLOOR_Y || y < ARENA_CEIL_Y) {
+        points.push({
+          x: Math.max(24, Math.min(ARENA_WIDTH - 24, x)),
+          y: Math.max(ARENA_CEIL_Y, Math.min(ARENA_FLOOR_Y, y)),
+        });
         break;
       }
       points.push({ x, y });
@@ -772,13 +917,12 @@ export class CombatManager {
     if (!ally) return;
 
     b.elapsedSec += dt;
-    if (b.cameraShake > 0) b.cameraShake = Math.max(0, b.cameraShake - dt * 28);
+    if (b.cameraShake > 0) b.cameraShake = Math.max(0, b.cameraShake - dt * 26);
 
-    // Hitstop pauses projectile physics briefly on heavy impact while still decaying shockwaves
     for (let i = b.shockwaves.length - 1; i >= 0; i--) {
       const sw = b.shockwaves[i];
       sw.radius += (sw.maxRadius - sw.radius) * Math.min(1, dt * 11) + 45 * dt;
-      sw.alpha -= dt * 2.25;
+      sw.alpha -= dt * 2.3;
       if (sw.alpha <= 0.02) b.shockwaves.splice(i, 1);
     }
 
@@ -787,7 +931,6 @@ export class CombatManager {
       return;
     }
 
-    // Cooldowns & duelist timers
     for (const key of Object.keys(this.allyCooldowns)) {
       if (this.allyCooldowns[key] > 0) {
         this.allyCooldowns[key] = Math.max(0, this.allyCooldowns[key] - dt);
@@ -809,12 +952,10 @@ export class CombatManager {
     ed.reloadTimer = Math.max(0, ed.reloadTimer - dt);
     ed.hitFlash = Math.max(0, ed.hitFlash - dt);
 
-    // Passive energy flow so blaster duel stays fluid
     if (ally.energy < ally.maxEnergy) {
-      ally.energy = Math.min(ally.maxEnergy, ally.energy + dt * 0.55);
+      ally.energy = Math.min(ally.maxEnergy, ally.energy + dt * 0.6);
     }
 
-    // Ally status decay
     b.allyStatus.shieldTimer = Math.max(0, b.allyStatus.shieldTimer - dt);
     b.allyStatus.chillTimer = Math.max(0, b.allyStatus.chillTimer - dt);
     b.allyStatus.stunTimer = Math.max(0, b.allyStatus.stunTimer - dt);
@@ -834,7 +975,6 @@ export class CombatManager {
       this.allyBurnTurns = 0;
     }
 
-    // Enemy status decay & burn
     const enemy = b.enemy;
     enemy.shieldTimer = Math.max(0, (enemy.shieldTimer || 0) - dt);
     enemy.chillTimer = Math.max(0, (enemy.chillTimer || 0) - dt);
@@ -868,28 +1008,44 @@ export class CombatManager {
       enemy.burnTurns = 0;
     }
 
-    // Player movement & charge progression
-    if (this.verticalInput !== 0 && b.allyStatus.stunTimer <= 0) {
-      const moveSpd = b.allyStatus.chillTimer > 0 ? 165 : 235;
-      pd.y = Math.max(DUELIST_MIN_Y, Math.min(DUELIST_MAX_Y, pd.y + this.verticalInput * moveSpd * dt));
+    // Free 2D player arena movement (with cover collision sliding)
+    if (b.allyStatus.stunTimer <= 0 && (Math.abs(this.moveInputX) > 0.01 || Math.abs(this.moveInputY) > 0.01)) {
+      const moveSpd = b.allyStatus.chillTimer > 0 ? 170 : 250;
+      pd.vx = this.moveInputX * moveSpd;
+      pd.vy = this.moveInputY * moveSpd;
+      const nextX = Math.max(PLAYER_MIN_X, Math.min(PLAYER_MAX_X, pd.x + pd.vx * dt));
+      if (!this.duelistHitsCover(nextX, pd.y, 20, b.obstacles)) {
+        pd.x = nextX;
+      }
+      const nextY = Math.max(DUELIST_MIN_Y, Math.min(DUELIST_MAX_Y, pd.y + pd.vy * dt));
+      if (!this.duelistHitsCover(pd.x, nextY, 20, b.obstacles)) {
+        pd.y = nextY;
+      }
+    } else {
+      pd.vx = 0;
+      pd.vy = 0;
     }
+
     if (pd.charging) {
       pd.charge = Math.min(1, pd.charge + dt * 0.98);
     }
 
-    // Rival AI movement & shooting
     this.updateEnemyAI(dt, state);
     if (b.turn !== 'duel') return;
 
-    // Update projectiles
     this.updateProjectiles(dt, state);
     if (b.turn !== 'duel') return;
 
-    // Check mid-air slug clashes
     this.resolveProjectileClashes();
-
-    // Check duelist & capture impacts
     this.resolveDuelistCollisions(state);
+  }
+
+  private duelistHitsCover(cx: number, cy: number, radius: number, obstacles: DuelArenaObstacle[]): boolean {
+    for (const obs of obstacles) {
+      if (obs.kind !== 'cover') continue;
+      if (this.circleRectOverlap(cx, cy, radius, obs)) return true;
+    }
+    return false;
   }
 
   private updateEnemyAI(dt: number, state: GameState): void {
@@ -902,31 +1058,51 @@ export class CombatManager {
     if ((enemy.stunTimer || 0) > 0) {
       enemy.telegraphing = null;
       ed.telegraphProgress = 0;
+      ed.vx = 0;
+      ed.vy = 0;
       return;
     }
 
-    // Smart vertical positioning
     const incomingAllyShot = b.projectiles.find(
-      (p) => p.owner === 'ally' && p.alive && p.x > 420 && p.x < ed.x
+      (p) => p.owner === 'ally' && p.alive && p.x > 380 && p.x < ed.x
     );
+    const targetX = ed.aiTargetX ?? ENEMY_LANE_X;
+
     if (incomingAllyShot && (enemy.strategy === 'tactico' || enemy.strategy === 'jefe')) {
-      ed.aiTargetY = incomingAllyShot.y < ed.y ? Math.min(DUELIST_MAX_Y, ed.y + 68) : Math.max(DUELIST_MIN_Y, ed.y - 68);
-    } else if (Math.abs(ed.y - ed.aiTargetY) < 8) {
-      ed.aiTargetY = DUELIST_MIN_Y + 28 + Math.random() * (DUELIST_MAX_Y - DUELIST_MIN_Y - 56);
+      ed.aiTargetY =
+        incomingAllyShot.y < ed.y
+          ? Math.min(DUELIST_MAX_Y, ed.y + 72)
+          : Math.max(DUELIST_MIN_Y, ed.y - 72);
+    } else if (Math.hypot(ed.x - targetX, ed.y - ed.aiTargetY) < 12) {
+      ed.aiTargetX =
+        enemy.strategy === 'agresivo'
+          ? ENEMY_MIN_X + 35 + Math.random() * 140
+          : enemy.strategy === 'defensivo'
+          ? ENEMY_MAX_X - 130 + Math.random() * 100
+          : ENEMY_MIN_X + 60 + Math.random() * (ENEMY_MAX_X - ENEMY_MIN_X - 100);
+      ed.aiTargetY = DUELIST_MIN_Y + 24 + Math.random() * (DUELIST_MAX_Y - DUELIST_MIN_Y - 48);
     }
 
-    const aiMoveSpeed = ((enemy.chillTimer || 0) > 0 ? 105 : 168) * (enemy.isBoss ? 1.15 : 1);
+    const aiMoveSpeed = ((enemy.chillTimer || 0) > 0 ? 110 : 175) * (enemy.isBoss ? 1.15 : 1);
+    const dx = (ed.aiTargetX ?? ENEMY_LANE_X) - ed.x;
     const dy = ed.aiTargetY - ed.y;
-    if (Math.abs(dy) > 3) {
-      ed.y += Math.sign(dy) * Math.min(Math.abs(dy), aiMoveSpeed * dt);
+    const dist = Math.hypot(dx, dy);
+    if (dist > 4) {
+      ed.vx = (dx / dist) * aiMoveSpeed;
+      ed.vy = (dy / dist) * aiMoveSpeed;
+      const nx = Math.max(ENEMY_MIN_X, Math.min(ENEMY_MAX_X, ed.x + ed.vx * dt));
+      if (!this.duelistHitsCover(nx, ed.y, 20, b.obstacles)) ed.x = nx;
+      const ny = Math.max(DUELIST_MIN_Y, Math.min(DUELIST_MAX_Y, ed.y + ed.vy * dt));
+      if (!this.duelistHitsCover(ed.x, ny, 20, b.obstacles)) ed.y = ny;
+    } else {
+      ed.vx = 0;
+      ed.vy = 0;
     }
 
-    // Aim smoothly toward player
-    const targetDx = pd.x - ed.x;
-    const targetDy = pd.y - ed.y - 42; // slight upward arc compensation
-    ed.aimAngle = Math.atan2(targetDy, targetDx);
+    const aimDx = pd.x - ed.x;
+    const aimDy = pd.y - ed.y - 38;
+    ed.aimAngle = Math.atan2(aimDy, aimDx);
 
-    // Handle telegraphed heavy shot charging
     if (enemy.telegraphing === 'heavy') {
       const chargeSpeed = (enemy.chillTimer || 0) > 0 ? 0.52 : 0.78;
       ed.telegraphProgress += dt * chargeSpeed;
@@ -945,14 +1121,14 @@ export class CombatManager {
     if (ed.aiCooldown > 0) return;
 
     const hpPct = enemy.hp / Math.max(1, enemy.maxHp);
-    if ((enemy.strategy === 'defensivo' || enemy.strategy === 'jefe') && hpPct < 0.55 && ed.guardCooldown <= 0 && Math.random() < 0.38) {
+    if ((enemy.strategy === 'defensivo' || enemy.strategy === 'jefe') && hpPct < 0.55 && ed.guardCooldown <= 0 && Math.random() < 0.36) {
       ed.guardTimer = 1.6;
       ed.guardCooldown = 4.6;
       enemy.shieldTimer = 2.4;
       const heal = Math.round(enemy.maxHp * 0.08);
       enemy.hp = Math.min(enemy.maxHp, enemy.hp + heal);
       sound.playShieldBlock(false);
-      this.pushShockwave(ed.x, ed.y, 70, '#38bdf8', 'shield');
+      this.pushShockwave(ed.x, ed.y, 68, '#38bdf8', 'shield');
       this.pushEffect({ target: 'enemy', kind: 'shield', text: `+${heal} PS · 🛡`, color: '#38bdf8', x: ed.x, y: ed.y - 38 });
       ed.aiCooldown = 1.65;
       return;
@@ -962,7 +1138,7 @@ export class CombatManager {
       enemy.telegraphing = 'heavy';
       ed.telegraphProgress = 0.05;
       this.battle!.pulseWindowActive = true;
-      this.battle!.pulseReason = '¡Rival cargando disparo pesado! Interrúmpelo con Pulso o usa Escudo.';
+      this.battle!.pulseReason = '¡Rival cargando disparo pesado!';
       this.pushEffect({ target: 'enemy', kind: 'status', text: '⚠ ¡Cargando!', color: '#facc15', x: ed.x, y: ed.y - 44 });
       return;
     }
@@ -981,7 +1157,6 @@ export class CombatManager {
     const sp = getSpecies(enemy.id);
     const profile = getSlugCombatProfile(sp);
 
-    // Boss & mercenary can fire varied species helpers occasionally
     const fireSpecies =
       enemy.isBoss && Math.random() < 0.35
         ? getSpecies(['infurnus', 'tazerling', 'frostcrawler', 'darkfurnus', 'enigmo'][Math.floor(Math.random() * 5)])
@@ -991,10 +1166,10 @@ export class CombatManager {
     const dx = pd.x - (ed.x - 32);
     const dy = pd.y - ed.y;
     const speed = (heavy ? fireProfile.maxLaunchSpeed * 0.96 : fireProfile.baseLaunchSpeed * 1.12) * (enemy.isBoss ? 1.06 : 0.94);
-    const flightT = Math.max(0.45, Math.abs(dx) / speed);
+    const flightT = Math.max(0.38, Math.hypot(dx, dy) / speed);
     const g = BASE_GRAVITY * fireProfile.gravityScale;
     const aimVy = dy / flightT - 0.5 * g * flightT;
-    const aimVx = -Math.abs(dx / flightT);
+    const aimVx = dx / flightT;
     const mag = Math.hypot(aimVx, aimVy) || 1;
     const vx = (aimVx / mag) * speed;
     const vy = (aimVy / mag) * speed;
@@ -1014,9 +1189,9 @@ export class CombatManager {
       mega: enemy.mega && heavy,
       mode: heavy ? 'move1' : 'quick',
       moveEffect: heavy ? move.effect : undefined,
-      x: ed.x - 34,
+      x: ed.x - 32,
       y: ed.y,
-      prevX: ed.x - 34,
+      prevX: ed.x - 32,
       prevY: ed.y,
       vx,
       vy,
@@ -1054,7 +1229,6 @@ export class CombatManager {
       p.prevX = p.x;
       p.prevY = p.y;
 
-      // Subtle homing after transformation
       if (p.phase === 'transformed' && p.homing > 0) {
         const target = p.owner === 'ally' ? ed : pd;
         const desiredAngle = Math.atan2(target.y - p.y, target.x - p.x);
@@ -1069,21 +1243,19 @@ export class CombatManager {
         p.vy = Math.sin(nextAngle) * spd;
       }
 
-      // Gravity
       p.vy += BASE_GRAVITY * p.gravityScale * dt;
 
-      // Updraft & boost ring checks
       for (const obs of b.obstacles) {
         if (obs.kind === 'updraft' && this.circleRectOverlap(p.x, p.y, p.radius, obs)) {
-          p.vy -= 520 * dt;
+          p.vy -= 480 * dt;
         } else if (obs.kind === 'boost_ring' && this.circleRectOverlap(p.x, p.y, p.radius, obs)) {
           const boostKey = `${p.id}_${obs.id}`;
           if (!this.boostedPairs.has(boostKey)) {
             this.boostedPairs.add(boostKey);
-            p.vx *= 1.16;
-            p.vy *= 1.08;
+            p.vx *= 1.15;
+            p.vy *= 1.06;
             p.powerScore *= 1.18;
-            this.pushShockwave(obs.x + obs.w / 2, obs.y + obs.h / 2, 46, '#2dd4bf', 'transform');
+            this.pushShockwave(obs.x + obs.w / 2, obs.y + obs.h / 2, 44, '#2dd4bf', 'transform');
             if (p.owner === 'ally') {
               const ally = state.party[state.activePartyIndex];
               if (ally) ally.energy = Math.min(ally.maxEnergy, ally.energy + 1);
@@ -1097,19 +1269,18 @@ export class CombatManager {
       p.distanceTraveled += Math.hypot(p.x - p.prevX, p.y - p.prevY);
 
       p.trail.push({ x: p.x, y: p.y, r: p.phase === 'transformed' ? p.radius * 0.72 : p.radius * 0.48 });
-      if (p.trail.length > 10) p.trail.shift();
+      if (p.trail.length > 9) p.trail.shift();
 
-      // Speed-triggered Velocimorph Transformation
       if (p.phase === 'protoform' && p.mode !== 'capsule' && p.distanceTraveled >= p.transformDist) {
         p.phase = 'transforming';
-        p.transformTimer = 0.12;
+        p.transformTimer = 0.13;
         const elColor = ELEMENT_CHART[p.element]?.color || '#38bdf8';
         const profile = getSlugCombatProfile(p.speciesId);
         sound.playSlugTransform(p.element);
         this.pushShockwave(
           p.x,
           p.y,
-          p.mega ? 62 : 48,
+          p.mega ? 60 : 46,
           p.mega ? '#fde047' : elColor,
           'transform',
           p.mode !== 'quick' ? profile.transformCallout : undefined
@@ -1121,16 +1292,15 @@ export class CombatManager {
         }
       }
 
-      // Floor & Ceiling collision
       if (p.y + p.radius >= ARENA_FLOOR_Y) {
         if (p.bouncesLeft > 0) {
           p.bouncesLeft--;
           p.y = ARENA_FLOOR_Y - p.radius - 1;
           p.vy = -Math.abs(p.vy) * 0.78;
-          this.pushShockwave(p.x, ARENA_FLOOR_Y, 32, ELEMENT_CHART[p.element]?.color || '#38bdf8', 'impact');
+          this.pushShockwave(p.x, ARENA_FLOOR_Y, 30, ELEMENT_CHART[p.element]?.color || '#38bdf8', 'impact');
         } else {
           p.alive = false;
-          this.pushShockwave(p.x, ARENA_FLOOR_Y, 36, ELEMENT_CHART[p.element]?.color || '#94a3b8', 'impact');
+          this.pushShockwave(p.x, ARENA_FLOOR_Y, 34, ELEMENT_CHART[p.element]?.color || '#94a3b8', 'impact');
         }
       } else if (p.y - p.radius <= ARENA_CEIL_Y) {
         if (p.bouncesLeft > 0) {
@@ -1143,18 +1313,22 @@ export class CombatManager {
         }
       }
 
-      // Obstacle collisions (cover & reflectors)
+      // Left / right arena cavern wall ricochet if projectile has bounces!
+      if (p.alive && (p.x - p.radius <= 12 || p.x + p.radius >= ARENA_WIDTH - 12)) {
+        if (p.bouncesLeft > 0) {
+          p.bouncesLeft--;
+          p.vx = -p.vx * 0.85;
+          p.x = p.x <= 12 + p.radius ? 13 + p.radius : ARENA_WIDTH - 13 - p.radius;
+        } else {
+          p.alive = false;
+        }
+      }
+
       if (p.alive) {
         this.handleObstacleCollisions(p);
       }
-
-      // Out of bounds horizontally
-      if (p.x < -30 || p.x > ARENA_WIDTH + 30) {
-        p.alive = false;
-      }
     }
 
-    // Remove dead obstacles & projectiles cleanly
     b.obstacles = b.obstacles.filter((o) => o.kind !== 'cover' || (o.hp ?? 1) > 0);
     b.projectiles = b.projectiles.filter((p) => p.alive);
   }
@@ -1167,7 +1341,6 @@ export class CombatManager {
       if (!this.circleRectOverlap(p.x, p.y, p.radius, obs)) continue;
 
       if (obs.kind === 'reflector') {
-        // Reflector bounces vertically/cleanly without destroying the projectile
         if (p.prevY <= obs.y || p.prevY >= obs.y + obs.h) {
           p.vy = -p.vy * 0.92;
           p.y = p.prevY <= obs.y ? obs.y - p.radius - 1 : obs.y + obs.h + p.radius + 1;
@@ -1175,11 +1348,10 @@ export class CombatManager {
           p.vx = -p.vx * 0.9;
         }
         p.powerScore *= 1.1;
-        this.pushShockwave(p.x, p.y, 34, '#67e8f9', 'clash');
+        this.pushShockwave(p.x, p.y, 32, '#67e8f9', 'clash');
         return;
       }
 
-      // Cover obstacle
       if (p.phaseObstacles) {
         continue;
       }
@@ -1199,7 +1371,7 @@ export class CombatManager {
       } else {
         p.alive = false;
       }
-      this.pushShockwave(p.x, p.y, 40, ELEMENT_CHART[p.element]?.color || '#cbd5e1', 'impact');
+      this.pushShockwave(p.x, p.y, 38, ELEMENT_CHART[p.element]?.color || '#cbd5e1', 'impact');
       return;
     }
   }
@@ -1215,7 +1387,7 @@ export class CombatManager {
       for (const ep of enemies) {
         if (!ep.alive) continue;
         const dist = Math.hypot(ap.x - ep.x, ap.y - ep.y);
-        if (dist > ap.radius + ep.radius + 4) continue;
+        if (dist > ap.radius + ep.radius + 5) continue;
 
         const elMult = getElementMultiplier(ap.element, ep.element);
         const allyClash = ap.powerScore * (ap.phase === 'transformed' ? 1.35 : 0.88) * elMult;
@@ -1224,26 +1396,26 @@ export class CombatManager {
         const cx = (ap.x + ep.x) / 2;
         const cy = (ap.y + ep.y) / 2;
         sound.playClash();
-        b.hitstopTimer = 0.045;
-        b.cameraShake = 5.5;
+        b.hitstopTimer = 0.04;
+        b.cameraShake = 3.6;
         b.pulseCharge = Math.min(100, b.pulseCharge + 14);
         this.checkPulseUnlock();
 
         if (allyClash > enemyClash * 1.25) {
           ep.alive = false;
           ap.powerScore *= 0.72;
-          this.pushShockwave(cx, cy, 58, '#fde047', 'clash', '¡Dominio!');
+          this.pushShockwave(cx, cy, 56, '#fde047', 'clash', '¡Dominio!');
           this.pushEffect({ target: 'enemy', kind: 'clash', text: '⚡ Choque ganado', color: '#fde047', x: cx, y: cy });
         } else if (enemyClash > allyClash * 1.25) {
           ap.alive = false;
           ep.powerScore *= 0.72;
-          this.pushShockwave(cx, cy, 58, '#f87171', 'clash', '¡Interceptado!');
+          this.pushShockwave(cx, cy, 56, '#f87171', 'clash', '¡Interceptado!');
         } else {
           ap.alive = false;
           ep.alive = false;
-          this.pushShockwave(cx, cy, 66, '#5eead4', 'clash', '¡CHOQUE!');
+          this.pushShockwave(cx, cy, 62, '#5eead4', 'clash', '¡CHOQUE!');
           this.pushEffect({ target: 'enemy', kind: 'clash', text: '💥 ¡CHOQUE!', color: '#5eead4', x: cx, y: cy });
-          this.pushLog(`¡${ap.slugName} y ${ep.slugName} chocaron en el aire!`);
+          this.pushLog(`¡Choque aéreo entre ${ap.slugName} y ${ep.slugName}!`);
         }
         this.onStateChangeCallback?.();
         break;
@@ -1260,7 +1432,7 @@ export class CombatManager {
     const enemy = b.enemy;
     if (!ally) return;
 
-    const enemyHitRadius = enemy.isBoss ? 38 : 30;
+    const enemyHitRadius = enemy.isBoss ? 39 : 31;
     const allyHitRadius = 29;
 
     for (const p of b.projectiles) {
@@ -1315,7 +1487,7 @@ export class CombatManager {
         state.storage.push(caught);
       }
       this.awardExperience(state, ally, 18 + enemy.level * 4, 5);
-      this.pushShockwave(ed.x, ed.y, 92, '#4ade80', 'capture', '¡CAPTURADA!');
+      this.pushShockwave(ed.x, ed.y, 88, '#4ade80', 'capture', '¡CAPTURADA!');
       b.turn = 'ended';
       b.outcome = 'captured';
       b.rewardText = addedToParty
@@ -1325,9 +1497,9 @@ export class CombatManager {
       this.pushLog(b.rewardText);
     } else {
       sound.playHit(false);
-      this.pushShockwave(ed.x, ed.y, 62, '#f59e0b', 'impact', '¡Escapó!');
-      this.pushEffect({ target: 'enemy', kind: 'status', text: '¡Cilindro abierto!', color: '#f59e0b', x: ed.x, y: ed.y - 38 });
-      this.pushLog('El cilindro se abrió en el último segundo. ¡Debilítala un poco más!');
+      this.pushShockwave(ed.x, ed.y, 60, '#f59e0b', 'impact', '¡Escapó!');
+      this.pushEffect({ target: 'enemy', kind: 'status', text: '¡Escapó!', color: '#f59e0b', x: ed.x, y: ed.y - 38 });
+      this.pushLog('El cilindro se abrió. ¡Debilítala un poco más!');
     }
     this.onStateChangeCallback?.();
   }
@@ -1348,8 +1520,8 @@ export class CombatManager {
 
     enemy.hp = Math.max(0, enemy.hp - dmg);
     ed.hitFlash = 0.2;
-    b.hitstopTimer = p.mode !== 'quick' || p.perfectRelease ? 0.045 : 0.022;
-    b.cameraShake = p.mode !== 'quick' ? 6 : 3;
+    b.hitstopTimer = p.mode !== 'quick' || p.perfectRelease ? 0.04 : 0.018;
+    b.cameraShake = Math.min(4.2, p.mode !== 'quick' ? 4.2 : 2.2);
 
     if (p.mode === 'quick') {
       ally.energy = Math.min(ally.maxEnergy, ally.energy + (p.perfectRelease ? 3 : 2));
@@ -1363,12 +1535,12 @@ export class CombatManager {
       ed.telegraphProgress = 0;
       ed.charge = 0;
       enemy.stunTimer = Math.max(enemy.stunTimer || 0, 1.35);
-      this.pushLog(`⚡ ¡Disparo interceptado! ${enemy.name} pierde su carga.`);
+      this.pushLog(`⚡ ¡${enemy.name} interrumpido!`);
     }
 
     const elColor = ELEMENT_CHART[p.element]?.color || '#38bdf8';
     sound.playHit(mult > 1.2 || p.mode !== 'quick');
-    this.pushShockwave(ed.x, ed.y, Math.max(46, p.aoeRadius + 16), elColor, 'impact');
+    this.pushShockwave(ed.x, ed.y, Math.max(44, p.aoeRadius + 14), elColor, 'impact');
 
     this.pushEffect({
       target: 'enemy',
@@ -1433,7 +1605,7 @@ export class CombatManager {
       ally.energy = Math.min(ally.maxEnergy, ally.energy + 3);
       b.pulseCharge = Math.min(100, b.pulseCharge + 18);
       sound.playShieldBlock(true);
-      this.pushShockwave(pd.x, pd.y, 70, '#5eead4', 'shield', '¡Bloqueo!');
+      this.pushShockwave(pd.x, pd.y, 66, '#5eead4', 'shield', '¡Bloqueo!');
       this.pushEffect({
         target: 'ally',
         kind: 'shield',
@@ -1445,8 +1617,8 @@ export class CombatManager {
     } else {
       sound.playHit(p.mode !== 'quick');
       pd.hitFlash = 0.22;
-      b.cameraShake = Math.max(b.cameraShake, 4);
-      this.pushShockwave(pd.x, pd.y, 50, '#ef4444', 'impact');
+      b.cameraShake = Math.min(4.2, Math.max(b.cameraShake, 2.8));
+      this.pushShockwave(pd.x, pd.y, 46, '#ef4444', 'impact');
       this.pushEffect({
         target: 'ally',
         kind: 'hit',
@@ -1482,7 +1654,7 @@ export class CombatManager {
         b.allyStatus.burnTimer = 0;
         b.allyStatus.chillTimer = 0;
         b.allyStatus.stunTimer = 0;
-        this.pushLog(`¡${ally.name} entra al bláster para relevar a tu compañera!`);
+        this.pushLog(`¡${ally.name} entra al bláster!`);
       } else {
         sound.stopDuelMusic();
         state.player.hp = Math.max(20, Math.round(state.player.maxHp * 0.5));
@@ -1506,8 +1678,8 @@ export class CombatManager {
       this.battle.pulseReason =
         reason ||
         (this.battle.enemy.telegraphing === 'heavy'
-          ? '¡Rival cargando disparo pesado! Pulso Maestro listo.'
-          : '¡Pulso al 100%! Disparo Maestro sin coste de energía.');
+          ? '¡Rival cargando disparo pesado! Pulso listo.'
+          : '¡Pulso al 100%! Carga completa para lanzar.');
     }
   }
 
@@ -1542,7 +1714,6 @@ export class CombatManager {
     const xpGain = (enemy.isBoss ? 85 : enemy.isMercenary ? 45 : 26) + enemy.level * 6;
     const levelMsgs = ally ? this.awardExperience(state, ally, xpGain, 6) : [];
 
-    // Award partial XP/bond ONLY to other party slugs that actively entered this battle
     const partnerXp = Math.max(8, Math.round(xpGain * 0.65));
     for (const member of state.party) {
       if (ally && member.uid !== ally.uid && this.participatedUids.has(member.uid)) {
@@ -1601,7 +1772,8 @@ export class CombatManager {
     sound.stopDuelMusic();
     this.participatedUids.clear();
     this.boostedPairs.clear();
-    this.verticalInput = 0;
+    this.moveInputX = 0;
+    this.moveInputY = 0;
     const endedBattle = this.battle;
     const cb = this.onBattleEndCallback;
     this.battle = null;

@@ -4,10 +4,14 @@ export const ARENA_WIDTH = 920;
 export const ARENA_HEIGHT = 480;
 export const ARENA_FLOOR_Y = 426;
 export const ARENA_CEIL_Y = 58;
-export const PLAYER_LANE_X = 114;
-export const ENEMY_LANE_X = 806;
-export const DUELIST_MIN_Y = 128;
-export const DUELIST_MAX_Y = 382;
+export const PLAYER_LANE_X = 128;
+export const PLAYER_MIN_X = 56;
+export const PLAYER_MAX_X = 416;
+export const ENEMY_LANE_X = 792;
+export const ENEMY_MIN_X = 504;
+export const ENEMY_MAX_X = 864;
+export const DUELIST_MIN_Y = 104;
+export const DUELIST_MAX_Y = 392;
 export const BASE_GRAVITY = 310; // px/s^2 multiplied by projectile gravityScale
 
 export interface BiomeArenaTheme {
