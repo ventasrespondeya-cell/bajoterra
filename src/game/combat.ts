@@ -1,5 +1,12 @@
 import { sound } from './audio';
 import { createSlugInstance, getElementMultiplier, getSpecies } from './data';
+import {
+  awardSlugExperience,
+  ensureSlugProgressionFields,
+  getEffectiveMoveEnergyCost,
+  getMoveMasteryInfo,
+  grantMoveMastery,
+} from './progression';
 import type {
   BattleState,
   CombatEffectEvent,
@@ -17,6 +24,7 @@ export class CombatManager {
   public allyShieldTurns = 0;
   public allyBurnTurns = 0;
   public allyChillTurns = 0;
+  private participatedUids = new Set<string>();
   private onBattleEndCallback: (() => void) | null = null;
   private onStateChangeCallback: (() => void) | null = null;
   private enemyTurnTimer: ReturnType<typeof setTimeout> | null = null;
@@ -42,10 +50,16 @@ export class CombatManager {
     }
   ): BattleState {
     this.clearPendingTimers();
-    // Ensure at least one alive slug is active
     const aliveIdx = state.party.findIndex((s) => s.hp > 0);
     if (aliveIdx >= 0 && state.party[state.activePartyIndex]?.hp <= 0) {
       state.activePartyIndex = aliveIdx;
+    }
+
+    this.participatedUids.clear();
+    const starter = state.party[state.activePartyIndex];
+    if (starter) {
+      ensureSlugProgressionFields(starter);
+      this.participatedUids.add(starter.uid);
     }
 
     const sp = getSpecies(opts.speciesId);
@@ -158,6 +172,7 @@ export class CombatManager {
     const ally = state.party[state.activePartyIndex];
     const enemy = this.battle.enemy;
     if (!ally) return;
+    this.participatedUids.add(ally.uid);
 
     this.tickAllyCooldowns();
     const mult = getElementMultiplier(ally.type, enemy.type);
@@ -189,27 +204,36 @@ export class CombatManager {
     if (!this.battle || this.battle.turn !== 'player') return;
     const ally = state.party[state.activePartyIndex];
     const enemy = this.battle.enemy;
+    if (!ally) return;
+    ensureSlugProgressionFields(ally);
+    this.participatedUids.add(ally.uid);
+
     const sp = getSpecies(ally.id);
     const move = sp.specialMoves[moveIndex];
     if (!move) return;
+
+    const masteryPts = ally.moveMastery?.[moveIndex] ?? 0;
+    const masteryInfo = getMoveMasteryInfo(masteryPts);
+    const effectiveCost = getEffectiveMoveEnergyCost(move.energyCost, masteryPts);
 
     const cd = this.allyCooldowns[move.id] || 0;
     if (cd > 0) {
       this.pushLog(`${move.name} está en enfriamiento (${cd}t).`);
       return;
     }
-    if (ally.energy < move.energyCost) {
+    if (ally.energy < effectiveCost) {
       this.pushLog(`Energía insuficiente para ${move.name}.`);
       return;
     }
 
     this.tickAllyCooldowns();
-    ally.energy -= move.energyCost;
+    ally.energy -= effectiveCost;
     this.allyCooldowns[move.id] = move.cooldown + 1;
     this.battle.pulseCharge = Math.min(100, this.battle.pulseCharge + 18);
 
     if (move.effect === 'heal') {
-      const healAmt = Math.max(12, Math.round(ally.maxHp * 0.38));
+      const healMult = 1 + masteryInfo.rank * 0.05;
+      const healAmt = Math.max(12, Math.round(ally.maxHp * 0.38 * healMult));
       ally.hp = Math.min(ally.maxHp, ally.hp + healAmt);
       this.allyBurnTurns = 0;
       if (move.id === 'resonance') this.allyShieldTurns = 2;
@@ -219,7 +243,11 @@ export class CombatManager {
     } else {
       const mult = getElementMultiplier(ally.type, enemy.type);
       const pierce = move.effect === 'pierce';
-      const raw = ally.atk * move.power * (this.allyChillTurns > 0 ? 0.8 : 1);
+      const raw =
+        ally.atk *
+        move.power *
+        masteryInfo.powerMultiplier *
+        (this.allyChillTurns > 0 ? 0.8 : 1);
       const dmg = this.calcDamage(raw, enemy.def, mult, enemy.shieldTurns > 0, pierce);
       enemy.hp = Math.max(0, enemy.hp - dmg);
 
@@ -252,6 +280,12 @@ export class CombatManager {
       }
     }
 
+    // Advance move mastery gradually (+10 per combat use)
+    const masteryStep = grantMoveMastery(ally, moveIndex, 10);
+    if (masteryStep.newRank > masteryStep.previousRank) {
+      this.pushLog(`✦ ¡${move.name} alcanza ${masteryStep.newLabel}!`);
+    }
+
     this.checkPulseUnlock();
     if (enemy.hp <= 0) {
       this.handleVictory(state);
@@ -263,6 +297,8 @@ export class CombatManager {
   public executeDefense(state: GameState): void {
     if (!this.battle || this.battle.turn !== 'player') return;
     const ally = state.party[state.activePartyIndex];
+    if (!ally) return;
+    this.participatedUids.add(ally.uid);
     this.tickAllyCooldowns();
     this.allyShieldTurns = 2;
     ally.energy = Math.min(ally.maxEnergy, ally.energy + 4);
@@ -278,6 +314,8 @@ export class CombatManager {
     if (!this.battle || !this.battle.pulseWindowActive || this.battle.turn !== 'player') return;
     const ally = state.party[state.activePartyIndex];
     const enemy = this.battle.enemy;
+    if (!ally) return;
+    this.participatedUids.add(ally.uid);
 
     this.battle.pulseCharge = Math.max(0, this.battle.pulseCharge - 100);
     this.battle.pulseWindowActive = false;
@@ -317,6 +355,8 @@ export class CombatManager {
     if (!this.battle || this.battle.turn !== 'player') return;
     const ally = state.party[state.activePartyIndex];
     const enemy = this.battle.enemy;
+    if (!ally) return;
+    this.participatedUids.add(ally.uid);
 
     if (state.inventory[itemKey] <= 0) {
       this.pushLog('No te quedan unidades de ese objeto.');
@@ -344,7 +384,6 @@ export class CombatManager {
       return;
     }
 
-    // Capture attempt
     if (enemy.isBoss || enemy.isMercenary) {
       this.pushLog('No puedes capturar babosas de jefes o mercenarios.');
       return;
@@ -362,18 +401,18 @@ export class CombatManager {
       const caught = createSlugInstance(enemy.id, enemy.level);
       state.seenSpecies[caught.id] = true;
       state.capturedSpecies[caught.id] = (state.capturedSpecies[caught.id] || 0) + 1;
-      if (state.party.length < 4) {
+      const addedToParty = state.party.length < 4;
+      if (addedToParty) {
         state.party.push(caught);
       } else {
         state.storage.push(caught);
       }
-      this.awardExperience(state, ally, 18 + enemy.level * 4);
+      this.awardExperience(state, ally, 18 + enemy.level * 4, 5);
       this.battle.turn = 'ended';
       this.battle.outcome = 'captured';
-      this.battle.rewardText =
-        state.party.length <= 4
-          ? `¡Capturaste a ${caught.name} (Nv.${caught.level})! Añadida al estuche.`
-          : `¡Capturaste a ${caught.name} (Nv.${caught.level})! Enviada al Refugio.`;
+      this.battle.rewardText = addedToParty
+        ? `¡Capturaste a ${caught.name} (Nv.${caught.level})! Añadida al estuche.`
+        : `¡Capturaste a ${caught.name} (Nv.${caught.level})! Enviada al Refugio.`;
       this.pushEffect({ target: 'enemy', kind: 'capture', text: '¡CAPTURADA!', color: '#4ade80' });
       this.pushLog(this.battle.rewardText);
     } else {
@@ -389,6 +428,8 @@ export class CombatManager {
     const target = state.party[partyIdx];
     if (!target || target.hp <= 0 || partyIdx === state.activePartyIndex) return;
     state.activePartyIndex = partyIdx;
+    ensureSlugProgressionFields(target);
+    this.participatedUids.add(target.uid);
     this.allyShieldTurns = 0;
     this.allyBurnTurns = 0;
     this.allyChillTurns = 0;
@@ -432,7 +473,6 @@ export class CombatManager {
     const enemy = this.battle.enemy;
     let ally = state.party[state.activePartyIndex];
 
-    // Burn DOT on enemy
     if (enemy.burnTurns > 0) {
       const burnDmg = Math.max(3, Math.round(enemy.maxHp * 0.08));
       enemy.hp = Math.max(0, enemy.hp - burnDmg);
@@ -456,7 +496,6 @@ export class CombatManager {
       return;
     }
 
-    // Enemy AI Strategy
     const hpPct = enemy.hp / enemy.maxHp;
     if (enemy.telegraphing === 'heavy') {
       enemy.telegraphing = null;
@@ -500,10 +539,11 @@ export class CombatManager {
       if (nextIdx >= 0) {
         state.activePartyIndex = nextIdx;
         ally = state.party[nextIdx];
+        ensureSlugProgressionFields(ally);
+        this.participatedUids.add(ally.uid);
         this.allyShieldTurns = 0;
         this.pushLog(`¡${ally.name} entra al combate para reemplazar a tu compañera debilitada!`);
       } else {
-        // Defeat: safe retreat to shelter
         state.player.hp = Math.max(20, Math.round(state.player.maxHp * 0.5));
         state.party.forEach((s) => {
           s.hp = Math.max(5, Math.round(s.maxHp * 0.35));
@@ -542,7 +582,17 @@ export class CombatManager {
 
     state.stats.wins++;
     const xpGain = (enemy.isBoss ? 85 : enemy.isMercenary ? 45 : 26) + enemy.level * 6;
-    const levelMsgs = this.awardExperience(state, ally, xpGain);
+    const levelMsgs = this.awardExperience(state, ally, xpGain, 6);
+
+    // Award partial XP/bond ONLY to other party slugs that actively entered this battle
+    const partnerXp = Math.max(8, Math.round(xpGain * 0.65));
+    for (const member of state.party) {
+      if (member.uid !== ally.uid && this.participatedUids.has(member.uid)) {
+        const subMsgs = awardSlugExperience(state, member, partnerXp, { bondDelta: 4 });
+        levelMsgs.push(...subMsgs);
+      }
+    }
+
     state.player.xp += Math.round(xpGain * 0.5);
 
     let rewardText = `+${xpGain} EXP para ${ally.name}.`;
@@ -574,38 +624,22 @@ export class CombatManager {
     this.pushLog(rewardText);
   }
 
-  public awardExperience(state: GameState, slug: SlugInstance, amount: number): string[] {
-    const msgs: string[] = [];
-    slug.xp += amount;
-    slug.bond = Math.min(100, slug.bond + 6);
-    while (slug.xp >= slug.level * 40) {
-      slug.xp -= slug.level * 40;
-      slug.level++;
-      slug.maxHp += 8;
-      slug.hp = slug.maxHp;
-      slug.maxEnergy += 2;
-      slug.energy = slug.maxEnergy;
-      slug.atk += 3;
-      slug.def += 2;
-      slug.spd += 1;
-      msgs.push(`¡${slug.name} sube al nivel ${slug.level}!`);
-    }
-    if (slug.level >= 5 && slug.bond >= 60 && !slug.mega) {
-      const sp = getSpecies(slug.id);
-      slug.mega = true;
-      slug.name = sp.evoName;
-      slug.maxHp += 22;
-      slug.hp = slug.maxHp;
-      slug.atk += 6;
-      slug.def += 4;
-      state.stats.megaUnlocked++;
-      msgs.push(`¡EVOLUCIÓN MEGAMORPH: ${slug.name}!`);
-    }
-    return msgs;
+  public awardExperience(
+    state: GameState,
+    slug: SlugInstance,
+    amount: number,
+    bondDelta = 6
+  ): string[] {
+    return awardSlugExperience(state, slug, amount, { bondDelta });
+  }
+
+  public getParticipatedUids(): string[] {
+    return Array.from(this.participatedUids);
   }
 
   public closeBattle(): void {
     this.clearPendingTimers();
+    this.participatedUids.clear();
     const cb = this.onBattleEndCallback;
     this.battle = null;
     this.onBattleEndCallback = null;

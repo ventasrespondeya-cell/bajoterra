@@ -17,7 +17,9 @@ import {
 } from '../game/data';
 import { gameEngine } from '../game/engine';
 import { getMoodLabel } from '../game/home';
-import type { FurnitureKind, HabitatId, HudSnapshot, InventoryKey } from '../game/types';
+import { checkMegamorphEligibility, getBondTierInfo } from '../game/progression';
+import type { FurnitureKind, GameState, HabitatId, HudSnapshot, InventoryKey } from '../game/types';
+import { SlugDetailPanel } from './SlugDetailPanel';
 
 export type ExpeditionTabKey = 'taller' | 'criaturas' | 'hogar' | 'babosapedia' | 'misiones';
 
@@ -62,9 +64,22 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
   const [parentB, setParentB] = useState<string>('');
   const [swapTargetPartyIdx, setSwapTargetPartyIdx] = useState<number>(0);
   const [assignPick, setAssignPick] = useState<Partial<Record<HabitatId, string>>>({});
+  const [inspectedSlugUid, setInspectedSlugUid] = useState<string | null>(null);
 
   const allSlugs = [...snap.party, ...snap.storage];
   const capturedCount = Object.keys(snap.capturedSpecies).length;
+
+  const inspectedEntry = inspectedSlugUid
+    ? (() => {
+        const p = snap.party.find((s) => s.uid === inspectedSlugUid);
+        if (p) return { slug: p, location: 'Estuche Activo' };
+        const st = snap.storage.find((s) => s.uid === inspectedSlugUid);
+        if (st) return { slug: st, location: 'Reserva del Refugio' };
+        const hm = snap.home.residents.find((r) => r.slug.uid === inspectedSlugUid);
+        if (hm) return { slug: hm.slug, location: 'Hogar Viviente' };
+        return null;
+      })()
+    : null;
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-3 md:p-6 bg-[#040a10]/85">
@@ -175,44 +190,75 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   Estuche Activo (Máx. 4) — Haz clic para marcar ranura de intercambio
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {snap.party.map((s, idx) => (
-                    <div
-                      key={s.uid}
-                      onClick={() => setSwapTargetPartyIdx(idx)}
-                      className={`p-3 rounded-xl border cursor-pointer transition-colors ${
-                        swapTargetPartyIdx === idx
-                          ? 'bg-cyan-500/15 border-cyan-400'
-                          : 'bg-[#0f1f2d] border-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="font-bold text-sm text-white">
-                          {s.icon} {s.name} {s.mega ? '★ Megamorph' : ''}
+                  {snap.party.map((s, idx) => {
+                    const bondTier = getBondTierInfo(s.bond);
+                    const megaCheck = checkMegamorphEligibility(
+                      { inventory: snap.inventory } as unknown as GameState,
+                      s
+                    );
+                    return (
+                      <div
+                        key={s.uid}
+                        onClick={() => setSwapTargetPartyIdx(idx)}
+                        className={`p-3 rounded-xl border cursor-pointer transition-colors ${
+                          swapTargetPartyIdx === idx
+                            ? 'bg-cyan-500/15 border-cyan-400'
+                            : 'bg-[#0f1f2d] border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="font-bold text-sm text-white">
+                            {s.icon} {s.name} {s.mega ? '★ Megamorph' : ''}
+                          </div>
+                          <span className="text-xs text-slate-300 tabular-nums">Nv.{s.level}</span>
                         </div>
-                        <span className="text-xs text-slate-300 tabular-nums">Nv.{s.level}</span>
+                        <div className="text-[11px] text-slate-300 mt-1 tabular-nums">
+                          {s.type} · {s.rarity} · PS {s.hp}/{s.maxHp} · ATQ {s.atk} · DEF {s.def} · VEL {s.spd}
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 mt-2 text-[11px]">
+                          <span style={{ color: bondTier.color }}>
+                            ♥ {s.bond}/100 ({bondTier.label}){s.bonusTrait ? ` · ${s.bonusTrait}` : ''}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {megaCheck.eligible && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  gameEngine.evolveSlugToMegamorph(s.uid);
+                                }}
+                                className="px-2 py-1 rounded bg-amber-400 text-slate-950 font-extrabold text-[11px] hover:bg-amber-300 cursor-pointer"
+                              >
+                                Megamorph
+                              </button>
+                            )}
+                            {snap.inventory.elixirs > 0 && !s.mega && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  gameEngine.useElixirOnSlug(s.uid);
+                                }}
+                                className="px-2 py-1 rounded bg-purple-500 text-white font-bold text-[11px] hover:bg-purple-400 cursor-pointer"
+                              >
+                                Elixir ({snap.inventory.elixirs})
+                              </button>
+                            )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setInspectedSlugUid(s.uid);
+                              }}
+                              className="px-2 py-1 rounded bg-slate-800 border border-slate-600 text-cyan-200 font-bold text-[11px] hover:border-cyan-400 cursor-pointer"
+                            >
+                              Ficha
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-[11px] text-slate-300 mt-1 tabular-nums">
-                        {s.type} · {s.rarity} · PS {s.hp}/{s.maxHp} · ATQ {s.atk} · DEF {s.def} · VEL {s.spd}
-                      </div>
-                      <div className="flex items-center justify-between mt-2 text-[11px]">
-                        <span className="text-amber-300">Amistad: {s.bond}/100 {s.bonusTrait ? `· ${s.bonusTrait}` : ''}</span>
-                        {snap.inventory.elixirs > 0 && !s.mega && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              gameEngine.useElixirOnSlug(s.uid);
-                            }}
-                            className="px-2.5 py-1 rounded bg-purple-500 text-white font-bold text-[11px] hover:bg-purple-400 cursor-pointer"
-                          >
-                            Usar Elixir ({snap.inventory.elixirs})
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <p className="text-[11px] text-slate-400 mt-2">
-                  Evolución Megamorph automática al alcanzar Nivel 5 y 60 de Amistad.
+                  Evolución Megamorph intencional desde la Ficha de babosa: requiere Nivel 5+, Amistad 60+ y 1 Elixir o Reliquia.
                 </p>
               </div>
 
@@ -293,26 +339,34 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {snap.storage.map((s) => (
-                      <div key={s.uid} className="bg-[#0f1f2d] border border-slate-700 rounded-lg p-2.5 flex items-center justify-between">
-                        <div className="text-xs">
-                          <div className="font-bold text-white">
+                      <div key={s.uid} className="bg-[#0f1f2d] border border-slate-700 rounded-lg p-2.5 flex items-center justify-between gap-1.5">
+                        <div className="text-xs min-w-0">
+                          <div className="font-bold text-white truncate">
                             {s.icon} {s.name} Nv.{s.level}
                           </div>
-                          <div className="text-slate-400">
-                            {s.type} · {s.bonusTrait || s.rarity}
+                          <div className="text-slate-400 truncate">
+                            {s.type} · ♥{s.bond} {s.bonusTrait ? `· ${s.bonusTrait}` : ''}
                           </div>
                         </div>
-                        <button
-                          onClick={() =>
-                            gameEngine.swapPartyAndStorage(
-                              snap.party.length < 4 ? -1 : swapTargetPartyIdx,
-                              s.uid
-                            )
-                          }
-                          className="px-2.5 py-1.5 rounded bg-cyan-500/20 border border-cyan-400/50 text-cyan-200 text-[11px] font-bold cursor-pointer"
-                        >
-                          {snap.party.length < 4 ? 'Añadir' : 'Cambiar'}
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => setInspectedSlugUid(s.uid)}
+                            className="px-2 py-1.5 rounded bg-slate-800 border border-slate-600 text-slate-200 text-[11px] font-bold hover:border-cyan-400 cursor-pointer"
+                          >
+                            Ficha
+                          </button>
+                          <button
+                            onClick={() =>
+                              gameEngine.swapPartyAndStorage(
+                                snap.party.length < 4 ? -1 : swapTargetPartyIdx,
+                                s.uid
+                              )
+                            }
+                            className="px-2.5 py-1.5 rounded bg-cyan-500/20 border border-cyan-400/50 text-cyan-200 text-[11px] font-bold cursor-pointer"
+                          >
+                            {snap.party.length < 4 ? 'Añadir' : 'Cambiar'}
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -514,6 +568,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                           <div className="space-y-2 pt-1">
                             {residents.map((res) => {
                               const fav = getFavoriteFoodForSpecies(res.slug.id);
+                              const bondTier = getBondTierInfo(res.slug.bond);
                               return (
                                 <div
                                   key={res.slug.uid}
@@ -521,12 +576,22 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                 >
                                   <div className="flex items-center justify-between gap-2">
                                     <div className="font-bold text-white">
-                                      {res.slug.icon} {res.slug.name} ·{' '}
-                                      <span className="text-amber-300">Amistad {res.slug.bond}/100</span>
+                                      {res.slug.icon} {res.slug.name} · Nv.{res.slug.level} ·{' '}
+                                      <span style={{ color: bondTier.color }}>
+                                        ♥ {res.slug.bond}/100 ({bondTier.label})
+                                      </span>
                                     </div>
-                                    <span className="px-2 py-0.5 rounded bg-slate-800 text-[11px] font-bold text-cyan-200">
-                                      {getMoodLabel(res.mood)}
-                                    </span>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => setInspectedSlugUid(res.slug.uid)}
+                                        className="px-2 py-0.5 rounded bg-slate-800 border border-slate-600 text-[11px] font-bold text-cyan-200 hover:border-cyan-400 cursor-pointer"
+                                      >
+                                        Ficha
+                                      </button>
+                                      <span className="px-2 py-0.5 rounded bg-slate-800 text-[11px] font-bold text-cyan-200">
+                                        {getMoodLabel(res.mood)}
+                                      </span>
+                                    </div>
                                   </div>
 
                                   <div className="grid grid-cols-3 gap-2 text-[10px]">
@@ -769,6 +834,14 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
           )}
         </div>
       </div>
+      {inspectedEntry && (
+        <SlugDetailPanel
+          slug={inspectedEntry.slug}
+          snap={snap}
+          locationLabel={inspectedEntry.location}
+          onClose={() => setInspectedSlugUid(null)}
+        />
+      )}
     </div>
   );
 };

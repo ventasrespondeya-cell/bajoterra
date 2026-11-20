@@ -215,6 +215,16 @@ const {
   updateHomeResidents,
   validateShelterRooms,
 } = await import('../src/game/home.ts');
+const {
+  MAX_SLUG_LEVEL,
+  awardSlugExperience,
+  checkMegamorphEligibility,
+  getBondTierInfo,
+  getEffectiveMoveEnergyCost,
+  getMoveMasteryInfo,
+  grantMoveMastery,
+  grantSlugBond,
+} = await import('../src/game/progression.ts');
 const { TileType } = await import('../src/game/types.ts');
 
 beforeEach(() => {
@@ -1179,3 +1189,320 @@ describe('Bajoterra 4.0 — FASE 3: Hogar Viviente y Babosas Compañeras', () =>
     cm.closeBattle();
   });
 });
+
+describe('Bajoterra 4.0 — PARTE A3: Correcciones Obligatorias de FASE 3', () => {
+  test('A3.1 Colisiones reales con los 4 tipos de mobiliario, descanso adyacente y reapertura de ruta al recoger', () => {
+    gameEngine.startNewGame();
+    const slug = createSlugInstance('musgacorn', 2);
+    gameEngine.state.storage.push(slug);
+    assert.equal(gameEngine.assignSlugToHome(slug.uid, 'habitat_garden'), true);
+
+    gameEngine.state.inventory.bed = 1;
+    gameEngine.state.inventory.feeder = 1;
+    gameEngine.state.inventory.nest = 1;
+    gameEngine.state.inventory.decor = 1;
+
+    const tiles: Array<{ kind: 'bed' | 'feeder' | 'nest' | 'decor'; x: number; y: number }> = [
+      { kind: 'bed', x: SPAWN_X + 1, y: SPAWN_Y },
+      { kind: 'feeder', x: SPAWN_X + 2, y: SPAWN_Y },
+      { kind: 'nest', x: SPAWN_X - 1, y: SPAWN_Y },
+      { kind: 'decor', x: SPAWN_X, y: SPAWN_Y - 1 },
+    ];
+
+    for (const item of tiles) {
+      gameEngine.chunks.setTile(item.x, item.y, TileType.BUILT_FLOOR);
+      assert.equal(gameEngine.placeFurnitureAt(item.kind, item.x, item.y), true);
+      assert.equal(
+        canHomeSlugWalk(gameEngine.chunks, 'musgacorn', item.x, item.y, gameEngine.state.home!.furniture),
+        false,
+        `La babosa no debe atravesar ${item.kind}`
+      );
+    }
+
+    // Tired resident targeting restSpot picks an adjacent walkable tile, never the bed tile itself
+    const res = gameEngine.state.home!.residents[0];
+    res.x = SPAWN_X;
+    res.y = SPAWN_Y + 1;
+    res.energy = 15;
+    res.behaviorTimer = 0;
+    updateHomeResidents(0.05, gameEngine.state, gameEngine.chunks, gameEngine.getRoomValidations(true), true);
+    assert.equal(
+      canHomeSlugWalk(gameEngine.chunks, res.slug.id, res.targetX, res.targetY, gameEngine.state.home!.furniture),
+      true
+    );
+    assert.equal(
+      gameEngine.state.home!.furniture.some(
+        (f) => f.x === Math.round(res.targetX) && f.y === Math.round(res.targetY)
+      ),
+      false
+    );
+
+    // Picking up furniture immediately reopens the tile for walking
+    assert.equal(gameEngine.pickupFurnitureAt(SPAWN_X + 1, SPAWN_Y), true);
+    assert.equal(
+      canHomeSlugWalk(gameEngine.chunks, 'musgacorn', SPAWN_X + 1, SPAWN_Y, gameEngine.state.home!.furniture),
+      true
+    );
+  });
+
+  test('A3.2 Validación estricta de home en validateV4State (hábitats, límites, refugio y compatibilidad)', () => {
+    const buildResident = (slug: ReturnType<typeof createSlugInstance>, habitatId: string, x = SPAWN_X, y = SPAWN_Y) => ({
+      slug,
+      habitatId,
+      x,
+      y,
+      targetX: x,
+      targetY: y,
+      behavior: 'pasear' as const,
+      behaviorTimer: 2,
+      mood: 'tranquila' as const,
+      hunger: 80,
+      energy: 80,
+      happiness: 80,
+      lastPetAt: -100,
+      lastPlayAt: -100,
+      lastFeedAt: -100,
+    });
+
+    // 1) Incompatible species/habitat rejected
+    const badHab = createInitialGameState();
+    badHab.home = {
+      residents: [buildResident(createSlugInstance('aquabeak', 1), 'habitat_thermal') as never],
+      furniture: [],
+      lastNeedsTickSec: 0,
+    };
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badHab)).ok, false);
+
+    // 2) More than 2 residents in same habitat rejected
+    const tooManyHab = createInitialGameState();
+    tooManyHab.home = {
+      residents: [
+        buildResident(createSlugInstance('infurnus', 1), 'habitat_thermal'),
+        buildResident(createSlugInstance('flaringo', 1), 'habitat_thermal'),
+        buildResident(createSlugInstance('piroclasto', 1), 'habitat_thermal'),
+      ] as never,
+      furniture: [],
+      lastNeedsTickSec: 0,
+    };
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(tooManyHab)).ok, false);
+
+    // 3) Resident outside shelter radius rejected
+    const outRes = createInitialGameState();
+    outRes.home = {
+      residents: [buildResident(createSlugInstance('infurnus', 1), 'habitat_thermal', SPAWN_X + 40, SPAWN_Y) as never],
+      furniture: [],
+      lastNeedsTickSec: 0,
+    };
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(outRes)).ok, false);
+
+    // 4) Furniture outside shelter radius rejected
+    const outFurn = createInitialGameState();
+    outFurn.home = {
+      residents: [],
+      furniture: [{ id: 'f_out', kind: 'bed', x: SPAWN_X - 30, y: SPAWN_Y }],
+      lastNeedsTickSec: 0,
+    };
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(outFurn)).ok, false);
+
+    // 5) More than 32 furniture items rejected
+    const tooManyFurn = createInitialGameState();
+    tooManyFurn.home = {
+      residents: [],
+      furniture: Array.from({ length: 33 }, (_, i) => ({
+        id: `f_${i}`,
+        kind: 'decor',
+        x: SPAWN_X - 10 + (i % 11),
+        y: SPAWN_Y - 10 + Math.floor(i / 11),
+      })),
+      lastNeedsTickSec: 0,
+    };
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(tooManyFurn)).ok, false);
+  });
+});
+
+describe('Bajoterra 4.0 — FASE 4: Vínculos, Maestría y Evolución de Babosas', () => {
+  test('F4.1 Niveles, EXP unificada, tope de nivel y estadísticas controladas', () => {
+    const state = createInitialGameState();
+    const slug = state.party[0];
+    const baseAtk = slug.atk;
+    const baseHp = slug.maxHp;
+
+    const msgs = awardSlugExperience(state, slug, 40, { bondDelta: 0 });
+    assert.equal(slug.level, 2);
+    assert.equal(slug.atk, baseAtk + 3);
+    assert.equal(slug.maxHp, baseHp + 8);
+    assert.ok(msgs.some((m) => m.includes('nivel 2')));
+
+    // Level cap is respected cleanly
+    awardSlugExperience(state, slug, 999999, { bondDelta: 0 });
+    assert.equal(slug.level, MAX_SLUG_LEVEL);
+    assert.equal(slug.xp, 0);
+  });
+
+  test('F4.2 Solo las babosas participantes en el combate ganan EXP y vínculo de batalla', () => {
+    const state = createInitialGameState();
+    const slug0XpBefore = state.party[0].xp;
+    const slug1XpBefore = state.party[1].xp;
+    const slug2XpBefore = state.party[2].xp;
+    const slug2BondBefore = state.party[2].bond;
+
+    const cm = new CombatManager();
+    cm.startBattle(state, { kind: 'wild', speciesId: 'musgacorn', level: 1 });
+    // Swap from party[0] to party[1]; party[2] never participates
+    cm.swapSlug(state, 1);
+    cm.resolveEnemyTurn(state);
+    cm.battle!.enemy.hp = 1;
+    cm.executeNormalAttack(state); // finishes battle with party[1]
+
+    assert.equal(cm.battle?.outcome, 'victory');
+    assert.ok(state.party[1].xp > slug1XpBefore || state.party[1].level > 1);
+    assert.ok(state.party[0].xp > slug0XpBefore || state.party[0].level > 1);
+    assert.equal(state.party[2].xp, slug2XpBefore);
+    assert.equal(state.party[2].bond, slug2BondBefore);
+    cm.closeBattle();
+  });
+
+  test('F4.3 Niveles de vínculo, conservación entre estuche/reserva/hogar e hito de pasos', () => {
+    assert.equal(getBondTierInfo(10).label, 'Conocidos');
+    assert.equal(getBondTierInfo(30).label, 'Confianza');
+    assert.equal(getBondTierInfo(55).label, 'Amistad');
+    assert.equal(getBondTierInfo(80).label, 'Gran amistad');
+    assert.equal(getBondTierInfo(100).label, 'Vínculo excepcional');
+
+    gameEngine.startNewGame();
+    const s = createSlugInstance('aquabeak', 2);
+    s.bond = 48;
+    gameEngine.state.storage.push(s);
+    assert.equal(gameEngine.assignSlugToHome(s.uid, 'habitat_aquatic'), true);
+    gameEngine.state.playTimeSec = 100;
+    assert.equal(gameEngine.petHomeSlug(s.uid), true);
+    const residentBond = gameEngine.state.home!.residents[0].slug.bond;
+    assert.ok(residentBond >= 51);
+    assert.equal(gameEngine.withdrawSlugFromHome(s.uid), true);
+    const back = gameEngine.state.storage.find((x) => x.uid === s.uid)!;
+    assert.equal(back.bond, residentBond);
+
+    // Exploration step milestone awards +1 bond & +4 XP every 60 steps
+    const active = gameEngine.state.party[gameEngine.state.activePartyIndex];
+    const b0 = active.bond;
+    const x0 = active.xp;
+    gameEngine.state.stats.steps = 59.8;
+    const engInternal = gameEngine as unknown as {
+      keysHeld: Set<string>;
+      updatePlayerMovement: (dt: number) => void;
+    };
+    engInternal.keysHeld.clear();
+    engInternal.keysHeld.add('s');
+    engInternal.updatePlayerMovement(0.05);
+    engInternal.keysHeld.clear();
+    assert.ok(gameEngine.state.stats.steps >= 60);
+    assert.equal(active.bond, b0 + 1);
+    assert.equal(active.xp, x0 + 4);
+  });
+
+  test('F4.4 Maestría de técnicas progresa, mejora potencia/coste y no rompe el equilibrio', () => {
+    const state = createInitialGameState();
+    const ally = state.party[0]; // Infurnus: move 1 Fulgor Solar base cost 7
+    const move0InfoBefore = getMoveMasteryInfo(ally.moveMastery?.[0] ?? 0);
+    assert.equal(move0InfoBefore.rank, 0);
+
+    grantMoveMastery(ally, 1, 100);
+    assert.equal(getMoveMasteryInfo(ally.moveMastery?.[1] ?? 0).rank, 3);
+    assert.equal(getEffectiveMoveEnergyCost(7, ally.moveMastery?.[1] ?? 0), 6);
+
+    const cm = new CombatManager();
+    cm.startBattle(state, { kind: 'wild', speciesId: 'frostcrawler', level: 1 });
+    const startMastery0 = ally.moveMastery?.[0] ?? 0;
+    cm.executeSpecialMove(state, 0);
+    assert.equal(ally.moveMastery?.[0], startMastery0 + 10);
+    cm.closeBattle();
+  });
+
+  test('F4.5 Evolución Megamorph intencional: requisitos claros, sin disparo automático y conservando UID/especie/atributos', () => {
+    gameEngine.startNewGame();
+    const slug = gameEngine.state.party[0];
+    const origUid = slug.uid;
+    const origSpecies = slug.id;
+
+    // Reaching level 5 and bond 60 via XP does NOT silently auto-evolve anymore
+    awardSlugExperience(gameEngine.state, slug, 500, { bondDelta: 45 });
+    assert.ok(slug.level >= 5);
+    assert.ok(slug.bond >= 60);
+    assert.equal(slug.mega, false);
+
+    // Without elixir or relic, evolution cannot trigger
+    gameEngine.state.inventory.elixirs = 0;
+    gameEngine.state.inventory.relics = 0;
+    assert.equal(checkMegamorphEligibility(gameEngine.state, slug).eligible, false);
+    assert.equal(gameEngine.evolveSlugToMegamorph(slug.uid), false);
+    assert.equal(slug.mega, false);
+
+    // Granting 1 Elixir allows intentional Megamorph evolution
+    gameEngine.state.inventory.elixirs = 1;
+    grantMoveMastery(slug, 0, 35);
+    const atkBefore = slug.atk;
+    assert.equal(checkMegamorphEligibility(gameEngine.state, slug).eligible, true);
+    assert.equal(gameEngine.evolveSlugToMegamorph(slug.uid), true);
+
+    assert.equal(slug.mega, true);
+    assert.equal(slug.uid, origUid);
+    assert.equal(slug.id, origSpecies);
+    assert.equal(slug.name, getSpecies(origSpecies).evoName);
+    assert.equal(slug.atk, atkBefore + 6);
+    assert.equal(slug.moveMastery?.[0], 35);
+    assert.equal(gameEngine.state.inventory.elixirs, 0);
+    assert.equal(gameEngine.state.stats.megaUnlocked, 1);
+
+    // Cannot evolve twice
+    gameEngine.state.inventory.relics = 2;
+    assert.equal(gameEngine.evolveSlugToMegamorph(slug.uid), false);
+  });
+
+  test('F4.6 Rasgos individuales equilibrados y compatibilidad sin apilamiento en crías', () => {
+    const state = createInitialGameState();
+    const wild = createSlugInstance('lariat', 1);
+    assert.equal(wild.bonusTrait, undefined);
+    awardSlugExperience(state, wild, 400, { bondDelta: 0 }); // reaches Lv >= 4
+    assert.ok(wild.bonusTrait);
+    const earnedTrait = wild.bonusTrait;
+    grantSlugBond(wild, 60); // raising bond later does not overwrite or stack a second trait
+    assert.equal(wild.bonusTrait, earnedTrait);
+
+    // Bred slug keeps its breeding trait intact
+    const bred = createSlugInstance('infurnus', 1, { isBred: true, bonusTrait: 'Potencia +' });
+    awardSlugExperience(state, bred, 500, { bondDelta: 40 });
+    assert.equal(bred.isBred, true);
+    assert.equal(bred.bonusTrait, 'Potencia +');
+  });
+
+  test('F4.7 Guardado/carga completo de progresión FASE 4 y compatibilidad con partidas previas', async () => {
+    const rich = createInitialGameState();
+    const s = rich.party[0];
+    awardSlugExperience(rich, s, 500, { bondDelta: 50 });
+    grantMoveMastery(s, 0, 55);
+    grantMoveMastery(s, 1, 25);
+    rich.inventory.relics = 1;
+    assert.equal(gameEngine.state.version, '4.0');
+    const savedBefore = await saveGameV4(rich, { reason: 'manual' });
+    assert.equal(savedBefore.ok, true);
+
+    const loaded = await loadGameV4();
+    assert.ok(loaded);
+    assert.deepEqual(loaded.party[0].moveMastery, [55, 25]);
+    assert.equal(loaded.party[0].bonusTrait, s.bonusTrait);
+    assert.equal(loaded.party[0].bond, s.bond);
+
+    // Pre-FASE-4 V4 save without moveMastery normalizes safely to [0, 0]
+    const preF4 = JSON.parse(JSON.stringify(rich));
+    delete preF4.party[0].moveMastery;
+    const parsedPre = parseImportedJsonSaveDetailed(JSON.stringify(preF4));
+    assert.equal(parsedPre.ok, true);
+    assert.deepEqual(parsedPre.state?.party[0].moveMastery, [0, 0]);
+
+    // Invalid moveMastery (> 100) is rejected cleanly
+    const corruptMastery = JSON.parse(JSON.stringify(rich));
+    corruptMastery.party[0].moveMastery = [150, 0];
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(corruptMastery)).ok, false);
+  });
+});
+

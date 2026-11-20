@@ -136,6 +136,7 @@ export interface SlugInstance {
   mega: boolean;
   isBred?: boolean;
   bonusTrait?: string;
+  moveMastery?: [number, number];
 }
 
 export interface BreedingEgg {
@@ -340,6 +341,7 @@ export interface HomeSlugEntry {
   lastPetAt: number; // playTimeSec
   lastPlayAt: number; // playTimeSec
   lastFeedAt: number; // playTimeSec
+  lastGreetAt?: number; // transient playTimeSec greeting cooldown
   reactionText?: string;
   reactionTimer?: number;
 }

@@ -3,6 +3,7 @@ import {
   HABITAT_DEFS,
   HOME_FOOD_DEFS,
   MAX_ACTIVE_HOME_SLUGS,
+  MAX_HOME_FURNITURE,
   MAX_SLUGS_PER_HABITAT,
   SHELTER_HOME_RADIUS,
   SPAWN_X,
@@ -12,18 +13,22 @@ import {
   isSpeciesCompatibleWithHabitat,
 } from './data';
 import {
+  awardSlugExperience,
+  ensureSlugProgressionFields,
+  grantMoveMastery,
+  grantSlugBond,
+} from './progression';
+import {
   TileType,
   type FurnitureKind,
   type GameState,
   type HabitatId,
-  type HomeBehavior,
   type HomeFurniture,
   type HomeMood,
   type HomeSlugEntry,
   type HomeState,
   type InventoryKey,
   type RoomValidationInfo,
-  type SlugInstance,
 } from './types';
 import { ChunkManager, isTileSolid } from './world';
 
@@ -66,7 +71,13 @@ export function isInShelterZone(x: number, y: number): boolean {
   return Math.abs(x - SPAWN_X) <= SHELTER_HOME_RADIUS && Math.abs(y - SPAWN_Y) <= SHELTER_HOME_RADIUS;
 }
 
-export function canHomeSlugWalk(chunks: ChunkManager, speciesId: string, x: number, y: number): boolean {
+export function canHomeSlugWalk(
+  chunks: ChunkManager,
+  speciesId: string,
+  x: number,
+  y: number,
+  furniture: HomeFurniture[] = []
+): boolean {
   if (!isInShelterZone(x, y)) return false;
   const sp = getSpecies(speciesId);
   const cxCenter = x + 0.5;
@@ -79,35 +90,104 @@ export function canHomeSlugWalk(chunks: ChunkManager, speciesId: string, x: numb
     [cxCenter + r, cyCenter + r],
   ];
   for (const [px, py] of pts) {
-    const t = chunks.getTile(Math.floor(px), Math.floor(py));
+    const tx = Math.floor(px);
+    const ty = Math.floor(py);
+    const t = chunks.getTile(tx, ty);
     if (isTileSolid(t)) return false;
     if (t === TileType.WATER && sp.type !== 'Agua') return false;
     if (t === TileType.LAVA && sp.type !== 'Fuego') return false;
+    if (furniture.length > 0 && furniture.some((f) => f.x === tx && f.y === ty)) {
+      return false;
+    }
   }
   return true;
+}
+
+function findAdjacentWalkableTile(
+  chunks: ChunkManager,
+  speciesId: string,
+  tx: number,
+  ty: number,
+  furniture: HomeFurniture[]
+): { x: number; y: number } | null {
+  const offsets = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [-1, 1],
+    [1, -1],
+    [-1, -1],
+  ];
+  for (const [dx, dy] of offsets) {
+    const nx = tx + dx;
+    const ny = ty + dy;
+    if (canHomeSlugWalk(chunks, speciesId, nx, ny, furniture)) {
+      return { x: nx, y: ny };
+    }
+  }
+  return null;
 }
 
 function findSpawnSpotNearAnchor(
   chunks: ChunkManager,
   speciesId: string,
   anchorX: number,
-  anchorY: number
+  anchorY: number,
+  furniture: HomeFurniture[] = []
 ): { x: number; y: number } {
-  if (canHomeSlugWalk(chunks, speciesId, anchorX, anchorY)) {
+  if (canHomeSlugWalk(chunks, speciesId, anchorX, anchorY, furniture)) {
     return { x: anchorX, y: anchorY };
   }
-  for (let rad = 1; rad <= 5; rad++) {
+  for (let rad = 1; rad <= 8; rad++) {
     for (let dy = -rad; dy <= rad; dy++) {
       for (let dx = -rad; dx <= rad; dx++) {
         const tx = anchorX + dx;
         const ty = anchorY + dy;
-        if (canHomeSlugWalk(chunks, speciesId, tx, ty)) {
+        if (canHomeSlugWalk(chunks, speciesId, tx, ty, furniture)) {
           return { x: tx, y: ty };
         }
       }
     }
   }
   return { x: SPAWN_X, y: SPAWN_Y };
+}
+
+function refreshResidentsAfterFurnitureChange(
+  home: HomeState,
+  chunks: ChunkManager,
+  placedAt?: { x: number; y: number }
+): void {
+  for (const r of home.residents) {
+    if (placedAt) {
+      const standingOnPlaced =
+        Math.floor(r.x + 0.5) === placedAt.x && Math.floor(r.y + 0.5) === placedAt.y;
+      if (standingOnPlaced || !canHomeSlugWalk(chunks, r.slug.id, r.x, r.y, home.furniture)) {
+        const safe = findSpawnSpotNearAnchor(
+          chunks,
+          r.slug.id,
+          Math.round(r.x),
+          Math.round(r.y),
+          home.furniture
+        );
+        r.x = safe.x;
+        r.y = safe.y;
+        r.targetX = safe.x;
+        r.targetY = safe.y;
+      }
+      const targetOnPlaced =
+        Math.floor(r.targetX + 0.5) === placedAt.x && Math.floor(r.targetY + 0.5) === placedAt.y;
+      if (targetOnPlaced || !canHomeSlugWalk(chunks, r.slug.id, r.targetX, r.targetY, home.furniture)) {
+        r.targetX = r.x;
+        r.targetY = r.y;
+        r.behaviorTimer = 0;
+      }
+    } else {
+      // Furniture removed: immediately allow choosing new routes through reopened space
+      r.behaviorTimer = 0;
+    }
+  }
 }
 
 function isRoomBoundaryTile(tile: TileType): boolean {
@@ -283,7 +363,6 @@ export function validateShelterRooms(chunks: ChunkManager, home: HomeState): Roo
     };
   };
 
-  // Find all closed interior components inside the bounded region
   let nextRoomNum = 1;
   for (let ty = minY + 1; ty < maxY; ty++) {
     for (let tx = minX + 1; tx < maxX; tx++) {
@@ -324,7 +403,6 @@ export function validateShelterRooms(chunks: ChunkManager, home: HomeState): Roo
     }
   }
 
-  // Detect open/breached BUILT_FLOOR shelter zones that leaked to exterior
   const visitedLeaked = new Uint8Array(width * height);
   for (let ty = minY + 1; ty < maxY; ty++) {
     for (let tx = minX + 1; tx < maxX; tx++) {
@@ -353,7 +431,6 @@ export function validateShelterRooms(chunks: ChunkManager, home: HomeState): Roo
           const ni = idx(nx, ny);
           if (!exterior[ni] || visitedLeaked[ni]) continue;
           const nt = chunks.getTile(nx, ny);
-          if (nt !== TileType.BUILT_FLOOR && nt !== TileType.TORCH && !isTileSolid(nt)) continue;
           if (nt !== TileType.BUILT_FLOOR && nt !== TileType.TORCH) continue;
           visitedLeaked[ni] = 1;
           stack.push(ni);
@@ -366,7 +443,6 @@ export function validateShelterRooms(chunks: ChunkManager, home: HomeState): Roo
     }
   }
 
-  // Sort main shelter room first
   rooms.sort((a, b) => (a.id === 'room_main' ? -1 : b.id === 'room_main' ? 1 : b.tileCount - a.tileCount));
   return rooms.slice(0, 6);
 }
@@ -375,8 +451,7 @@ export function getShelterComfortAverage(rooms: RoomValidationInfo[], home: Home
   if (rooms.length === 0) {
     return Math.min(40, home.furniture.length * 10);
   }
-  const best = rooms.reduce((acc, r) => Math.max(acc, r.comfortScore), 0);
-  return best;
+  return rooms.reduce((acc, r) => Math.max(acc, r.comfortScore), 0);
 }
 
 export interface HomeActionResult {
@@ -424,9 +499,9 @@ export function assignSlugToHabitat(
     };
   }
 
-  // Move cleanly out of storage into home.residents (no duplication)
   const [moved] = state.storage.splice(sIdx, 1);
-  const spot = findSpawnSpotNearAnchor(chunks, moved.id, habDef.anchorX, habDef.anchorY);
+  ensureSlugProgressionFields(moved);
+  const spot = findSpawnSpotNearAnchor(chunks, moved.id, habDef.anchorX, habDef.anchorY, home.furniture);
   const entry: HomeSlugEntry = {
     slug: moved,
     habitatId,
@@ -462,6 +537,7 @@ export function withdrawSlugFromHome(state: GameState, slugUid: string): HomeAct
     return { ok: false, message: 'No se encontró esa babosa en el hogar.' };
   }
   const [removed] = home.residents.splice(idx, 1);
+  ensureSlugProgressionFields(removed.slug);
   state.storage.push(removed.slug);
   return {
     ok: true,
@@ -487,7 +563,13 @@ export function moveHomeSlugToHabitat(
     return { ok: false, message: `${habDef.name} ya está completo.` };
   }
   resident.habitatId = targetHabitatId;
-  const spot = findSpawnSpotNearAnchor(chunks, resident.slug.id, habDef.anchorX, habDef.anchorY);
+  const spot = findSpawnSpotNearAnchor(
+    chunks,
+    resident.slug.id,
+    habDef.anchorX,
+    habDef.anchorY,
+    home.furniture
+  );
   resident.x = spot.x;
   resident.y = spot.y;
   resident.targetX = spot.x;
@@ -519,7 +601,7 @@ export function placeHomeFurniture(
   if (home.furniture.some((f) => f.x === tx && f.y === ty)) {
     return { ok: false, message: 'Ya hay un mueble colocado en esa casilla.' };
   }
-  if (home.furniture.length >= 32) {
+  if (home.furniture.length >= MAX_HOME_FURNITURE) {
     return { ok: false, message: 'Límite de mobiliario alcanzado en el refugio.' };
   }
 
@@ -531,13 +613,14 @@ export function placeHomeFurniture(
     y: ty,
   };
   home.furniture.push(furn);
+  refreshResidentsAfterFurnitureChange(home, chunks, { x: tx, y: ty });
   return {
     ok: true,
     message: `${FURNITURE_DEFS[kind].name} colocado en el refugio.`,
   };
 }
 
-export function pickupHomeFurnitureAt(state: GameState, tx: number, ty: number): HomeActionResult {
+export function pickupHomeFurnitureAt(state: GameState, tx: number, ty: number, chunks?: ChunkManager): HomeActionResult {
   const home = ensureHomeState(state);
   const idx = home.furniture.findIndex((f) => f.x === tx && f.y === ty);
   if (idx < 0) {
@@ -546,19 +629,33 @@ export function pickupHomeFurnitureAt(state: GameState, tx: number, ty: number):
   const [removed] = home.furniture.splice(idx, 1);
   const invKey = removed.kind as InventoryKey;
   state.inventory[invKey] = (state.inventory[invKey] || 0) + 1;
+  if (chunks) {
+    refreshResidentsAfterFurnitureChange(home, chunks);
+  } else {
+    home.residents.forEach((r) => {
+      r.behaviorTimer = 0;
+    });
+  }
   return {
     ok: true,
     message: `Recogiste ${FURNITURE_DEFS[removed.kind].name}.`,
   };
 }
 
-export function pickupHomeFurnitureById(state: GameState, furnitureId: string): HomeActionResult {
+export function pickupHomeFurnitureById(state: GameState, furnitureId: string, chunks?: ChunkManager): HomeActionResult {
   const home = ensureHomeState(state);
   const idx = home.furniture.findIndex((f) => f.id === furnitureId);
   if (idx < 0) return { ok: false, message: 'Mueble no encontrado.' };
   const [removed] = home.furniture.splice(idx, 1);
   const invKey = removed.kind as InventoryKey;
   state.inventory[invKey] = (state.inventory[invKey] || 0) + 1;
+  if (chunks) {
+    refreshResidentsAfterFurnitureChange(home, chunks);
+  } else {
+    home.residents.forEach((r) => {
+      r.behaviorTimer = 0;
+    });
+  }
   return {
     ok: true,
     message: `Recogiste ${FURNITURE_DEFS[removed.kind].name}.`,
@@ -580,11 +677,17 @@ export function petHomeSlug(state: GameState, slugUid: string): HomeActionResult
   if (r.lastPetAt < 0 || now - r.lastPetAt >= 25) {
     r.lastPetAt = now;
     r.happiness = Math.min(100, r.happiness + 12);
-    r.slug.bond = Math.min(100, r.slug.bond + 3);
+    const bondRes = grantSlugBond(r.slug, 3);
+    const xpMsgs = awardSlugExperience(state, r.slug, 4);
     r.mood = computeHomeMood(r.hunger, r.energy, r.happiness);
+    if (bondRes.tieredUp) {
+      r.reactionText = `✨ ¡${bondRes.newTier.label}!`;
+      r.reactionTimer = 2.5;
+    }
+    const extra = xpMsgs.length > 0 ? ` ${xpMsgs[0]}` : '';
     return {
       ok: true,
-      message: `Acariciaste a ${r.slug.name} (+3 Amistad, +12 Alegría).`,
+      message: `Acariciaste a ${r.slug.name} (+${bondRes.gained} Amistad, +12 Alegría, +4 EXP).${extra}`,
     };
   }
 
@@ -614,7 +717,7 @@ export function playWithHomeSlug(state: GameState, slugUid: string): HomeActionR
   const now = state.playTimeSec;
   r.behavior = 'jugar';
   r.behaviorTimer = 3.2;
-  r.reactionText = '★ ¡A jugar!';
+  r.reactionText = '★ ¡Qué divertido!';
   r.reactionTimer = 1.8;
 
   if (r.lastPlayAt < 0 || now - r.lastPlayAt >= 35) {
@@ -622,11 +725,19 @@ export function playWithHomeSlug(state: GameState, slugUid: string): HomeActionR
     r.happiness = Math.min(100, r.happiness + 16);
     r.energy = Math.max(0, r.energy - 10);
     r.hunger = Math.max(0, r.hunger - 5);
-    r.slug.bond = Math.min(100, r.slug.bond + 4);
+    const bondRes = grantSlugBond(r.slug, 4);
+    const xpMsgs = awardSlugExperience(state, r.slug, 6);
+    const moveIdx: 0 | 1 = Math.random() < 0.5 ? 0 : 1;
+    grantMoveMastery(r.slug, moveIdx, 4);
     r.mood = computeHomeMood(r.hunger, r.energy, r.happiness);
+    if (bondRes.tieredUp) {
+      r.reactionText = `✨ ¡${bondRes.newTier.label}!`;
+      r.reactionTimer = 2.5;
+    }
+    const extra = xpMsgs.length > 0 ? ` ${xpMsgs[0]}` : '';
     return {
       ok: true,
-      message: `Jugaste con ${r.slug.name} (+4 Amistad, +16 Alegría).`,
+      message: `Jugaste con ${r.slug.name} (+${bondRes.gained} Amistad, +16 Alegría, +6 EXP).${extra}`,
     };
   }
 
@@ -668,20 +779,32 @@ export function feedHomeSlug(
 
   const now = state.playTimeSec;
   let bondMsg = '';
+  let extraMsg = '';
+  let tieredUp = false;
+  let newTierLabel = '';
   if (r.lastFeedAt < 0 || now - r.lastFeedAt >= 20) {
     r.lastFeedAt = now;
-    const bondGain = isFavorite ? 5 : 3;
-    r.slug.bond = Math.min(100, r.slug.bond + bondGain);
-    bondMsg = `, +${bondGain} Amistad`;
+    const baseBond = isFavorite ? 5 : 3;
+    const bondRes = grantSlugBond(r.slug, baseBond);
+    const xpGain = isFavorite ? 6 : 4;
+    const xpMsgs = awardSlugExperience(state, r.slug, xpGain);
+    bondMsg = `, +${bondRes.gained} Amistad, +${xpGain} EXP`;
+    tieredUp = bondRes.tieredUp;
+    newTierLabel = bondRes.newTier.label;
+    if (xpMsgs.length > 0) extraMsg = ` ${xpMsgs[0]}`;
   }
 
   r.mood = computeHomeMood(r.hunger, r.energy, r.happiness);
-  r.reactionText = isFavorite ? '★ ¡Favorito!' : '🍖 ¡Ñam!';
-  r.reactionTimer = 1.8;
+  r.reactionText = tieredUp
+    ? `✨ ¡${newTierLabel}!`
+    : isFavorite
+    ? '★ ¡Mi favorito!'
+    : '🍖 ¡Qué rico!';
+  r.reactionTimer = tieredUp ? 2.5 : 1.8;
 
   return {
     ok: true,
-    message: `${r.slug.name} disfrutó ${foodDef.label} (+${hungerGain} Saciedad${bondMsg}).`,
+    message: `${r.slug.name} disfrutó ${foodDef.label} (+${hungerGain} Saciedad${bondMsg}).${extraMsg}`,
   };
 }
 
@@ -694,7 +817,6 @@ export function tickHomeNeeds(state: GameState, comfortAvg: number): void {
   const elapsed = state.playTimeSec - home.lastNeedsTickSec;
   if (elapsed < 2) return;
 
-  // Bounded delta based purely on active playTimeSec (never offline Date.now())
   const stepSec = Math.min(elapsed, 15);
   home.lastNeedsTickSec = state.playTimeSec;
 
@@ -704,7 +826,6 @@ export function tickHomeNeeds(state: GameState, comfortAvg: number): void {
   const comfortFactor = comfortAvg / 100;
 
   for (const r of home.residents) {
-    // Gentle non-punishing hunger decay (~0.32/sec base -> ~5 mins full to hungry)
     r.hunger = Math.max(5, r.hunger - 0.32 * hungerMult * stepSec);
 
     if (r.behavior === 'descansar') {
@@ -716,7 +837,6 @@ export function tickHomeNeeds(state: GameState, comfortAvg: number): void {
       r.energy = Math.max(12, r.energy - 0.14 * stepSec);
     }
 
-    // Happiness nudged gently by comfort & hunger
     if (r.hunger < 25) {
       r.happiness = Math.max(20, r.happiness - 0.35 * stepSec);
     } else if (comfortAvg >= 60) {
@@ -748,10 +868,15 @@ export function updateHomeResidents(
 
     const habDef = getHabitatDef(r.habitatId);
 
-    // If player left the shelter zone, anchor slugs cleanly at home in their habitat
     if (!playerNearShelter) {
-      if (!isInShelterZone(r.x, r.y)) {
-        const spot = findSpawnSpotNearAnchor(chunks, r.slug.id, habDef.anchorX, habDef.anchorY);
+      if (!isInShelterZone(r.x, r.y) || !canHomeSlugWalk(chunks, r.slug.id, r.x, r.y, home.furniture)) {
+        const spot = findSpawnSpotNearAnchor(
+          chunks,
+          r.slug.id,
+          habDef.anchorX,
+          habDef.anchorY,
+          home.furniture
+        );
         r.x = spot.x;
         r.y = spot.y;
         r.targetX = spot.x;
@@ -764,74 +889,161 @@ export function updateHomeResidents(
     r.behaviorTimer -= dt;
 
     const distToPlayer = Math.hypot(state.player.x - r.x, state.player.y - r.y);
-    if (distToPlayer < 3.4 && distToPlayer > 1.15 && r.behavior !== 'descansar' && r.behavior !== 'jugar') {
+    const greetRadius = r.slug.bond >= 50 ? 4.4 : 3.4;
+    if (
+      distToPlayer < greetRadius &&
+      distToPlayer > 1.15 &&
+      r.behavior !== 'descansar' &&
+      r.behavior !== 'jugar'
+    ) {
       r.behavior = 'acercarse';
-      r.targetX = state.player.x;
-      r.targetY = state.player.y;
+      if (canHomeSlugWalk(chunks, r.slug.id, state.player.x, state.player.y, home.furniture)) {
+        r.targetX = state.player.x;
+        r.targetY = state.player.y;
+      } else {
+        const adjPlayer = findAdjacentWalkableTile(
+          chunks,
+          r.slug.id,
+          Math.floor(state.player.x + 0.5),
+          Math.floor(state.player.y + 0.5),
+          home.furniture
+        );
+        if (adjPlayer) {
+          r.targetX = adjPlayer.x;
+          r.targetY = adjPlayer.y;
+        }
+      }
+      if (!r.reactionText && (!r.lastGreetAt || state.playTimeSec - r.lastGreetAt >= 30)) {
+        r.lastGreetAt = state.playTimeSec;
+        r.reactionText =
+          r.slug.bond >= 75
+            ? '♥ ¡Qué alegría verte!'
+            : r.slug.bond >= 50
+            ? '¡Hola, amigo!'
+            : r.mood === 'hambrienta'
+            ? '¿Tienes bayas?'
+            : '¡Hola!';
+        r.reactionTimer = 1.7;
+      }
     } else if (r.behaviorTimer <= 0) {
-      // Pick next natural home behavior
       if (r.energy < 35) {
         r.behavior = 'descansar';
         r.behaviorTimer = 4 + Math.random() * 2.5;
         const restSpot = home.furniture.find((f) => f.kind === 'nest' || f.kind === 'bed');
-        if (restSpot && canHomeSlugWalk(chunks, r.slug.id, restSpot.x, restSpot.y)) {
-          r.targetX = restSpot.x;
-          r.targetY = restSpot.y;
+        const adjacentRest = restSpot
+          ? findAdjacentWalkableTile(chunks, r.slug.id, restSpot.x, restSpot.y, home.furniture)
+          : null;
+        if (adjacentRest) {
+          r.targetX = adjacentRest.x;
+          r.targetY = adjacentRest.y;
         } else {
-          r.targetX = habDef.anchorX;
-          r.targetY = habDef.anchorY;
+          const anchorSpot = findSpawnSpotNearAnchor(
+            chunks,
+            r.slug.id,
+            habDef.anchorX,
+            habDef.anchorY,
+            home.furniture
+          );
+          r.targetX = anchorSpot.x;
+          r.targetY = anchorSpot.y;
+        }
+        if (!r.reactionText) {
+          r.reactionText = '💤 Descansando...';
+          r.reactionTimer = 1.5;
         }
       } else {
         const roll = Math.random();
-        if (roll < 0.28) {
+        if (roll < 0.25) {
           r.behavior = 'descansar';
-          r.behaviorTimer = 2.8 + Math.random() * 2;
+          r.behaviorTimer = 2.6 + Math.random() * 2;
           r.targetX = r.x;
           r.targetY = r.y;
         } else {
           r.behavior = 'pasear';
           r.behaviorTimer = 2.5 + Math.random() * 3;
-          const ox = habDef.anchorX + (Math.random() - 0.5) * 4.5;
-          const oy = habDef.anchorY + (Math.random() - 0.5) * 4.5;
-          if (canHomeSlugWalk(chunks, r.slug.id, ox, oy)) {
-            r.targetX = ox;
-            r.targetY = oy;
-          } else {
-            r.targetX = habDef.anchorX;
-            r.targetY = habDef.anchorY;
+          let picked: { x: number; y: number } | null = null;
+          for (let attempt = 0; attempt < 6; attempt++) {
+            const ox = habDef.anchorX + (Math.random() - 0.5) * 5;
+            const oy = habDef.anchorY + (Math.random() - 0.5) * 5;
+            if (canHomeSlugWalk(chunks, r.slug.id, ox, oy, home.furniture)) {
+              picked = { x: ox, y: oy };
+              break;
+            }
           }
+          if (!picked) {
+            picked = findSpawnSpotNearAnchor(
+              chunks,
+              r.slug.id,
+              habDef.anchorX,
+              habDef.anchorY,
+              home.furniture
+            );
+          }
+          r.targetX = picked.x;
+          r.targetY = picked.y;
         }
       }
     }
 
-    // Move toward targetX/targetY with collision avoidance
+    // Move toward targetX/targetY avoiding walls, closed doors, hazards, and furniture
     const dx = r.targetX - r.x;
     const dy = r.targetY - r.y;
     const distTarget = Math.hypot(dx, dy);
     if (distTarget > 0.15 && (r.behavior === 'pasear' || r.behavior === 'acercarse' || r.behavior === 'jugar')) {
-      const speed = r.behavior === 'jugar' ? 2.1 : r.behavior === 'acercarse' ? 1.85 : 1.25;
-      const step = Math.min(distTarget, speed * dt);
+      const baseSpeed = r.behavior === 'jugar' ? 2.1 : r.behavior === 'acercarse' ? 1.9 : 1.25;
+      const step = Math.min(distTarget, baseSpeed * dt);
       const vx = (dx / distTarget) * step;
       const vy = (dy / distTarget) * step;
 
       let moved = false;
-      if (canHomeSlugWalk(chunks, r.slug.id, r.x + vx, r.y)) {
+      if (Math.abs(vx) > 0.001 && canHomeSlugWalk(chunks, r.slug.id, r.x + vx, r.y, home.furniture)) {
         r.x += vx;
         moved = true;
       }
-      if (canHomeSlugWalk(chunks, r.slug.id, r.x, r.y + vy)) {
+      if (Math.abs(vy) > 0.001 && canHomeSlugWalk(chunks, r.slug.id, r.x, r.y + vy, home.furniture)) {
         r.y += vy;
         moved = true;
       }
+
+      // If straight axis toward target is blocked (e.g., furniture in front), try perpendicular sidestep
+      if (!moved) {
+        const perpCandidates: Array<[number, number]> =
+          Math.abs(dx) >= Math.abs(dy)
+            ? [
+                [0, step],
+                [0, -step],
+                [-vx * 0.6, 0],
+              ]
+            : [
+                [step, 0],
+                [-step, 0],
+                [0, -vy * 0.6],
+              ];
+        for (const [sx, sy] of perpCandidates) {
+          if (canHomeSlugWalk(chunks, r.slug.id, r.x + sx, r.y + sy, home.furniture)) {
+            r.x += sx;
+            r.y += sy;
+            moved = true;
+            break;
+          }
+        }
+      }
+
       if (!moved) {
         r.targetX = r.x;
         r.targetY = r.y;
         r.behavior = 'descansar';
-        r.behaviorTimer = 1.2;
+        r.behaviorTimer = 1.0;
       }
-    } else if (!canHomeSlugWalk(chunks, r.slug.id, r.x, r.y)) {
-      // Safety snap to valid habitat tile if blocked by newly built wall/door
-      const safe = findSpawnSpotNearAnchor(chunks, r.slug.id, habDef.anchorX, habDef.anchorY);
+    } else if (!canHomeSlugWalk(chunks, r.slug.id, r.x, r.y, home.furniture)) {
+      // Safety snap to valid habitat tile if blocked by newly placed wall/door/furniture
+      const safe = findSpawnSpotNearAnchor(
+        chunks,
+        r.slug.id,
+        habDef.anchorX,
+        habDef.anchorY,
+        home.furniture
+      );
       r.x = safe.x;
       r.y = safe.y;
       r.targetX = safe.x;
@@ -860,7 +1072,10 @@ export function cloneHomeState(home?: HomeState): HomeState {
   return {
     residents: home.residents.map((r) => ({
       ...r,
-      slug: { ...r.slug },
+      slug: {
+        ...r.slug,
+        ...(r.slug.moveMastery ? { moveMastery: [...r.slug.moveMastery] as [number, number] } : {}),
+      },
     })),
     furniture: home.furniture.map((f) => ({ ...f })),
     lastNeedsTickSec: home.lastNeedsTickSec,

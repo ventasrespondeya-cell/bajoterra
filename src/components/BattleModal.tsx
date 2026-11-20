@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Shield, Swords, Zap } from 'lucide-react';
 import { ELEMENT_CHART, getElementMultiplier, getSpecies } from '../game/data';
+import { getEffectiveMoveEnergyCost, getMoveMasteryInfo } from '../game/progression';
 import type { BattleState, GameState } from '../game/types';
 import { CombatManager } from '../game/combat';
 
@@ -104,6 +105,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
                 <div className="text-[11px] text-slate-300">
                   Nv.{ally.level} ·{' '}
                   <span style={{ color: ELEMENT_CHART[ally.type]?.color }}>{ally.type}</span>
+                  {ally.bonusTrait ? ` · ${ally.bonusTrait}` : ''}
                   {combat.allyShieldTurns > 0 ? ' · 🛡 Escudo' : ''}
                 </div>
               </div>
@@ -305,7 +307,10 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
 
             {allySpecies.specialMoves.map((mv, i) => {
               const cd = combat.allyCooldowns[mv.id] || 0;
-              const disabled = !canAct || cd > 0 || ally.energy < mv.energyCost;
+              const masteryPts = ally.moveMastery?.[i as 0 | 1] ?? 0;
+              const masteryInfo = getMoveMasteryInfo(masteryPts);
+              const effectiveCost = getEffectiveMoveEnergyCost(mv.energyCost, masteryPts);
+              const disabled = !canAct || cd > 0 || ally.energy < effectiveCost;
               return (
                 <button
                   key={mv.id}
@@ -317,9 +322,16 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
                   className="p-3 rounded-xl bg-[#19283a] border border-indigo-400/40 hover:border-indigo-300 text-left disabled:opacity-40 cursor-pointer"
                 >
                   <div className="flex justify-between text-sm font-extrabold text-white">
-                    <span>✦ {mv.name}</span>
+                    <span>
+                      ✦ {mv.name}
+                      {masteryInfo.rank > 0 ? (
+                        <span className="ml-1.5 text-[10px] font-bold text-amber-300">
+                          {masteryInfo.label}
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="text-xs text-cyan-300 tabular-nums">
-                      {cd > 0 ? `Espera ${cd}t` : `${mv.energyCost} EN`}
+                      {cd > 0 ? `Espera ${cd}t` : `${effectiveCost} EN`}
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-300">{mv.description}</div>

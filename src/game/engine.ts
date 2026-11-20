@@ -16,6 +16,12 @@ import {
   createSlugInstance,
   getSpecies,
 } from './data';
+import {
+  awardSlugExperience,
+  evolveSlugToMegamorph as evolveSlugToMegamorphHelper,
+  findSlugByUidAnywhere,
+  grantSlugBond,
+} from './progression';
 import { WorldRenderer } from './renderer';
 import {
   checkStorageCapabilities,
@@ -143,8 +149,14 @@ export class BajoterraEngine {
       screen: this.screen,
       player: { ...this.state.player, perks: [...this.state.player.perks] },
       biome: getBiomeAt(px, py, this.state.worldSeed),
-      party: this.state.party.map((s) => ({ ...s })),
-      storage: this.state.storage.map((s) => ({ ...s })),
+      party: this.state.party.map((s) => ({
+        ...s,
+        ...(s.moveMastery ? { moveMastery: [...s.moveMastery] as [number, number] } : {}),
+      })),
+      storage: this.state.storage.map((s) => ({
+        ...s,
+        ...(s.moveMastery ? { moveMastery: [...s.moveMastery] as [number, number] } : {}),
+      })),
       activePartyIndex: this.state.activePartyIndex,
       inventory: { ...this.state.inventory },
       selectedHotbar: this.state.selectedHotbar,
@@ -155,7 +167,17 @@ export class BajoterraEngine {
       shelterTier: this.state.shelterTier,
       home: cloneHomeState(this.state.home),
       rooms: this.getRoomValidations(false),
-      nearbyHomeSlug: nearHome ? { ...nearHome, slug: { ...nearHome.slug } } : null,
+      nearbyHomeSlug: nearHome
+        ? {
+            ...nearHome,
+            slug: {
+              ...nearHome.slug,
+              ...(nearHome.slug.moveMastery
+                ? { moveMastery: [...nearHome.slug.moveMastery] as [number, number] }
+                : {}),
+            },
+          }
+        : null,
       stats: { ...this.state.stats },
       defeatedBosses: [...this.state.defeatedBosses],
       claimedQuests: [...this.state.claimedQuests],
@@ -678,7 +700,17 @@ export class BajoterraEngine {
 
     const moved = Math.hypot(this.state.player.x - prevX, this.state.player.y - prevY);
     if (moved > 0) {
+      const prevSteps = this.state.stats.steps;
       this.state.stats.steps += moved;
+      if (Math.floor(prevSteps / 60) < Math.floor(this.state.stats.steps / 60)) {
+        const active = this.state.party[this.state.activePartyIndex];
+        if (active) {
+          const msgs = awardSlugExperience(this.state, active, 4, { bondDelta: 1, allowTraitBonus: false });
+          if (msgs.length > 0) {
+            this.notify(msgs[0]);
+          }
+        }
+      }
       this.onPlayerMoved(moved);
     }
   }
@@ -1032,8 +1064,7 @@ export class BajoterraEngine {
     if (!active) return;
     if (this.state.inventory.crystal >= 1) {
       this.state.inventory.crystal--;
-      const msgs = this.combat.awardExperience(this.state, active, 25);
-      active.bond = Math.min(100, active.bond + 10);
+      const msgs = awardSlugExperience(this.state, active, 25, { bondDelta: 10 });
       sound.playPulse();
       this.renderer.spawnBurst(tx, ty, '#2dd4bf', 16);
       this.notify(msgs[0] || `${active.name} absorbe energía del altar (+25 EXP, +10 Amistad).`);
@@ -1051,12 +1082,16 @@ export class BajoterraEngine {
     this.state.inventory.berries--;
     this.state.player.hp = Math.min(this.state.player.maxHp, this.state.player.hp + 25);
     const active = this.state.party[this.state.activePartyIndex];
+    let extra = '';
     if (active) {
       active.hp = Math.min(active.maxHp, active.hp + 25);
-      active.bond = Math.min(100, active.bond + 4);
+      const bondRes = grantSlugBond(active, 4);
+      if (bondRes.tieredUp) {
+        extra = ` ¡${active.name} alcanza ${bondRes.newTier.label}!`;
+      }
     }
     sound.playHeal();
-    this.notify('Baya consumida (+25 PS explorador y babosa activa).');
+    this.notify(`Baya consumida (+25 PS explorador y babosa activa).${extra}`);
     this.emitHud(true);
   }
 
@@ -1308,15 +1343,32 @@ export class BajoterraEngine {
       this.notify('No tienes Elixires Megamorph.');
       return false;
     }
-    const slug = [...this.state.party, ...this.state.storage].find((s) => s.uid === slugUid);
+    const slug = findSlugByUidAnywhere(this.state, slugUid);
     if (!slug) return false;
     this.state.inventory.elixirs--;
-    slug.bond = Math.min(100, slug.bond + 25);
-    const msgs = this.combat.awardExperience(this.state, slug, 35);
+    const msgs = awardSlugExperience(this.state, slug, 35, { bondDelta: 25, allowTraitBonus: false });
     sound.playCapture();
     this.notify(msgs[0] || `${slug.name} recibió Elixir (+25 Amistad, +35 EXP).`);
     this.emitHud(true);
     return true;
+  }
+
+  public evolveSlugToMegamorph(slugUid: string): boolean {
+    const res = evolveSlugToMegamorphHelper(this.state, slugUid);
+    if (res.ok) {
+      sound.playVictory();
+      this.renderer.spawnBurst(
+        Math.floor(this.state.player.x + 0.5),
+        Math.floor(this.state.player.y + 0.5),
+        '#facc15',
+        20
+      );
+    } else {
+      sound.playUi();
+    }
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
   }
 
   public swapPartyAndStorage(partyIndex: number, storageUid: string): void {
@@ -1572,7 +1624,7 @@ export class BajoterraEngine {
   }
 
   public pickupFurnitureAt(tx: number, ty: number): boolean {
-    const res = pickupHomeFurnitureAt(this.state, tx, ty);
+    const res = pickupHomeFurnitureAt(this.state, tx, ty, this.chunks);
     if (res.ok) {
       this.invalidateRoomCache();
       sound.playPickup();
@@ -1583,7 +1635,7 @@ export class BajoterraEngine {
   }
 
   public pickupFurnitureById(furnitureId: string): boolean {
-    const res = pickupHomeFurnitureById(this.state, furnitureId);
+    const res = pickupHomeFurnitureById(this.state, furnitureId, this.chunks);
     if (res.ok) {
       this.invalidateRoomCache();
       sound.playPickup();

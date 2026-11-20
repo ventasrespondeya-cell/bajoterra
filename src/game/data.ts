@@ -22,6 +22,7 @@ export const SPAWN_X = 160;
 export const SPAWN_Y = 160;
 export const MAX_ACTIVE_HOME_SLUGS = 6;
 export const MAX_SLUGS_PER_HABITAT = 2;
+export const MAX_HOME_FURNITURE = 32;
 export const SHELTER_HOME_RADIUS = 16;
 
 export const HABITAT_DEFS: HabitatDef[] = [
@@ -876,6 +877,7 @@ export function createSlugInstance(
     mega: false,
     isBred: opts?.isBred,
     bonusTrait: opts?.bonusTrait,
+    moveMastery: [0, 0],
   };
 }
 

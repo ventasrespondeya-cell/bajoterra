@@ -4,6 +4,8 @@ import {
   HABITAT_DEFS,
   HOTBAR_SLOTS,
   MAX_ACTIVE_HOME_SLUGS,
+  MAX_HOME_FURNITURE,
+  MAX_SLUGS_PER_HABITAT,
   QUEST_LIST,
   SPAWN_X,
   SPAWN_Y,
@@ -13,8 +15,10 @@ import {
   createDefaultInventory,
   createSlugInstance,
   getSpecies,
+  isSpeciesCompatibleWithHabitat,
 } from './data';
-import { createDefaultHomeState } from './home';
+import { createDefaultHomeState, isInShelterZone } from './home';
+import { MAX_MOVE_MASTERY } from './progression';
 import {
   TileType,
   type BiomeId,
@@ -488,7 +492,7 @@ export async function saveGameV4(state: GameState, opts?: SaveOptions): Promise<
   let payload: string;
   try {
     payload = JSON.stringify(state, (key, value) =>
-      key === 'reactionText' || key === 'reactionTimer' ? undefined : value
+      key === 'reactionText' || key === 'reactionTimer' || key === 'lastGreetAt' ? undefined : value
     );
   } catch (err) {
     const errMsg = formatError(err);
@@ -747,8 +751,25 @@ function validateSlug(
   if (rawSlug.isBred !== undefined && typeof rawSlug.isBred !== 'boolean') {
     return { ok: false, error: `Marca de crianza inválida en ${idxLabel}.` };
   }
-  if (rawSlug.bonusTrait !== undefined && typeof rawSlug.bonusTrait !== 'string') {
+  if (rawSlug.bonusTrait !== undefined && (typeof rawSlug.bonusTrait !== 'string' || rawSlug.bonusTrait.trim().length === 0)) {
     return { ok: false, error: `Rasgo de babosa inválido en ${idxLabel}.` };
+  }
+
+  let validMoveMastery: [number, number] = [0, 0];
+  if (rawSlug.moveMastery !== undefined) {
+    if (
+      !Array.isArray(rawSlug.moveMastery) ||
+      rawSlug.moveMastery.length !== 2 ||
+      !isFiniteNum(rawSlug.moveMastery[0]) ||
+      !isFiniteNum(rawSlug.moveMastery[1]) ||
+      rawSlug.moveMastery[0] < 0 ||
+      rawSlug.moveMastery[0] > MAX_MOVE_MASTERY ||
+      rawSlug.moveMastery[1] < 0 ||
+      rawSlug.moveMastery[1] > MAX_MOVE_MASTERY
+    ) {
+      return { ok: false, error: `Maestría de técnicas inválida en ${idxLabel}.` };
+    }
+    validMoveMastery = [Math.round(rawSlug.moveMastery[0]), Math.round(rawSlug.moveMastery[1])];
   }
 
   const sp = getSpecies(rawSlug.id);
@@ -774,6 +795,7 @@ function validateSlug(
       mega: Boolean(rawSlug.mega),
       isBred: rawSlug.isBred,
       bonusTrait: typeof rawSlug.bonusTrait === 'string' ? rawSlug.bonusTrait : undefined,
+      moveMastery: validMoveMastery,
     },
   };
 }
@@ -1169,6 +1191,7 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     }
 
     const validResidents: HomeSlugEntry[] = [];
+    const habitatCounts = new Map<HabitatId, number>();
     if (raw.home.residents !== undefined) {
       if (!Array.isArray(raw.home.residents) || raw.home.residents.length > MAX_ACTIVE_HOME_SLUGS) {
         return { ok: false, error: 'Lista de residentes del hogar inválida o excede el límite.' };
@@ -1185,13 +1208,29 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
         if (typeof resRaw.habitatId !== 'string' || !VALID_HABITAT_IDS.has(resRaw.habitatId as HabitatId)) {
           return { ok: false, error: `Hábitat inválido en hogar[${i}].` };
         }
+        const habitatId = resRaw.habitatId as HabitatId;
+        if (!isSpeciesCompatibleWithHabitat(slugRes.value.id, habitatId)) {
+          return { ok: false, error: `Especie incompatible con el hábitat en hogar[${i}].` };
+        }
+        const curHabCount = habitatCounts.get(habitatId) || 0;
+        if (curHabCount >= MAX_SLUGS_PER_HABITAT) {
+          return { ok: false, error: `El hábitat ${habitatId} excede el límite de ${MAX_SLUGS_PER_HABITAT} babosas.` };
+        }
+        habitatCounts.set(habitatId, curHabCount + 1);
+
         if (!isFiniteNum(resRaw.x) || resRaw.x < 0 || resRaw.x >= WORLD_W || !isFiniteNum(resRaw.y) || resRaw.y < 0 || resRaw.y >= WORLD_H) {
           return { ok: false, error: `Posición de residente fuera de rango en hogar[${i}].` };
+        }
+        if (!isInShelterZone(resRaw.x, resRaw.y)) {
+          return { ok: false, error: `Residente fuera de la zona del refugio en hogar[${i}].` };
         }
         const targetX = resRaw.targetX !== undefined ? resRaw.targetX : resRaw.x;
         const targetY = resRaw.targetY !== undefined ? resRaw.targetY : resRaw.y;
         if (!isFiniteNum(targetX) || targetX < 0 || targetX >= WORLD_W || !isFiniteNum(targetY) || targetY < 0 || targetY >= WORLD_H) {
           return { ok: false, error: `Destino de residente inválido en hogar[${i}].` };
+        }
+        if (!isInShelterZone(targetX, targetY)) {
+          return { ok: false, error: `Destino de residente fuera de la zona del refugio en hogar[${i}].` };
         }
         const behavior = resRaw.behavior !== undefined ? resRaw.behavior : 'pasear';
         if (typeof behavior !== 'string' || !VALID_HOME_BEHAVIORS.has(behavior as HomeBehavior)) {
@@ -1223,7 +1262,7 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
 
         validResidents.push({
           slug: slugRes.value,
-          habitatId: resRaw.habitatId as HabitatId,
+          habitatId,
           x: resRaw.x,
           y: resRaw.y,
           targetX,
@@ -1243,9 +1282,10 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
 
     const validFurniture: HomeFurniture[] = [];
     const seenFurnIds = new Set<string>();
+    const seenFurnCoords = new Set<string>();
     if (raw.home.furniture !== undefined) {
-      if (!Array.isArray(raw.home.furniture) || raw.home.furniture.length > 64) {
-        return { ok: false, error: 'Lista de mobiliario del hogar inválida.' };
+      if (!Array.isArray(raw.home.furniture) || raw.home.furniture.length > MAX_HOME_FURNITURE) {
+        return { ok: false, error: 'Lista de mobiliario del hogar inválida o excede el límite.' };
       }
       for (let i = 0; i < raw.home.furniture.length; i++) {
         const fRaw = raw.home.furniture[i];
@@ -1265,6 +1305,14 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
         if (!isNonNegInt(fRaw.x) || fRaw.x >= WORLD_W || !isNonNegInt(fRaw.y) || fRaw.y >= WORLD_H) {
           return { ok: false, error: `Coordenadas de mueble inválidas en índice ${i}.` };
         }
+        if (!isInShelterZone(fRaw.x, fRaw.y)) {
+          return { ok: false, error: `Mobiliario fuera de la zona del refugio en índice ${i}.` };
+        }
+        const coordKey = `${fRaw.x},${fRaw.y}`;
+        if (seenFurnCoords.has(coordKey)) {
+          return { ok: false, error: `Posición de mobiliario duplicada en ${coordKey}.` };
+        }
+        seenFurnCoords.add(coordKey);
         validFurniture.push({
           id: fRaw.id,
           kind: fRaw.kind as FurnitureKind,

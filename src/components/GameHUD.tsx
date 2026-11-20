@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Compass, Backpack, Pause, Volume2, VolumeX, Zap } from 'lucide-react';
 import { BIOME_INFO, HOME_FOOD_DEFS, HOTBAR_SLOTS, QUEST_LIST, getFavoriteFoodForSpecies } from '../game/data';
 import { getMoodLabel } from '../game/home';
+import { getBondTierInfo } from '../game/progression';
 import type { HudSnapshot, InventoryKey } from '../game/types';
 
 interface GameHUDProps {
@@ -215,13 +216,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               ? fav
               : HOME_FOOD_DEFS.find((f) => (snap.inventory[f.key] || 0) > 0) || fav;
           const bestQty = snap.inventory[bestFood.key] || 0;
+          const bondTier = getBondTierInfo(near.slug.bond);
           return (
             <div className="pointer-events-auto mx-auto bg-[#0b151fe8] border border-cyan-400/50 rounded-xl px-3 py-2 flex flex-wrap items-center justify-center gap-2 shadow-lg">
               <div className="text-xs font-bold text-white flex items-center gap-1.5 mr-1">
                 <span>{near.slug.icon}</span>
                 <span>{near.slug.name}</span>
                 <span className="text-[11px] text-cyan-300">({getMoodLabel(near.mood)})</span>
-                <span className="text-[11px] text-amber-300 tabular-nums">♥ {near.slug.bond}/100</span>
+                <span className="text-[11px] text-amber-300 tabular-nums">
+                  ♥ {near.slug.bond}/100 · {bondTier.label}
+                </span>
               </div>
               <button
                 onClick={() => onPetHomeSlug(near.slug.uid)}
