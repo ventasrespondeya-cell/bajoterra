@@ -242,6 +242,8 @@ const {
   grantSlugBond,
 } = await import('../src/game/progression.ts');
 const { TileType } = await import('../src/game/types.ts');
+const { sprites } = await import('../src/game/sprites.ts');
+const { WorldRenderer } = await import('../src/game/renderer.ts');
 const {
   ChunkManager,
   getBiomeAt,
@@ -1963,6 +1965,76 @@ describe('Bajoterra 4.0 — FASE 5: Expansión del Mundo Subterráneo', () => {
     const badTile = createInitialGameState();
     badTile.tilesDelta['20,20'] = 999;
     assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badTile)).ok, false);
+  });
+});
+
+describe('Bajoterra 4.0 — FASE 6: Dirección Artística, Sprites de Especies y Renderizado', () => {
+  test('F6.1 Sprites por especie, poses y variantes de bioma sin pérdida ni corrupción de datos', () => {
+    assert.equal(SPECIES_LIST.length, 15);
+    for (const sp of SPECIES_LIST) {
+      const idle = sprites.getSpeciesSlugSprite(sp.id, false, 'idle');
+      const rest = sprites.getSpeciesSlugSprite(sp.id, false, 'rest');
+      const happy = sprites.getSpeciesSlugSprite(sp.id, false, 'happy');
+      const mega = sprites.getSpeciesSlugSprite(sp.id, true, 'idle');
+      assert.equal(idle.width, 24);
+      assert.equal(idle.height, 24);
+      assert.notEqual(idle, rest);
+      assert.notEqual(idle, happy);
+      assert.notEqual(idle, mega);
+      // Cache stability
+      assert.equal(sprites.getSpeciesSlugSprite(sp.id, false, 'idle'), idle);
+    }
+
+    for (const biome of ['Verdes', 'Magma', 'Heladas', 'Sombrias'] as const) {
+      for (let v = 0; v < 4; v++) {
+        const floor = sprites.getTileSprite(TileType.FLOOR, biome, v);
+        assert.equal(floor.width, 28);
+        assert.equal(floor.height, 28);
+      }
+      assert.equal(sprites.getTileSprite(TileType.ROCK, biome, 0).width, 28);
+      assert.equal(sprites.getTileSprite(TileType.TORCH, biome, 0).width, 28);
+    }
+
+    for (const fk of ['nest', 'bed', 'feeder', 'decor'] as const) {
+      const f = sprites.getFurnitureSprite(fk);
+      assert.equal(f.width, 28);
+      assert.equal(f.height, 28);
+    }
+  });
+
+  test('F6.2 WorldRenderer renderiza mundo, residentes, entidades e iluminación high/eco y mapas sin fallos', () => {
+    gameEngine.startNewGame();
+    const state = gameEngine.state;
+    const renderer = new WorldRenderer();
+    renderer.resetCamera(state.player.x, state.player.y);
+
+    const mockCanvas = document.createElement('canvas');
+    const ctx = mockCanvas.getContext('2d')!;
+    const chunks = new ChunkManager(state.worldSeed, state.tilesDelta);
+
+    // Ensure at least one living home resident is present in world
+    const extraSlug = createSlugInstance('aquabeak', 2);
+    state.storage.push(extraSlug);
+    gameEngine.assignSlugToHome(extraSlug.uid, 'habitat_aquatic');
+
+    for (const quality of ['high', 'eco'] as const) {
+      state.options.lightingQuality = quality;
+      renderer.updateEffects(0.05, state, 'Verdes');
+      renderer.renderWorld(
+        ctx,
+        800,
+        600,
+        1.5,
+        state,
+        chunks,
+        gameEngine.entities,
+        { x: Math.floor(state.player.x) + 1, y: Math.floor(state.player.y) }
+      );
+    }
+
+    renderer.renderMinimap(mockCanvas, state);
+    renderer.renderFullWorldMap(mockCanvas, state);
+    assert.equal(state.home?.residents.length, 1);
   });
 });
 

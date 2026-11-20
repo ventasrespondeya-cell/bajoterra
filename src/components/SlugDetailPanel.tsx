@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Star, X } from 'lucide-react';
+import { Heart, Sparkles, Star, X } from 'lucide-react';
 import { ELEMENT_CHART, getSpecies } from '../game/data';
 import { gameEngine } from '../game/engine';
 import {
@@ -15,6 +15,7 @@ import {
   getXpForNextLevel,
 } from '../game/progression';
 import type { GameState, HudSnapshot, SlugInstance } from '../game/types';
+import { SlugPortrait } from './SlugPortrait';
 
 interface SlugDetailPanelProps {
   slug: SlugInstance;
@@ -40,89 +41,101 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center p-3 md:p-6 bg-[#03080e]/85">
-      <div className="w-full max-w-2xl bg-[#0e1b26] border border-cyan-500/40 rounded-2xl p-4 md:p-5 shadow-2xl max-h-[90dvh] overflow-y-auto space-y-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-3 sm:p-5 bg-[#03080e]/85 backdrop-blur-sm">
+      <div className="bt-panel bt-animate-modal w-full max-w-2xl rounded-2xl p-4 sm:p-5 max-h-[92dvh] overflow-y-auto bt-scroll space-y-4">
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-[#09131c] border border-slate-700 flex items-center justify-center text-3xl">
-              {slug.icon}
+        <div className="flex items-start justify-between gap-3 border-b border-cyan-400/20 pb-3.5">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-16 h-16 rounded-2xl bt-inset border-teal-400/35 flex items-center justify-center shrink-0">
+              <SlugPortrait
+                speciesId={slug.id}
+                mega={slug.mega}
+                mood={slug.hp <= 0 ? 'ko' : 'happy'}
+                size={54}
+                className="bt-animate-slug"
+              />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-lg font-extrabold text-white">{slug.name}</h3>
+                <h3 className="text-lg sm:text-xl font-extrabold text-white truncate">{slug.name}</h3>
                 {slug.mega && (
-                  <span className="px-2 py-0.5 rounded bg-amber-400/20 border border-amber-300/60 text-amber-200 text-[11px] font-bold">
-                    ★ Megamorph
+                  <span className="text-xs font-extrabold text-amber-300 flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Megamorph
                   </span>
                 )}
                 {slug.isBred && (
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 text-[11px] font-bold">
-                    Cría del Refugio
+                  <span className="text-xs font-bold text-emerald-300">
+                    · Cría del Refugio
                   </span>
                 )}
               </div>
-              <div className="text-xs text-slate-300 mt-0.5">
+              <div className="text-xs text-slate-300 mt-1">
                 Especie: <span className="text-white font-semibold">{sp.name}</span> ·{' '}
-                <span style={{ color: ELEMENT_CHART[slug.type]?.color }}>{slug.type}</span> · {slug.rarity} ·{' '}
-                <span className="text-cyan-300">{locationLabel}</span>
+                <span className="font-bold" style={{ color: ELEMENT_CHART[slug.type]?.color }}>
+                  {slug.type}
+                </span>{' '}
+                · {slug.rarity} · <span className="text-teal-300 font-semibold">{locationLabel}</span>
               </div>
             </div>
           </div>
           <button
             onClick={onClose}
             aria-label="Cerrar ficha"
-            className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center cursor-pointer"
+            className="bt-btn-secondary w-10 h-10 rounded-xl flex items-center justify-center cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Level, XP and Stats */}
+        {/* Level, XP & Stats + Bond */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3 space-y-2">
+          <div className="bt-inset rounded-xl p-3.5 space-y-2.5">
             <div className="flex items-center justify-between text-xs font-bold">
-              <span className="text-cyan-300">Nivel {slug.level}/{MAX_SLUG_LEVEL}</span>
+              <span className="text-teal-300">Nivel {slug.level}/{MAX_SLUG_LEVEL}</span>
               <span className="text-slate-300 tabular-nums">
                 {slug.level >= MAX_SLUG_LEVEL ? 'Nivel máximo' : `EXP ${slug.xp}/${nextXp}`}
               </span>
             </div>
-            <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-              <div className="h-full bg-cyan-400 transition-all" style={{ width: `${xpPct}%` }} />
+            <div className="h-2 bg-[#050b12] border border-white/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-cyan-500 to-teal-300 transition-all"
+                style={{ width: `${xpPct}%` }}
+              />
             </div>
             <div className="grid grid-cols-5 gap-1.5 pt-1 text-center text-[11px] tabular-nums">
-              <div className="bg-[#0f1f2d] rounded-lg py-1.5">
+              <div className="bt-card rounded-lg py-1.5">
                 <div className="text-slate-400 text-[10px]">PS</div>
-                <div className="font-bold text-emerald-300">{slug.hp}/{slug.maxHp}</div>
+                <div className="font-extrabold text-emerald-300">{slug.hp}/{slug.maxHp}</div>
               </div>
-              <div className="bg-[#0f1f2d] rounded-lg py-1.5">
+              <div className="bt-card rounded-lg py-1.5">
                 <div className="text-slate-400 text-[10px]">EN</div>
-                <div className="font-bold text-cyan-300">{slug.energy}/{slug.maxEnergy}</div>
+                <div className="font-extrabold text-cyan-300">{slug.energy}/{slug.maxEnergy}</div>
               </div>
-              <div className="bg-[#0f1f2d] rounded-lg py-1.5">
+              <div className="bt-card rounded-lg py-1.5">
                 <div className="text-slate-400 text-[10px]">ATQ</div>
-                <div className="font-bold text-rose-300">{slug.atk}</div>
+                <div className="font-extrabold text-rose-300">{slug.atk}</div>
               </div>
-              <div className="bg-[#0f1f2d] rounded-lg py-1.5">
+              <div className="bt-card rounded-lg py-1.5">
                 <div className="text-slate-400 text-[10px]">DEF</div>
-                <div className="font-bold text-sky-300">{slug.def}</div>
+                <div className="font-extrabold text-sky-300">{slug.def}</div>
               </div>
-              <div className="bg-[#0f1f2d] rounded-lg py-1.5">
+              <div className="bt-card rounded-lg py-1.5">
                 <div className="text-slate-400 text-[10px]">VEL</div>
-                <div className="font-bold text-amber-300">{slug.spd}</div>
+                <div className="font-extrabold text-amber-300">{slug.spd}</div>
               </div>
             </div>
           </div>
 
-          {/* Bond & Tier */}
-          <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3 space-y-2">
+          <div className="bt-inset rounded-xl p-3.5 space-y-2.5">
             <div className="flex items-center justify-between text-xs font-bold">
-              <span style={{ color: bondTier.color }}>
-                ♥ Vínculo · {bondTier.label}
+              <span className="flex items-center gap-1.5" style={{ color: bondTier.color }}>
+                <Heart className="w-3.5 h-3.5 fill-current" />
+                Vínculo · {bondTier.label}
               </span>
               <span className="text-amber-300 tabular-nums">{slug.bond}/100</span>
             </div>
-            <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-2 bg-[#050b12] border border-white/10 rounded-full overflow-hidden">
               <div
                 className="h-full transition-all"
                 style={{ width: `${bondTier.progressPct}%`, backgroundColor: bondTier.color }}
@@ -138,7 +151,7 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
         </div>
 
         {/* Trait */}
-        <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3">
+        <div className="bt-inset rounded-xl p-3.5">
           <div className="text-xs font-extrabold text-emerald-300 uppercase tracking-wider mb-1">
             Rasgo Individual
           </div>
@@ -154,8 +167,8 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
         </div>
 
         {/* Special Moves & Mastery */}
-        <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3 space-y-2.5">
-          <div className="text-xs font-extrabold text-indigo-300 uppercase tracking-wider">
+        <div className="bt-inset rounded-xl p-3.5 space-y-2.5">
+          <div className="text-xs font-extrabold text-sky-300 uppercase tracking-wider">
             Técnicas Especiales y Maestría
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -164,23 +177,23 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
               const mInfo = getMoveMasteryInfo(pts);
               const cost = getEffectiveMoveEnergyCost(mv.energyCost, pts);
               return (
-                <div key={mv.id} className="bg-[#0f1f2d] border border-slate-700/80 rounded-lg p-2.5 text-xs space-y-1.5">
+                <div key={mv.id} className="bt-card rounded-xl p-3 text-xs space-y-1.5">
                   <div className="flex items-center justify-between font-bold text-white">
                     <span>✦ {mv.name}</span>
-                    <span className="text-cyan-300 tabular-nums">{cost} EN</span>
+                    <span className="text-teal-300 tabular-nums">{cost} EN</span>
                   </div>
                   <div className="text-[11px] text-slate-300">{mv.description}</div>
                   <div className="flex items-center justify-between text-[11px] pt-1">
                     <span className="font-bold text-amber-300">{mInfo.label}</span>
                     <span className="text-slate-400 tabular-nums">{pts}/{MAX_MOVE_MASTERY}</span>
                   </div>
-                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-1.5 bg-[#050b12] rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-indigo-400 transition-all"
+                      className="h-full bg-gradient-to-r from-sky-400 to-teal-300 transition-all"
                       style={{ width: `${Math.round((pts / MAX_MOVE_MASTERY) * 100)}%` }}
                     />
                   </div>
-                  <div className="text-[10px] text-indigo-200">{mInfo.bonusText}</div>
+                  <div className="text-[10px] text-sky-200">{mInfo.bonusText}</div>
                 </div>
               );
             })}
@@ -188,7 +201,7 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
         </div>
 
         {/* Megamorph Evolution */}
-        <div className="bg-[#09131c] border border-amber-400/35 rounded-xl p-3 space-y-2.5">
+        <div className="bt-inset border-amber-400/40 rounded-xl p-3.5 space-y-2.5">
           <div className="flex items-center justify-between">
             <div className="text-xs font-extrabold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
               <Sparkles className="w-4 h-4" />
@@ -196,7 +209,7 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
             </div>
             {slug.mega && (
               <span className="text-xs font-bold text-emerald-300 flex items-center gap-1">
-                <Star className="w-3.5 h-3.5" /> Completada
+                <Star className="w-3.5 h-3.5 fill-current" /> Completada
               </span>
             )}
           </div>
@@ -209,28 +222,28 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
             <>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                 <div
-                  className={`px-2.5 py-2 rounded-lg border ${
+                  className={`px-3 py-2 rounded-lg border ${
                     megaCheck.hasLevel
                       ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-200'
-                      : 'bg-[#0f1f2d] border-slate-700 text-slate-300'
+                      : 'bt-card text-slate-300'
                   }`}
                 >
                   {megaCheck.hasLevel ? '✓' : '○'} Nivel {MEGAMORPH_MIN_LEVEL}+ (Nv.{slug.level})
                 </div>
                 <div
-                  className={`px-2.5 py-2 rounded-lg border ${
+                  className={`px-3 py-2 rounded-lg border ${
                     megaCheck.hasBond
                       ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-200'
-                      : 'bg-[#0f1f2d] border-slate-700 text-slate-300'
+                      : 'bt-card text-slate-300'
                   }`}
                 >
                   {megaCheck.hasBond ? '✓' : '○'} Amistad {MEGAMORPH_MIN_BOND}+ ({slug.bond})
                 </div>
                 <div
-                  className={`px-2.5 py-2 rounded-lg border ${
+                  className={`px-3 py-2 rounded-lg border ${
                     megaCheck.hasResource
                       ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-200'
-                      : 'bg-[#0f1f2d] border-slate-700 text-slate-300'
+                      : 'bt-card text-slate-300'
                   }`}
                 >
                   {megaCheck.hasResource ? '✓' : '○'} 1 Elixir ({snap.inventory.elixirs}), Reliquia ({snap.inventory.relics}) o Piedra Evo. ({snap.inventory.evoStone})
@@ -241,7 +254,7 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
                 {snap.inventory.elixirs > 0 && (
                   <button
                     onClick={() => gameEngine.useElixirOnSlug(slug.uid)}
-                    className="px-3.5 py-2 rounded-lg bg-purple-500 hover:bg-purple-400 text-white font-bold text-xs cursor-pointer"
+                    className="bt-btn-secondary border-purple-400/60 px-3.5 py-2 rounded-xl text-purple-100 font-bold text-xs cursor-pointer min-h-[40px]"
                   >
                     Aplicar Elixir (+25 Amistad, +35 EXP) · {snap.inventory.elixirs}
                   </button>
@@ -249,7 +262,7 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
                 <button
                   disabled={!megaCheck.eligible}
                   onClick={() => gameEngine.evolveSlugToMegamorph(slug.uid)}
-                  className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs disabled:opacity-40 cursor-pointer"
+                  className="bt-btn-amber px-4 py-2 rounded-xl font-extrabold text-xs disabled:opacity-40 cursor-pointer min-h-[40px]"
                 >
                   Evolucionar a Megamorph
                 </button>

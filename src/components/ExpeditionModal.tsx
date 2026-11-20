@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import { Award, Backpack, BookOpen, Hammer, Heart, Home, Sparkles, X } from 'lucide-react';
 import {
   BIOME_INFO,
   CRAFT_RECIPES,
@@ -19,7 +19,9 @@ import { gameEngine } from '../game/engine';
 import { getMoodLabel } from '../game/home';
 import { checkMegamorphEligibility, getBondTierInfo } from '../game/progression';
 import type { FurnitureKind, GameState, HabitatId, HudSnapshot, InventoryKey } from '../game/types';
+import { ResourceSwatch } from './GameIcons';
 import { SlugDetailPanel } from './SlugDetailPanel';
+import { SlugPortrait } from './SlugPortrait';
 
 export type ExpeditionTabKey = 'taller' | 'criaturas' | 'hogar' | 'babosapedia' | 'misiones';
 
@@ -89,71 +91,88 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
       })()
     : null;
 
+  const tabs: Array<{ id: ExpeditionTabKey; label: string; icon: React.ReactNode }> = [
+    { id: 'taller', label: 'Inventario y Taller', icon: <Hammer className="w-3.5 h-3.5" /> },
+    { id: 'criaturas', label: 'Babosas y Crianza', icon: <Sparkles className="w-3.5 h-3.5" /> },
+    {
+      id: 'hogar',
+      label: `Hogar y Hábitats (${snap.home.residents.length}/${MAX_ACTIVE_HOME_SLUGS})`,
+      icon: <Home className="w-3.5 h-3.5" />,
+    },
+    { id: 'babosapedia', label: 'Babosapedia', icon: <BookOpen className="w-3.5 h-3.5" /> },
+    { id: 'misiones', label: 'Misiones y Refugio', icon: <Award className="w-3.5 h-3.5" /> },
+  ];
+
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center p-3 md:p-6 bg-[#040a10]/85">
-      <div className="w-full max-w-4xl bg-[#0e1b26] border border-slate-700 rounded-2xl p-4 md:p-6 shadow-2xl max-h-[92dvh] flex flex-col">
-        {/* Header + Tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3 mb-4">
+    <div className="fixed inset-0 z-30 flex items-center justify-center p-2.5 sm:p-5 bg-[#03080e]/86 backdrop-blur-sm">
+      <div className="bt-panel bt-animate-modal w-full max-w-4xl rounded-2xl p-3.5 sm:p-5 md:p-6 max-h-[94dvh] flex flex-col">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-400/20 pb-3 mb-3.5">
           <div>
-            <h2 className="text-lg md:text-xl font-extrabold text-white">Estuche, Taller y Expedición</h2>
-            <p className="text-xs text-slate-400">
-              Refugio Nivel {snap.shelterTier} · Biomas {snap.discoveries.length}/4 · Babosapedia {capturedCount}/{SPECIES_LIST.length}
+            <h2 className="text-lg sm:text-xl font-extrabold text-white flex items-center gap-2">
+              <Backpack className="w-5 h-5 text-amber-300" />
+              Estuche, Taller y Expedición
+            </h2>
+            <p className="text-xs text-slate-300 tabular-nums mt-0.5">
+              Refugio Nivel {snap.shelterTier} · Biomas {snap.discoveries.length}/4 · Babosapedia{' '}
+              {capturedCount}/{SPECIES_LIST.length}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center cursor-pointer"
+            aria-label="Cerrar"
+            className="bt-btn-secondary w-10 h-10 rounded-xl flex items-center justify-center cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Navigation Tabs */}
         <div className="flex flex-wrap gap-1.5 mb-4">
-          {(
-            [
-              ['taller', 'Inventario y Taller'],
-              ['criaturas', 'Babosas y Crianza'],
-              ['hogar', `Hogar y Hábitats (${snap.home.residents.length}/${MAX_ACTIVE_HOME_SLUGS})`],
-              ['babosapedia', 'Babosapedia'],
-              ['misiones', 'Misiones y Refugio'],
-            ] as const
-          ).map(([id, label]) => (
+          {tabs.map((t) => (
             <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                tab === id
-                  ? 'bg-cyan-400 text-slate-950'
-                  : 'bg-[#142534] text-slate-300 hover:text-white border border-slate-700'
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-colors cursor-pointer flex items-center gap-1.5 min-h-[38px] ${
+                tab === t.id ? 'bt-btn-primary' : 'bt-btn-secondary'
               }`}
             >
-              {label}
+              {t.icon}
+              <span>{t.label}</span>
             </button>
           ))}
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto pr-1">
+        <div className="flex-1 overflow-y-auto pr-1 bt-scroll">
           {tab === 'taller' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5">
-                <h3 className="text-xs font-extrabold text-cyan-300 uppercase tracking-wider mb-3">
+              <div className="bt-inset rounded-xl p-3.5">
+                <h3 className="text-xs font-extrabold text-teal-300 uppercase tracking-wider mb-3">
                   Mochila de Recursos
                 </h3>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {INV_LABELS.map((item) => (
-                    <div
-                      key={item.key}
-                      className="flex items-center justify-between bg-[#0f1f2d] px-2.5 py-1.5 rounded-lg"
-                    >
-                      <span className="text-slate-300 truncate">{item.label}</span>
-                      <span className="font-bold text-white tabular-nums ml-1">{snap.inventory[item.key]}</span>
-                    </div>
-                  ))}
+                <div className="grid grid-cols-2 gap-1.5 text-xs">
+                  {INV_LABELS.map((item) => {
+                    const qty = snap.inventory[item.key];
+                    return (
+                      <div
+                        key={item.key}
+                        className={`bt-card flex items-center justify-between px-2.5 py-1.5 rounded-lg ${
+                          qty > 0 ? 'opacity-100' : 'opacity-55'
+                        }`}
+                      >
+                        <span className="text-slate-200 truncate flex items-center gap-1.5">
+                          <ResourceSwatch itemKey={item.key} />
+                          <span className="truncate">{item.label}</span>
+                        </span>
+                        <span className="font-extrabold text-white tabular-nums ml-1">{qty}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="lg:col-span-2 bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5">
+              <div className="lg:col-span-2 bt-inset rounded-xl p-3.5">
                 <h3 className="text-xs font-extrabold text-amber-300 uppercase tracking-wider mb-3">
                   Mesa de Fabricación
                 </h3>
@@ -168,17 +187,24 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                     return (
                       <div
                         key={rec.id}
-                        className="bg-[#0f1f2d] border border-slate-700/70 rounded-xl p-3 flex flex-col justify-between gap-2"
+                        className={`bt-card rounded-xl p-3 flex flex-col justify-between gap-2.5 ${
+                          canCraft ? 'border-teal-400/35' : 'opacity-80'
+                        }`}
                       >
                         <div>
-                          <div className="text-sm font-bold text-white">{rec.name}</div>
-                          <div className="text-[11px] text-slate-400 mt-0.5">{rec.description}</div>
-                          <div className="text-[11px] text-amber-200/90 mt-1.5">Costo: {costText}</div>
+                          <div className="text-sm font-extrabold text-white flex items-center gap-2">
+                            <ResourceSwatch itemKey={rec.outputKey} />
+                            <span>{rec.name}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-300 mt-1">{rec.description}</div>
+                          <div className="text-[11px] text-amber-200/95 mt-1.5 font-semibold">
+                            Costo: {costText}
+                          </div>
                         </div>
                         <button
                           disabled={!canCraft}
                           onClick={() => gameEngine.craftItem(rec.id)}
-                          className="w-full py-2 rounded-lg bg-cyan-400 text-slate-950 font-extrabold text-xs hover:bg-cyan-300 disabled:opacity-35 cursor-pointer"
+                          className="bt-btn-primary w-full py-2 rounded-xl font-extrabold text-xs disabled:opacity-35 cursor-pointer min-h-[38px]"
                         >
                           Fabricar
                         </button>
@@ -193,8 +219,8 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
           {tab === 'criaturas' && (
             <div className="space-y-4">
               {/* Active Party */}
-              <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5">
-                <h3 className="text-xs font-extrabold text-cyan-300 uppercase tracking-wider mb-2.5">
+              <div className="bt-inset rounded-xl p-3.5">
+                <h3 className="text-xs font-extrabold text-teal-300 uppercase tracking-wider mb-2.5">
                   Estuche Activo (Máx. 4) — Haz clic para marcar ranura de intercambio
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -204,28 +230,50 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                       { inventory: snap.inventory } as unknown as GameState,
                       s
                     );
+                    const selected = swapTargetPartyIdx === idx;
                     return (
                       <div
                         key={s.uid}
                         onClick={() => setSwapTargetPartyIdx(idx)}
-                        className={`p-3 rounded-xl border cursor-pointer transition-colors ${
-                          swapTargetPartyIdx === idx
-                            ? 'bg-cyan-500/15 border-cyan-400'
-                            : 'bg-[#0f1f2d] border-slate-700'
+                        className={`bt-card p-3 rounded-xl border cursor-pointer transition-colors ${
+                          selected
+                            ? 'border-teal-300 shadow-[0_0_16px_rgba(45,212,191,0.2)]'
+                            : 'hover:border-cyan-400/45'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="font-bold text-sm text-white">
-                            {s.icon} {s.name} {s.mega ? '★ Megamorph' : ''}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <SlugPortrait
+                              speciesId={s.id}
+                              mega={s.mega}
+                              mood={s.hp <= 0 ? 'ko' : 'idle'}
+                              size={42}
+                            />
+                            <div className="min-w-0">
+                              <div className="font-extrabold text-sm text-white truncate">
+                                {s.name}{' '}
+                                {s.mega ? <span className="text-amber-300 text-xs">★ Megamorph</span> : null}
+                              </div>
+                              <div className="text-[11px] text-slate-300 tabular-nums">
+                                Nv.{s.level} ·{' '}
+                                <span className="font-bold" style={{ color: ELEMENT_CHART[s.type]?.color }}>
+                                  {s.type}
+                                </span>{' '}
+                                · {s.rarity}
+                              </div>
+                            </div>
                           </div>
-                          <span className="text-xs text-slate-300 tabular-nums">Nv.{s.level}</span>
+                          <div className="text-right text-[11px] tabular-nums text-slate-200 shrink-0">
+                            <div className="font-bold text-emerald-300">PS {s.hp}/{s.maxHp}</div>
+                            <div className="text-slate-400">ATQ {s.atk} · DEF {s.def}</div>
+                          </div>
                         </div>
-                        <div className="text-[11px] text-slate-300 mt-1 tabular-nums">
-                          {s.type} · {s.rarity} · PS {s.hp}/{s.maxHp} · ATQ {s.atk} · DEF {s.def} · VEL {s.spd}
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-1.5 mt-2 text-[11px]">
-                          <span style={{ color: bondTier.color }}>
-                            ♥ {s.bond}/100 ({bondTier.label}){s.bonusTrait ? ` · ${s.bonusTrait}` : ''}
+
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 mt-2.5 pt-2 border-t border-white/10 text-[11px]">
+                          <span className="font-semibold flex items-center gap-1" style={{ color: bondTier.color }}>
+                            <Heart className="w-3 h-3 fill-current" />
+                            {s.bond}/100 ({bondTier.label})
+                            {s.bonusTrait ? ` · ${s.bonusTrait}` : ''}
                           </span>
                           <div className="flex items-center gap-1.5">
                             {megaCheck.eligible && (
@@ -234,7 +282,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                   e.stopPropagation();
                                   gameEngine.evolveSlugToMegamorph(s.uid);
                                 }}
-                                className="px-2 py-1 rounded bg-amber-400 text-slate-950 font-extrabold text-[11px] hover:bg-amber-300 cursor-pointer"
+                                className="bt-btn-amber px-2.5 py-1 rounded-lg font-extrabold text-[11px] cursor-pointer"
                               >
                                 Megamorph
                               </button>
@@ -245,7 +293,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                   e.stopPropagation();
                                   gameEngine.useElixirOnSlug(s.uid);
                                 }}
-                                className="px-2 py-1 rounded bg-purple-500 text-white font-bold text-[11px] hover:bg-purple-400 cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-purple-500/80 border border-purple-300/60 text-white font-bold text-[11px] hover:bg-purple-500 cursor-pointer"
                               >
                                 Elixir ({snap.inventory.elixirs})
                               </button>
@@ -255,7 +303,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                 e.stopPropagation();
                                 setInspectedSlugUid(s.uid);
                               }}
-                              className="px-2 py-1 rounded bg-slate-800 border border-slate-600 text-cyan-200 font-bold text-[11px] hover:border-cyan-400 cursor-pointer"
+                              className="bt-btn-secondary px-2.5 py-1 rounded-lg text-teal-200 font-bold text-[11px] cursor-pointer"
                             >
                               Ficha
                             </button>
@@ -265,13 +313,13 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                     );
                   })}
                 </div>
-                <p className="text-[11px] text-slate-400 mt-2">
+                <p className="text-[11px] text-slate-400 mt-2.5">
                   Evolución Megamorph intencional desde la Ficha de babosa: requiere Nivel 5+, Amistad 60+ y 1 Elixir, Reliquia o Piedra Evolutiva.
                 </p>
               </div>
 
               {/* Breeding Incubator */}
-              <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5">
+              <div className="bt-inset rounded-xl p-3.5">
                 <h3 className="text-xs font-extrabold text-emerald-300 uppercase tracking-wider mb-2.5">
                   Incubadora y Crianza del Refugio
                 </h3>
@@ -279,12 +327,12 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   <select
                     value={parentA}
                     onChange={(e) => setParentA(e.target.value)}
-                    className="bg-[#0f1f2d] border border-slate-600 rounded-lg px-3 py-2 text-xs text-white"
+                    className="bt-card rounded-xl px-3 py-2 text-xs text-white min-h-[40px]"
                   >
                     <option value="">Selecciona Progenitor 1</option>
                     {allSlugs.map((s) => (
                       <option key={s.uid} value={s.uid}>
-                        {s.icon} {s.name} (Nv.{s.level} · Amistad {s.bond})
+                        {s.name} ({s.type} · Nv.{s.level} · Amistad {s.bond})
                       </option>
                     ))}
                   </select>
@@ -292,12 +340,12 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   <select
                     value={parentB}
                     onChange={(e) => setParentB(e.target.value)}
-                    className="bg-[#0f1f2d] border border-slate-600 rounded-lg px-3 py-2 text-xs text-white"
+                    className="bt-card rounded-xl px-3 py-2 text-xs text-white min-h-[40px]"
                   >
                     <option value="">Selecciona Progenitor 2</option>
                     {allSlugs.map((s) => (
                       <option key={s.uid} value={s.uid}>
-                        {s.icon} {s.name} (Nv.{s.level} · Amistad {s.bond})
+                        {s.name} ({s.type} · Nv.{s.level} · Amistad {s.bond})
                       </option>
                     ))}
                   </select>
@@ -310,7 +358,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                         setParentB('');
                       }
                     }}
-                    className="py-2 px-4 rounded-lg bg-emerald-400 text-slate-950 font-extrabold text-xs hover:bg-emerald-300 disabled:opacity-40 cursor-pointer"
+                    className="bt-btn-primary py-2 px-4 rounded-xl font-extrabold text-xs disabled:opacity-40 cursor-pointer min-h-[40px]"
                   >
                     Incubar Nuevo Huevo
                   </button>
@@ -319,11 +367,16 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                 {snap.eggs.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {snap.eggs.map((egg) => (
-                      <div key={egg.id} className="bg-[#0f1f2d] border border-emerald-400/40 rounded-lg p-2.5 text-xs">
-                        <div className="font-bold text-white">🥚 Huevo de {getSpecies(egg.speciesId).name}</div>
-                        <div className="text-slate-300 mt-0.5">Rasgo: {egg.bonusTrait}</div>
-                        <div className="text-emerald-300 tabular-nums mt-1">
-                          Faltan {Math.ceil(egg.stepsRemaining)} pasos
+                      <div key={egg.id} className="bt-card border-emerald-400/45 rounded-xl p-3 text-xs flex items-center gap-2.5">
+                        <SlugPortrait speciesId={egg.speciesId} mood="sleep" size={36} />
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-white truncate">
+                            Huevo de {getSpecies(egg.speciesId).name}
+                          </div>
+                          <div className="text-slate-300 mt-0.5 text-[11px]">Rasgo: {egg.bonusTrait}</div>
+                          <div className="text-emerald-300 tabular-nums mt-0.5 font-bold">
+                            Faltan {Math.ceil(egg.stepsRemaining)} pasos
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -336,8 +389,8 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
               </div>
 
               {/* Storage Reserve */}
-              <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5">
-                <h3 className="text-xs font-extrabold text-slate-300 uppercase tracking-wider mb-2">
+              <div className="bt-inset rounded-xl p-3.5">
+                <h3 className="text-xs font-extrabold text-slate-200 uppercase tracking-wider mb-2.5">
                   Reserva en el Refugio ({snap.storage.length})
                 </h3>
                 {snap.storage.length === 0 ? (
@@ -345,21 +398,24 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                     Captura más babosas o eclosiona huevos para llenar la reserva.
                   </p>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                     {snap.storage.map((s) => (
-                      <div key={s.uid} className="bg-[#0f1f2d] border border-slate-700 rounded-lg p-2.5 flex items-center justify-between gap-1.5">
-                        <div className="text-xs min-w-0">
-                          <div className="font-bold text-white truncate">
-                            {s.icon} {s.name} Nv.{s.level}
-                          </div>
-                          <div className="text-slate-400 truncate">
-                            {s.type} · ♥{s.bond} {s.bonusTrait ? `· ${s.bonusTrait}` : ''}
+                      <div key={s.uid} className="bt-card rounded-xl p-2.5 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <SlugPortrait speciesId={s.id} mega={s.mega} size={34} />
+                          <div className="text-xs min-w-0">
+                            <div className="font-bold text-white truncate">
+                              {s.name} Nv.{s.level}
+                            </div>
+                            <div className="text-slate-400 truncate text-[11px]">
+                              {s.type} · ♥{s.bond} {s.bonusTrait ? `· ${s.bonusTrait}` : ''}
+                            </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             onClick={() => setInspectedSlugUid(s.uid)}
-                            className="px-2 py-1.5 rounded bg-slate-800 border border-slate-600 text-slate-200 text-[11px] font-bold hover:border-cyan-400 cursor-pointer"
+                            className="bt-btn-secondary px-2 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer"
                           >
                             Ficha
                           </button>
@@ -370,7 +426,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                 s.uid
                               )
                             }
-                            className="px-2.5 py-1.5 rounded bg-cyan-500/20 border border-cyan-400/50 text-cyan-200 text-[11px] font-bold cursor-pointer"
+                            className="bt-btn-primary px-2.5 py-1.5 rounded-lg text-[11px] font-extrabold cursor-pointer"
                           >
                             {snap.party.length < 4 ? 'Añadir' : 'Cambiar'}
                           </button>
@@ -387,12 +443,12 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
             <div className="space-y-4">
               {/* Room Validation & Furniture Controls */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5">
+                <div className="bt-inset rounded-xl p-3.5">
                   <div className="flex items-center justify-between mb-2.5">
-                    <h3 className="text-xs font-extrabold text-cyan-300 uppercase tracking-wider">
+                    <h3 className="text-xs font-extrabold text-teal-300 uppercase tracking-wider">
                       Habitaciones del Refugio
                     </h3>
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-[11px] text-slate-300 tabular-nums">
                       Muebles: {snap.home.furniture.length}
                     </span>
                   </div>
@@ -405,10 +461,10 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                       {snap.rooms.map((rm) => (
                         <div
                           key={rm.id}
-                          className={`rounded-lg border p-2.5 text-xs ${
+                          className={`rounded-xl border p-3 text-xs ${
                             rm.closed && rm.issues.length === 0
-                              ? 'bg-[#0f2128] border-emerald-500/40'
-                              : 'bg-[#171824] border-amber-500/40'
+                              ? 'bg-[#0c2128] border-emerald-500/45'
+                              : 'bg-[#191b28] border-amber-500/45'
                           }`}
                         >
                           <div className="flex items-center justify-between font-bold text-white">
@@ -438,7 +494,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   )}
                 </div>
 
-                <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5">
+                <div className="bt-inset rounded-xl p-3.5">
                   <h3 className="text-xs font-extrabold text-amber-300 uppercase tracking-wider mb-2.5">
                     Mobiliario del Hogar
                   </h3>
@@ -449,19 +505,22 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                       return (
                         <div
                           key={kind}
-                          className="bg-[#0f1f2d] border border-slate-700/80 rounded-lg p-2.5 flex flex-col justify-between gap-2 text-xs"
+                          className="bt-card rounded-xl p-2.5 flex flex-col justify-between gap-2 text-xs"
                         >
                           <div>
                             <div className="flex items-center justify-between font-bold text-white">
-                              <span>{def.name}</span>
-                              <span className="text-cyan-300 tabular-nums">×{count}</span>
+                              <span className="flex items-center gap-1.5">
+                                <ResourceSwatch itemKey={kind} />
+                                {def.name}
+                              </span>
+                              <span className="text-teal-300 tabular-nums">×{count}</span>
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-0.5">{def.description}</p>
+                            <p className="text-[11px] text-slate-300 mt-0.5">{def.description}</p>
                           </div>
                           <button
                             disabled={count <= 0}
                             onClick={() => gameEngine.placeFurnitureInFront(kind)}
-                            className="w-full py-1.5 rounded bg-cyan-400 text-slate-950 font-extrabold text-[11px] hover:bg-cyan-300 disabled:opacity-35 cursor-pointer"
+                            className="bt-btn-primary w-full py-1.5 rounded-lg font-extrabold text-[11px] disabled:opacity-35 cursor-pointer min-h-[34px]"
                           >
                             Colocar frente a ti
                           </button>
@@ -479,7 +538,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                           <button
                             key={f.id}
                             onClick={() => gameEngine.pickupFurnitureById(f.id)}
-                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] text-slate-200 cursor-pointer"
+                            className="bt-btn-secondary px-2.5 py-1 rounded-lg text-[11px] cursor-pointer"
                           >
                             {FURNITURE_DEFS[f.kind].name} ({f.x},{f.y}) · Recoger
                           </button>
@@ -491,16 +550,14 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
               </div>
 
               {/* Habitats & Residents */}
-              <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-xs font-extrabold text-emerald-300 uppercase tracking-wider">
-                      Hábitats del Refugio ({snap.home.residents.length}/{MAX_ACTIVE_HOME_SLUGS} Babosas en Hogar)
-                    </h3>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Asigna babosas compatibles desde tu reserva para que vivan libres, descansen y fortalezcan su vínculo.
-                    </p>
-                  </div>
+              <div className="bt-inset rounded-xl p-3.5 space-y-3">
+                <div>
+                  <h3 className="text-xs font-extrabold text-emerald-300 uppercase tracking-wider">
+                    Hábitats del Refugio ({snap.home.residents.length}/{MAX_ACTIVE_HOME_SLUGS} Babosas en Hogar)
+                  </h3>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    Asigna babosas compatibles desde tu reserva para que vivan libres, descansen y fortalezcan su vínculo.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -521,23 +578,27 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                     return (
                       <div
                         key={hab.id}
-                        className="bg-[#0d1a26] border border-slate-700 rounded-xl p-3 flex flex-col gap-2.5"
+                        className="bt-card rounded-xl p-3 flex flex-col gap-2.5"
+                        style={{ borderColor: `${hab.accentColor}44` }}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                            <div className="text-sm font-extrabold text-white flex items-center gap-1.5">
                               <span
                                 className="inline-block w-2.5 h-2.5 rounded-full"
-                                style={{ backgroundColor: hab.accentColor }}
+                                style={{
+                                  backgroundColor: hab.accentColor,
+                                  boxShadow: `0 0 8px ${hab.accentColor}`,
+                                }}
                               />
                               {hab.name}
                             </div>
-                            <div className="text-[11px] text-cyan-300 font-semibold">
+                            <div className="text-[11px] text-teal-300 font-semibold">
                               Elementos: {hab.acceptedTypes.join(' · ')}
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-0.5">{hab.description}</p>
+                            <p className="text-[11px] text-slate-300 mt-0.5">{hab.description}</p>
                           </div>
-                          <span className="text-xs font-bold text-slate-300 tabular-nums whitespace-nowrap">
+                          <span className="text-xs font-extrabold text-slate-200 tabular-nums whitespace-nowrap">
                             {residents.length}/{MAX_SLUGS_PER_HABITAT}
                           </span>
                         </div>
@@ -548,14 +609,14 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                             value={selectedUid}
                             onChange={(e) => setAssignPick((prev) => ({ ...prev, [hab.id]: e.target.value }))}
                             disabled={compatibleReserve.length === 0}
-                            className="flex-1 bg-[#08111a] border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-white disabled:opacity-50"
+                            className="bt-inset flex-1 rounded-xl px-2.5 py-2 text-xs text-white disabled:opacity-50"
                           >
                             {compatibleReserve.length === 0 ? (
                               <option value="">Sin babosas compatibles en reserva</option>
                             ) : (
                               compatibleReserve.map((s) => (
                                 <option key={s.uid} value={s.uid}>
-                                  {s.icon} {s.name} ({s.type} · Nv.{s.level})
+                                  {s.name} ({s.type} · Nv.{s.level})
                                 </option>
                               ))
                             )}
@@ -565,7 +626,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                             onClick={() => {
                               if (selectedUid) gameEngine.assignSlugToHome(selectedUid, hab.id);
                             }}
-                            className="px-3 py-1.5 rounded-lg bg-emerald-400 text-slate-950 font-extrabold text-xs hover:bg-emerald-300 disabled:opacity-35 cursor-pointer whitespace-nowrap"
+                            className="bt-btn-primary px-3 py-2 rounded-xl font-extrabold text-xs disabled:opacity-35 cursor-pointer whitespace-nowrap min-h-[36px]"
                           >
                             Asignar
                           </button>
@@ -577,29 +638,37 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                             {residents.map((res) => {
                               const fav = getFavoriteFoodForSpecies(res.slug.id);
                               const bondTier = getBondTierInfo(res.slug.bond);
+                              const moodPose =
+                                res.behavior === 'descansar'
+                                  ? 'sleep'
+                                  : res.mood === 'contenta'
+                                  ? 'happy'
+                                  : 'idle';
                               return (
-                                <div
-                                  key={res.slug.uid}
-                                  className="bg-[#09131c] border border-slate-700/80 rounded-lg p-2.5 text-xs space-y-2"
-                                >
+                                <div key={res.slug.uid} className="bt-inset rounded-xl p-2.5 text-xs space-y-2">
                                   <div className="flex items-center justify-between gap-2">
-                                    <div className="font-bold text-white">
-                                      {res.slug.icon} {res.slug.name} · Nv.{res.slug.level} ·{' '}
-                                      <span style={{ color: bondTier.color }}>
-                                        ♥ {res.slug.bond}/100 ({bondTier.label})
-                                      </span>
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <SlugPortrait
+                                        speciesId={res.slug.id}
+                                        mega={res.slug.mega}
+                                        mood={moodPose}
+                                        size={36}
+                                      />
+                                      <div className="min-w-0">
+                                        <div className="font-extrabold text-white truncate">
+                                          {res.slug.name} · Nv.{res.slug.level}
+                                        </div>
+                                        <div className="text-[11px] font-semibold" style={{ color: bondTier.color }}>
+                                          ♥ {res.slug.bond}/100 ({bondTier.label}) · {getMoodLabel(res.mood)}
+                                        </div>
+                                      </div>
                                     </div>
-                                    <div className="flex items-center gap-1.5">
-                                      <button
-                                        onClick={() => setInspectedSlugUid(res.slug.uid)}
-                                        className="px-2 py-0.5 rounded bg-slate-800 border border-slate-600 text-[11px] font-bold text-cyan-200 hover:border-cyan-400 cursor-pointer"
-                                      >
-                                        Ficha
-                                      </button>
-                                      <span className="px-2 py-0.5 rounded bg-slate-800 text-[11px] font-bold text-cyan-200">
-                                        {getMoodLabel(res.mood)}
-                                      </span>
-                                    </div>
+                                    <button
+                                      onClick={() => setInspectedSlugUid(res.slug.uid)}
+                                      className="bt-btn-secondary px-2.5 py-1 rounded-lg text-[11px] font-bold text-teal-200 cursor-pointer shrink-0"
+                                    >
+                                      Ficha
+                                    </button>
                                   </div>
 
                                   <div className="grid grid-cols-3 gap-2 text-[10px]">
@@ -608,7 +677,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                         <span>Saciedad</span>
                                         <span className="tabular-nums">{Math.round(res.hunger)}%</span>
                                       </div>
-                                      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                      <div className="h-1.5 bg-[#050b12] rounded-full overflow-hidden">
                                         <div
                                           className="h-full bg-emerald-400"
                                           style={{ width: `${Math.round(res.hunger)}%` }}
@@ -620,7 +689,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                         <span>Energía</span>
                                         <span className="tabular-nums">{Math.round(res.energy)}%</span>
                                       </div>
-                                      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                      <div className="h-1.5 bg-[#050b12] rounded-full overflow-hidden">
                                         <div
                                           className="h-full bg-cyan-400"
                                           style={{ width: `${Math.round(res.energy)}%` }}
@@ -632,7 +701,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                         <span>Alegría</span>
                                         <span className="tabular-nums">{Math.round(res.happiness)}%</span>
                                       </div>
-                                      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                      <div className="h-1.5 bg-[#050b12] rounded-full overflow-hidden">
                                         <div
                                           className="h-full bg-amber-400"
                                           style={{ width: `${Math.round(res.happiness)}%` }}
@@ -642,19 +711,19 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                   </div>
 
                                   <div className="text-[11px] text-slate-400">
-                                    Alimento favorito: <span className="text-amber-200">{fav.label}</span>
+                                    Alimento favorito: <span className="text-amber-200 font-semibold">{fav.label}</span>
                                   </div>
 
                                   <div className="flex flex-wrap gap-1.5">
                                     <button
                                       onClick={() => gameEngine.petHomeSlug(res.slug.uid)}
-                                      className="px-2.5 py-1.5 rounded bg-pink-500/20 border border-pink-400/50 text-pink-200 font-bold text-[11px] hover:bg-pink-500/30 cursor-pointer"
+                                      className="px-2.5 py-1.5 rounded-lg bg-pink-500/20 border border-pink-400/50 text-pink-100 font-bold text-[11px] hover:bg-pink-500/35 cursor-pointer"
                                     >
                                       Acariciar
                                     </button>
                                     <button
                                       onClick={() => gameEngine.playWithHomeSlug(res.slug.uid)}
-                                      className="px-2.5 py-1.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-200 font-bold text-[11px] hover:bg-amber-500/30 cursor-pointer"
+                                      className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 border border-amber-400/50 text-amber-100 font-bold text-[11px] hover:bg-amber-500/35 cursor-pointer"
                                     >
                                       Jugar
                                     </button>
@@ -668,10 +737,10 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                           key={food.key}
                                           disabled={qty <= 0}
                                           onClick={() => gameEngine.feedHomeSlug(res.slug.uid, food.key)}
-                                          className={`px-2 py-1.5 rounded border text-[11px] font-bold cursor-pointer disabled:opacity-35 ${
+                                          className={`px-2 py-1.5 rounded-lg border text-[11px] font-bold cursor-pointer disabled:opacity-35 ${
                                             isFav
-                                              ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200'
-                                              : 'bg-slate-800 border-slate-600 text-slate-200'
+                                              ? 'bg-emerald-500/25 border-emerald-400 text-emerald-100'
+                                              : 'bt-btn-secondary'
                                           }`}
                                         >
                                           {food.label} ({qty})
@@ -680,7 +749,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                     })}
                                     <button
                                       onClick={() => gameEngine.withdrawSlugFromHome(res.slug.uid)}
-                                      className="ml-auto px-2.5 py-1.5 rounded bg-slate-800 border border-slate-600 text-slate-300 font-bold text-[11px] hover:text-white cursor-pointer"
+                                      className="bt-btn-secondary ml-auto px-2.5 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer"
                                     >
                                       A cápsula
                                     </button>
@@ -703,34 +772,51 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
               {SPECIES_LIST.map((sp) => {
                 const seen = !!snap.seenSpecies[sp.id];
                 const caught = snap.capturedSpecies[sp.id] || 0;
+                const known = seen || caught > 0;
                 return (
                   <div
                     key={sp.id}
-                    className={`rounded-xl border p-3 ${
+                    className={`bt-card rounded-xl p-3.5 flex flex-col justify-between ${
                       caught > 0
-                        ? 'bg-[#0f1f2d] border-cyan-500/40'
-                        : seen
-                        ? 'bg-[#0b151e] border-slate-700'
-                        : 'bg-[#080f16] border-slate-800 opacity-65'
+                        ? 'border-teal-400/50'
+                        : known
+                        ? 'border-slate-600/80'
+                        : 'opacity-65 border-slate-800'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="font-bold text-sm text-white">
-                        {seen || caught > 0 ? `${sp.icon} ${sp.name}` : '❓ Especie desconocida'}
+                    <div>
+                      <div className="flex items-center gap-2.5 mb-2">
+                        <div className="w-11 h-11 rounded-xl bt-inset flex items-center justify-center shrink-0">
+                          {known ? (
+                            <SlugPortrait speciesId={sp.id} size={36} mood={caught > 0 ? 'happy' : 'idle'} />
+                          ) : (
+                            <span className="text-base font-extrabold text-slate-500">?</span>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-extrabold text-sm text-white truncate">
+                              {known ? sp.name : 'Especie desconocida'}
+                            </span>
+                            <span className="text-[10px] font-bold text-amber-300 shrink-0">{sp.rarity}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-300 mt-0.5">
+                            <span className="font-bold" style={{ color: ELEMENT_CHART[sp.type]?.color }}>
+                              {sp.type}
+                            </span>{' '}
+                            · {BIOME_INFO[sp.habitat].name}
+                          </div>
+                        </div>
                       </div>
-                      <span className="text-[11px] font-semibold text-amber-300">{sp.rarity}</span>
+                      <p className="text-[11px] text-slate-300 leading-relaxed">
+                        {known
+                          ? sp.lore
+                          : `Explora ${BIOME_INFO[sp.habitat].name} para descubrir esta especie.`}
+                      </p>
                     </div>
-                    <div className="text-[11px] text-slate-300 mb-1.5">
-                      <span style={{ color: ELEMENT_CHART[sp.type]?.color }}>{sp.type}</span> ·{' '}
-                      {BIOME_INFO[sp.habitat].name}
-                    </div>
-                    <p className="text-[11px] text-slate-400 leading-relaxed">
-                      {seen || caught > 0
-                        ? sp.lore
-                        : `Explora ${BIOME_INFO[sp.habitat].name} para descubrir esta especie.`}
-                    </p>
-                    <div className="mt-2 text-[11px] text-cyan-200 tabular-nums">
-                      Capturadas: {caught}
+                    <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-teal-200 tabular-nums font-semibold">
+                      <span>Capturadas: {caught}</span>
+                      {known && <span className="text-amber-200/85 text-[10px]">{sp.evoName}</span>}
                     </div>
                   </div>
                 );
@@ -741,38 +827,43 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
           {tab === 'misiones' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Shelter Upgrade & Perks */}
-              <div className="bg-[#09131c] border border-slate-700/80 rounded-xl p-3.5 space-y-3">
+              <div className="bt-inset rounded-xl p-3.5 space-y-3">
                 <h3 className="text-xs font-extrabold text-amber-300 uppercase tracking-wider">
                   Refugio Subterráneo · Nivel {snap.shelterTier}/3
                 </h3>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  {snap.shelterTier === 1 && 'Siguiente mejora (Nv.2): Aura de curación pasiva e incubación +50% más rápida. Costo: 10 Mineral, 8 Madera, 2 Cristal.'}
-                  {snap.shelterTier === 2 && 'Siguiente mejora (Nv.3): Desbloquea Baliza de Retorno Rápido al Refugio desde cualquier bioma. Costo: 18 Mineral, 14 Madera, 5 Cristal.'}
-                  {snap.shelterTier >= 3 && 'Refugio al máximo nivel. Aura curativa activa, incubación veloz y Retorno Rápido disponible.'}
+                <p className="text-xs text-slate-200 leading-relaxed">
+                  {snap.shelterTier === 1 &&
+                    'Siguiente mejora (Nv.2): Aura de curación pasiva e incubación +50% más rápida. Costo: 10 Mineral, 8 Madera, 2 Cristal.'}
+                  {snap.shelterTier === 2 &&
+                    'Siguiente mejora (Nv.3): Desbloquea Baliza de Retorno Rápido al Refugio desde cualquier bioma. Costo: 18 Mineral, 14 Madera, 5 Cristal.'}
+                  {snap.shelterTier >= 3 &&
+                    'Refugio al máximo nivel. Aura curativa activa, incubación veloz y Retorno Rápido disponible.'}
                 </p>
 
                 {snap.shelterTier < 3 ? (
                   <button
                     onClick={() => gameEngine.upgradeShelter()}
-                    className="w-full py-2.5 rounded-xl bg-amber-400 text-slate-950 font-extrabold text-xs hover:bg-amber-300 cursor-pointer"
+                    className="bt-btn-amber w-full py-2.5 rounded-xl font-extrabold text-xs cursor-pointer min-h-[42px]"
                   >
                     Mejorar Refugio al Nivel {snap.shelterTier + 1}
                   </button>
                 ) : (
                   <button
                     onClick={() => gameEngine.warpToShelter()}
-                    className="w-full py-2.5 rounded-xl bg-cyan-400 text-slate-950 font-extrabold text-xs hover:bg-cyan-300 cursor-pointer"
+                    className="bt-btn-primary w-full py-2.5 rounded-xl font-extrabold text-xs cursor-pointer min-h-[42px]"
                   >
                     Teletransportar al Refugio
                   </button>
                 )}
 
-                <div className="border-t border-white/10 pt-3">
-                  <div className="text-xs font-bold text-cyan-300 mb-1.5">Habilidades Desbloqueadas</div>
+                <div className="border-t border-cyan-400/15 pt-3">
+                  <div className="text-xs font-extrabold text-teal-300 mb-1.5">Habilidades Desbloqueadas</div>
                   {snap.player.perks.length === 0 ? (
-                    <p className="text-xs text-slate-400">Completa misiones principales y de colección para desbloquear mejoras permanentes.</p>
+                    <p className="text-xs text-slate-400">
+                      Completa misiones principales y de colección para desbloquear mejoras permanentes.
+                    </p>
                   ) : (
-                    <ul className="space-y-1 text-xs text-emerald-300">
+                    <ul className="space-y-1 text-xs text-emerald-300 font-semibold">
                       {snap.player.perks.map((p) => (
                         <li key={p}>✦ {p}</li>
                       ))}
@@ -790,46 +881,48 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   return (
                     <div
                       key={q.id}
-                      className={`rounded-xl border p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      className={`bt-card rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                         claimed
-                          ? 'bg-[#091319] border-emerald-500/30 opacity-65'
+                          ? 'border-emerald-500/35 opacity-65'
                           : ready
-                          ? 'bg-[#10242e] border-cyan-400'
-                          : 'bg-[#0c1823] border-slate-700/80'
+                          ? 'border-teal-300 shadow-[0_0_18px_rgba(45,212,191,0.16)]'
+                          : ''
                       }`}
                     >
                       <div className="flex-1">
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mb-0.5">
-                          <span className={q.category === 'principal' ? 'text-amber-300 font-bold' : 'text-cyan-300 font-bold'}>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 mb-0.5">
+                          <span className={q.category === 'principal' ? 'text-amber-300 font-extrabold' : 'text-teal-300 font-extrabold'}>
                             {q.category === 'principal' ? 'Principal' : 'Secundaria'}
                           </span>
                           <span>·</span>
-                          <span className="tabular-nums">
+                          <span className="tabular-nums font-semibold">
                             {Math.min(prog, q.goal)} / {q.goal}
                           </span>
                           {q.extraConditions?.map((cond) => {
                             const extraVal = gameEngine.getQuestMetricValue(cond.metric);
                             return (
-                              <span key={cond.metric} className="tabular-nums">
+                              <span key={cond.metric} className="tabular-nums font-semibold">
                                 · {cond.label}: {Math.min(extraVal, cond.goal)}/{cond.goal}
                               </span>
                             );
                           })}
                         </div>
-                        <div className="text-sm font-bold text-white">{q.title}</div>
+                        <div className="text-sm font-extrabold text-white">{q.title}</div>
                         <div className="text-xs text-slate-300 mt-0.5">{q.description}</div>
-                        <div className="text-[11px] text-emerald-300 mt-1">Recompensa: {q.rewardText}</div>
+                        <div className="text-[11px] text-emerald-300 mt-1 font-semibold">
+                          Recompensa: {q.rewardText}
+                        </div>
                       </div>
 
                       <button
                         disabled={!ready}
                         onClick={() => gameEngine.claimQuest(q.id)}
-                        className={`px-4 py-2 rounded-lg text-xs font-extrabold whitespace-nowrap cursor-pointer ${
+                        className={`px-4 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap cursor-pointer min-h-[40px] ${
                           claimed
-                            ? 'bg-emerald-500/20 text-emerald-300'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                             : ready
-                            ? 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
-                            : 'bg-slate-800 text-slate-400'
+                            ? 'bt-btn-primary'
+                            : 'bt-btn-secondary opacity-60'
                         }`}
                       >
                         {claimed ? 'Completada' : ready ? 'Reclamar' : 'En curso'}
@@ -842,6 +935,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
           )}
         </div>
       </div>
+
       {inspectedEntry && (
         <SlugDetailPanel
           slug={inspectedEntry.slug}

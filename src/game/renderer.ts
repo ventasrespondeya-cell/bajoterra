@@ -1,5 +1,5 @@
 import { BIOME_INFO, BOSS_DEFINITIONS, FURNITURE_DEFS, HABITAT_DEFS, TILE_PX, WORLD_H, WORLD_W, getSpecies } from './data';
-import { sprites } from './sprites';
+import { sprites, type SlugSpritePose } from './sprites';
 import { TileType, type BiomeId, type GameState, type RoamingEntity } from './types';
 import { ChunkManager, getBiomeAt } from './world';
 
@@ -21,6 +21,16 @@ interface FloatingLabel {
   text: string;
   color: string;
   life: number;
+}
+
+function isOpaqueWallTile(tile: TileType): boolean {
+  return (
+    tile === TileType.ROCK ||
+    tile === TileType.VOLCANIC_ROCK ||
+    tile === TileType.WALL ||
+    tile === TileType.CRACKED_WALL ||
+    tile === TileType.ANCIENT_BRICK
+  );
 }
 
 export class WorldRenderer {
@@ -48,6 +58,7 @@ export class WorldRenderer {
   private pulseRing = 0;
   private pulseX = 0;
   private pulseY = 0;
+  private lastStepDust = 0;
 
   constructor() {
     this.lightCanvas = document.createElement('canvas');
@@ -124,27 +135,63 @@ export class WorldRenderer {
       this.companionY += (compTargetY - this.companionY) * (1 - Math.exp(-7 * dt));
     }
 
-    // Ambient particles in viewport
-    const ambColor =
-      biome === 'Magma'
-        ? '#fb923c'
-        : biome === 'Heladas'
-        ? '#bae6fd'
-        : biome === 'Sombrias'
-        ? '#c084fc'
-        : '#6ee7b7';
-    if (Math.random() < 0.35) {
+    // Subtle explorer footstep dust every few steps
+    const stepEpoch = Math.floor(state.stats.steps * 1.4);
+    if (stepEpoch !== this.lastStepDust) {
+      this.lastStepDust = stepEpoch;
       for (let i = 0; i < this.particles.length; i++) {
         const p = this.particles[i];
         if (!p.active) {
           p.active = true;
-          p.x = this.camX + (Math.random() - 0.5) * 640;
-          p.y = this.camY + (Math.random() - 0.5) * 440;
+          p.x = state.player.x * TILE_PX + 14 + (Math.random() - 0.5) * 8;
+          p.y = state.player.y * TILE_PX + 23;
           p.vx = (Math.random() - 0.5) * 14;
-          p.vy = biome === 'Magma' ? -18 - Math.random() * 14 : biome === 'Heladas' ? 14 + Math.random() * 12 : -6 - Math.random() * 10;
+          p.vy = -8 - Math.random() * 8;
           p.life = 0;
-          p.maxLife = 1.6 + Math.random() * 1.6;
-          p.size = 1.8 + Math.random() * 2;
+          p.maxLife = 0.28;
+          p.size = 2;
+          p.color = 'rgba(203, 213, 225, 0.55)';
+          break;
+        }
+      }
+    }
+
+    // Ambient biome atmosphere particles
+    const spawnChance = state.options.lightingQuality === 'high' ? 0.42 : 0.18;
+    const ambColor =
+      biome === 'Magma'
+        ? Math.random() < 0.5
+          ? '#fb923c'
+          : '#fde047'
+        : biome === 'Heladas'
+        ? Math.random() < 0.5
+          ? '#bae6fd'
+          : '#ffffff'
+        : biome === 'Sombrias'
+        ? Math.random() < 0.5
+          ? '#c084fc'
+          : '#38bdf8'
+        : Math.random() < 0.5
+        ? '#6ee7b7'
+        : '#5eead4';
+
+    if (Math.random() < spawnChance) {
+      for (let i = 0; i < this.particles.length; i++) {
+        const p = this.particles[i];
+        if (!p.active) {
+          p.active = true;
+          p.x = this.camX + (Math.random() - 0.5) * 680;
+          p.y = this.camY + (Math.random() - 0.5) * 460;
+          p.vx = biome === 'Heladas' ? (Math.random() - 0.3) * 18 : (Math.random() - 0.5) * 14;
+          p.vy =
+            biome === 'Magma'
+              ? -20 - Math.random() * 16
+              : biome === 'Heladas'
+              ? 14 + Math.random() * 14
+              : -6 - Math.random() * 10;
+          p.life = 0;
+          p.maxLife = 1.6 + Math.random() * 1.5;
+          p.size = biome === 'Magma' ? 2.2 : 1.8 + Math.random() * 1.8;
           p.color = ambColor;
           break;
         }
@@ -201,12 +248,18 @@ export class WorldRenderer {
       for (let tx = x0; tx <= x1; tx++) {
         const tile = chunks.getTile(tx, ty);
         const biome = getBiomeAt(tx, ty, state.worldSeed);
-        const variant = (tx * 7 + ty * 13) & 1;
+        const variant = ((tx * 73856093) ^ (ty * 19349663)) & 3;
         const sx = tx * TILE_PX - ox;
         const sy = ty * TILE_PX - oy;
 
         const sprite = sprites.getTileSprite(tile, biome, variant);
         ctx.drawImage(sprite, sx, sy);
+
+        // 2.5D Wall Drop-Shadow onto floor tile directly below solid rock/wall
+        if (!isOpaqueWallTile(tile) && ty > 0 && isOpaqueWallTile(chunks.getTile(tx, ty - 1))) {
+          ctx.fillStyle = 'rgba(2, 6, 12, 0.34)';
+          ctx.fillRect(sx, sy, TILE_PX, 5);
+        }
 
         // Animated shimmer on crystals, water, lava, torches, recharge stations
         if (tile === TileType.LAVA) {
@@ -214,7 +267,7 @@ export class WorldRenderer {
           ctx.fillStyle = `rgba(253, 224, 71, ${pulse})`;
           ctx.fillRect(sx + 4, sy + 6, 12, 6);
           if ((tx + ty) % 3 === 0) {
-            lightSources.push({ sx: sx + 14, sy: sy + 14, r: 74, color: 'rgba(251, 146, 60, 0.55)' });
+            lightSources.push({ sx: sx + 14, sy: sy + 14, r: 78, color: 'rgba(251, 146, 60, 0.6)' });
           }
         } else if (tile === TileType.WATER) {
           const shimmer = 0.12 + Math.sin(timeSec * 3 + tx * 0.8) * 0.07;
@@ -222,30 +275,30 @@ export class WorldRenderer {
           ctx.fillRect(sx + 5, sy + 8 + Math.sin(timeSec * 2 + ty) * 2, 10, 2);
         } else if (tile === TileType.TORCH) {
           const flick = 6 + Math.sin(timeSec * 14 + tx * 3) * 2.5;
-          lightSources.push({ sx: sx + 14, sy: sy + 10, r: 108 + flick, color: 'rgba(253, 186, 116, 0.85)' });
+          lightSources.push({ sx: sx + 14, sy: sy + 10, r: 112 + flick, color: 'rgba(253, 186, 116, 0.88)' });
         } else if (tile === TileType.ENERGY_CRYSTAL || tile === TileType.ALTAR || tile === TileType.ICE_CRYSTAL) {
           lightSources.push({
             sx: sx + 14,
             sy: sy + 14,
-            r: tile === TileType.ICE_CRYSTAL ? 64 : 84,
-            color: tile === TileType.ICE_CRYSTAL ? 'rgba(125, 211, 252, 0.55)' : 'rgba(45, 212, 191, 0.65)',
+            r: tile === TileType.ICE_CRYSTAL ? 68 : 88,
+            color: tile === TileType.ICE_CRYSTAL ? 'rgba(125, 211, 252, 0.6)' : 'rgba(45, 212, 191, 0.68)',
           });
           if (Math.sin(timeSec * 5 + tx) > 0.65) {
-            ctx.fillStyle = 'rgba(255,255,255,0.65)';
+            ctx.fillStyle = 'rgba(255,255,255,0.72)';
             ctx.fillRect(sx + 11, sy + 5, 3, 3);
           }
         } else if (tile === TileType.SHADOW_CRYSTAL) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 76, color: 'rgba(192, 132, 252, 0.6)' });
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 78, color: 'rgba(192, 132, 252, 0.62)' });
         } else if (tile === TileType.EVO_STONE_VEIN) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 92, color: 'rgba(250, 204, 21, 0.72)' });
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 96, color: 'rgba(250, 204, 21, 0.78)' });
         } else if (tile === TileType.NEON_MUSHROOM) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 62, color: 'rgba(34, 211, 238, 0.55)' });
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 66, color: 'rgba(34, 211, 238, 0.58)' });
         } else if (tile === TileType.MAGMA_COAL) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 44, color: 'rgba(249, 115, 22, 0.4)' });
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 46, color: 'rgba(249, 115, 22, 0.44)' });
         } else if (tile === TileType.RECHARGE_STATION) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 112, color: 'rgba(56, 189, 248, 0.78)' });
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 116, color: 'rgba(56, 189, 248, 0.82)' });
         } else if (tile === TileType.MUSHROOM) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 50, color: 'rgba(52, 211, 153, 0.4)' });
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 52, color: 'rgba(52, 211, 153, 0.42)' });
         } else if (
           (tile === TileType.ORE ||
             tile === TileType.THERMAL_COPPER ||
@@ -253,7 +306,7 @@ export class WorldRenderer {
             tile === TileType.DARK_IRON) &&
           state.player.perks.includes('Visión de Cristal')
         ) {
-          const glint = 0.25 + Math.sin(timeSec * 6 + tx) * 0.2;
+          const glint = 0.28 + Math.sin(timeSec * 6 + tx) * 0.22;
           ctx.strokeStyle = `rgba(250, 204, 21, ${glint})`;
           ctx.lineWidth = 1.5;
           ctx.strokeRect(sx + 2, sy + 2, TILE_PX - 4, TILE_PX - 4);
@@ -261,7 +314,7 @@ export class WorldRenderer {
       }
     }
 
-    // 1.5 Habitat floor accents & placed home furniture
+    // 1.5 Habitat floor zones & placed home furniture
     for (const hab of HABITAT_DEFS) {
       if (hab.anchorX < x0 - 1 || hab.anchorX > x1 + 1 || hab.anchorY < y0 - 1 || hab.anchorY > y1 + 1) {
         continue;
@@ -271,8 +324,8 @@ export class WorldRenderer {
       ctx.fillStyle = hab.floorTint;
       ctx.fillRect(hsx - 10, hsy - 10, TILE_PX + 20, TILE_PX + 20);
       ctx.strokeStyle = hab.accentColor;
-      ctx.globalAlpha = 0.45;
-      ctx.lineWidth = 1.25;
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = 1.5;
       ctx.strokeRect(hsx - 9, hsy - 9, TILE_PX + 18, TILE_PX + 18);
       ctx.globalAlpha = 1;
     }
@@ -284,50 +337,88 @@ export class WorldRenderer {
         const fsy = furn.y * TILE_PX - oy;
         ctx.drawImage(sprites.getFurnitureSprite(furn.kind), fsx, fsy);
         if (FURNITURE_DEFS[furn.kind]?.emitsLight) {
-          lightSources.push({ sx: fsx + 14, sy: fsy + 14, r: 96, color: 'rgba(94, 234, 212, 0.72)' });
+          lightSources.push({ sx: fsx + 14, sy: fsy + 14, r: 102, color: 'rgba(94, 234, 212, 0.78)' });
         }
       }
     }
 
-    // 2. Target tile highlight
+    // 2. Sculpted scanner target corner reticle
     if (targetTile) {
       const tsx = targetTile.x * TILE_PX - ox;
       const tsy = targetTile.y * TILE_PX - oy;
-      ctx.strokeStyle = 'rgba(103, 232, 249, 0.85)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(tsx + 1, tsy + 1, TILE_PX - 2, TILE_PX - 2);
+      const pulseAlpha = 0.65 + Math.sin(timeSec * 6) * 0.25;
+      ctx.fillStyle = `rgba(94, 234, 212, ${pulseAlpha})`;
+      // Top-left bracket
+      ctx.fillRect(tsx, tsy, 7, 2);
+      ctx.fillRect(tsx, tsy, 2, 7);
+      // Top-right bracket
+      ctx.fillRect(tsx + TILE_PX - 7, tsy, 7, 2);
+      ctx.fillRect(tsx + TILE_PX - 2, tsy, 2, 7);
+      // Bottom-left bracket
+      ctx.fillRect(tsx, tsy + TILE_PX - 2, 7, 2);
+      ctx.fillRect(tsx, tsy + TILE_PX - 7, 2, 7);
+      // Bottom-right bracket
+      ctx.fillRect(tsx + TILE_PX - 7, tsy + TILE_PX - 2, 7, 2);
+      ctx.fillRect(tsx + TILE_PX - 2, tsy + TILE_PX - 7, 2, 7);
     }
 
-    // 3. Roaming creatures, bosses, merchant
+    // 3. Roaming wild slugs, bosses, mercenaries, merchant
     for (const ent of entities) {
       const ex = ent.x * TILE_PX - ox;
       const ey = ent.y * TILE_PX - oy;
       if (ex < -40 || ey < -40 || ex > vw + 40 || ey > vh + 40) continue;
 
-      // Shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.36)';
+      // Ground contact shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
       ctx.beginPath();
       ctx.ellipse(ex + 14, ey + 23, 9, 4, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      const bob = Math.sin(timeSec * 4 + ent.x) * 2;
+      const bob = Math.sin(timeSec * 4.2 + ent.x) * 2.2;
       if (ent.kind === 'wild' && ent.speciesId) {
         const sp = getSpecies(ent.speciesId);
-        const spr = sprites.getSlugPixelSprite(sp.color, sp.accent, false);
-        ctx.drawImage(spr, ex + 3, ey + 3 + bob);
+        // Subtle elemental shimmer ring
+        ctx.strokeStyle = sp.accent;
+        ctx.globalAlpha = 0.35 + Math.sin(timeSec * 3.5 + ent.y) * 0.15;
+        ctx.lineWidth = 1.25;
+        ctx.beginPath();
+        ctx.ellipse(ex + 14, ey + 22, 10, 4.5, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        const spr = sprites.getSpeciesSlugSprite(ent.speciesId, false, 'idle');
+        ctx.drawImage(spr, ex + 2, ey + 2 + bob);
       } else {
+        // Boss / Mercenary / Merchant aura
+        if (ent.kind === 'boss') {
+          ctx.strokeStyle = 'rgba(248, 113, 113, 0.72)';
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          ctx.ellipse(ex + 14, ey + 22, 12, 5.5, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (ent.kind === 'merchant') {
+          lightSources.push({ sx: ex + 14, sy: ey + 14, r: 78, color: 'rgba(52, 211, 153, 0.65)' });
+        }
         ctx.font = ent.kind === 'boss' ? '22px sans-serif' : '18px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(ent.icon, ex + 14, ey + 19 + bob);
       }
 
       if (ent.kind === 'boss' || ent.kind === 'mercenary' || ent.kind === 'merchant') {
+        const label = ent.name;
+        const plaqueW = Math.max(54, label.length * 6.2 + 12);
+        ctx.fillStyle = 'rgba(5, 11, 18, 0.82)';
+        ctx.fillRect(ex + 14 - plaqueW / 2, ey - 14 + bob, plaqueW, 13);
+        ctx.strokeStyle = ent.kind === 'boss' ? '#f87171' : ent.kind === 'merchant' ? '#34d399' : '#fbbf24';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(ex + 14 - plaqueW / 2, ey - 14 + bob, plaqueW, 13);
+
         ctx.font = 'bold 10px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillStyle = ent.kind === 'boss' ? '#fca5a5' : ent.kind === 'merchant' ? '#6ee7b7' : '#fde68a';
-        ctx.fillText(ent.name, ex + 14, ey - 4 + bob);
+        ctx.fillStyle = ent.kind === 'boss' ? '#fecaca' : ent.kind === 'merchant' ? '#a7f3d0' : '#fef08a';
+        ctx.fillText(label, ex + 14, ey - 4 + bob);
         if (ent.kind === 'boss') {
-          lightSources.push({ sx: ex + 14, sy: ey + 14, r: 95, color: 'rgba(248, 113, 113, 0.6)' });
+          lightSources.push({ sx: ex + 14, sy: ey + 14, r: 102, color: 'rgba(248, 113, 113, 0.68)' });
         }
       }
     }
@@ -342,21 +433,22 @@ export class WorldRenderer {
         const sp = getSpecies(res.slug.id);
         const isResting = res.behavior === 'descansar';
         const isPlaying = res.behavior === 'jugar';
-        const bobAmp = isResting ? 0.8 : isPlaying ? 4.2 : 2.2;
-        const bobSpd = isResting ? 2 : isPlaying ? 9 : 4.5;
+        const nearPlayer = Math.hypot(res.x - state.player.x, res.y - state.player.y) <= 2.1;
+        const bobAmp = isResting ? 0.7 : isPlaying ? 4.4 : 2.3;
+        const bobSpd = isResting ? 2 : isPlaying ? 9.5 : 4.5;
         const bob = Math.sin(timeSec * bobSpd + res.x * 2) * bobAmp;
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.34)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.36)';
         ctx.beginPath();
         ctx.ellipse(rsx + 14, rsy + 23, 8, 3.5, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        const spr = sprites.getSlugPixelSprite(sp.color, sp.accent, res.slug.mega);
-        ctx.drawImage(spr, rsx + 3, rsy + 3 + bob);
+        const pose: SlugSpritePose = isResting ? 'rest' : isPlaying || nearPlayer || res.reactionText ? 'happy' : 'idle';
+        const spr = sprites.getSpeciesSlugSprite(res.slug.id, res.slug.mega, pose);
+        ctx.drawImage(spr, rsx + 2, rsy + 2 + bob);
 
-        const nearPlayer = Math.hypot(res.x - state.player.x, res.y - state.player.y) <= 2.1;
         if (nearPlayer) {
-          ctx.strokeStyle = 'rgba(103, 232, 249, 0.8)';
+          ctx.strokeStyle = 'rgba(94, 234, 212, 0.85)';
           ctx.lineWidth = 1.5;
           ctx.beginPath();
           ctx.arc(rsx + 14, rsy + 14, 15, 0, Math.PI * 2);
@@ -366,17 +458,18 @@ export class WorldRenderer {
         const badge =
           res.reactionText ||
           (res.mood === 'hambrienta'
-            ? '🍖'
+            ? `${res.slug.name} · Hambre`
             : res.mood === 'cansada' || isResting
-            ? '💤'
+            ? `${res.slug.name} · Zzz`
             : nearPlayer
             ? `${res.slug.name} · ♥`
             : res.slug.name);
 
         ctx.font = 'bold 10px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillStyle = '#071018';
-        ctx.fillText(badge, rsx + 15, rsy - 2 + bob);
+        ctx.fillStyle = 'rgba(6, 13, 20, 0.82)';
+        const bw = Math.max(46, badge.length * 5.6 + 10);
+        ctx.fillRect(rsx + 14 - bw / 2, rsy - 13 + bob, bw, 12);
         ctx.fillStyle = res.reactionText
           ? '#fef08a'
           : res.mood === 'hambrienta'
@@ -384,10 +477,10 @@ export class WorldRenderer {
           : res.mood === 'cansada'
           ? '#bae6fd'
           : '#a7f3d0';
-        ctx.fillText(badge, rsx + 14, rsy - 3 + bob);
+        ctx.fillText(badge, rsx + 14, rsy - 4 + bob);
 
-        if (sp.type === 'Fuego' || sp.type === 'Luz' || sp.type === 'Electrico' || sp.type === 'Energia') {
-          lightSources.push({ sx: rsx + 14, sy: rsy + 14, r: 46, color: sp.accent });
+        if (sp.type === 'Fuego' || sp.type === 'Luz' || sp.type === 'Electrico' || sp.type === 'Energia' || res.slug.mega) {
+          lightSources.push({ sx: rsx + 14, sy: rsy + 14, r: res.slug.mega ? 58 : 46, color: sp.accent });
         }
       }
     }
@@ -397,18 +490,23 @@ export class WorldRenderer {
     if (activeSlug) {
       const sp = getSpecies(activeSlug.id);
       const csx = this.companionX - ox;
-      const csy = this.companionY - oy + Math.sin(timeSec * 5) * 2.5;
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      const csy = this.companionY - oy + Math.sin(timeSec * 5.2) * 2.5;
+      ctx.fillStyle = 'rgba(0,0,0,0.34)';
       ctx.beginPath();
-      ctx.ellipse(csx + 11, csy + 20, 7, 3, 0, 0, Math.PI * 2);
+      ctx.ellipse(csx + 12, csy + 21, 7, 3, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.drawImage(sprites.getSlugPixelSprite(sp.color, sp.accent, activeSlug.mega), csx, csy);
+      ctx.drawImage(sprites.getSpeciesSlugSprite(activeSlug.id, activeSlug.mega, 'idle'), csx, csy);
+      if (activeSlug.mega) {
+        lightSources.push({ sx: csx + 12, sy: csy + 12, r: 52, color: 'rgba(251, 191, 36, 0.55)' });
+      } else if (sp.type === 'Luz' || sp.type === 'Fuego' || sp.type === 'Energia') {
+        lightSources.push({ sx: csx + 12, sy: csy + 12, r: 38, color: sp.accent });
+      }
     }
 
     // 5. Player Explorer
     const psx = state.player.x * TILE_PX - ox;
     const psy = state.player.y * TILE_PX - oy;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.beginPath();
     ctx.ellipse(psx + 14, psy + 25, 9, 4, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -418,7 +516,7 @@ export class WorldRenderer {
     ctx.drawImage(playerSprite, psx, psy);
 
     // Player headlamp light
-    lightSources.push({ sx: psx + 14, sy: psy + 14, r: 155, color: 'rgba(186, 230, 253, 0.92)' });
+    lightSources.push({ sx: psx + 14, sy: psy + 14, r: 162, color: 'rgba(186, 230, 253, 0.94)' });
 
     // Pulse exploration ring
     if (this.pulseRing > 0) {
@@ -426,10 +524,15 @@ export class WorldRenderer {
       const pry = this.pulseY - oy;
       const radius = (1 - this.pulseRing) * 145 + 16;
       ctx.save();
-      ctx.strokeStyle = `rgba(56, 224, 239, ${this.pulseRing * 0.9})`;
+      ctx.strokeStyle = `rgba(45, 212, 191, ${this.pulseRing * 0.92})`;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(prx, pry, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(186, 230, 253, ${this.pulseRing * 0.5})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(prx, pry, Math.max(6, radius - 10), 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -449,13 +552,13 @@ export class WorldRenderer {
     const currentBiome = getBiomeAt(Math.round(state.player.x), Math.round(state.player.y), state.worldSeed);
     this.renderLightingPass(ctx, vw, vh, currentBiome, lightSources, state.options.lightingQuality);
 
-    // 8. Floating world labels (rendered above darkness so always legible)
+    // 8. Floating world labels (always legible above lighting pass)
     for (const lbl of this.labels) {
       ctx.save();
       ctx.globalAlpha = Math.min(1, lbl.life * 1.4);
       ctx.font = 'bold 12px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#071018';
+      ctx.fillStyle = '#060d14';
       ctx.fillText(lbl.text, lbl.x - ox + 1, lbl.y - oy + 1);
       ctx.fillStyle = lbl.color;
       ctx.fillText(lbl.text, lbl.x - ox, lbl.y - oy);
@@ -505,8 +608,8 @@ export class WorldRenderer {
       const lr = l.r * scale;
       if (lx < -lr || ly < -lr || lx > lw + lr || ly > lh + lr) continue;
       const grad = lg.createRadialGradient(lx, ly, lr * 0.12, lx, ly, lr);
-      grad.addColorStop(0, 'rgba(0,0,0,0.95)');
-      grad.addColorStop(0.55, 'rgba(0,0,0,0.45)');
+      grad.addColorStop(0, 'rgba(0,0,0,0.96)');
+      grad.addColorStop(0.55, 'rgba(0,0,0,0.48)');
       grad.addColorStop(1, 'rgba(0,0,0,0)');
       lg.fillStyle = grad;
       lg.beginPath();
@@ -519,7 +622,7 @@ export class WorldRenderer {
     // Subtle colored bloom for bright crystals/torches
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = 0.14;
+    ctx.globalAlpha = 0.15;
     for (const l of lights) {
       const grad = ctx.createRadialGradient(l.sx, l.sy, 2, l.sx, l.sy, l.r * 0.65);
       grad.addColorStop(0, l.color);
@@ -538,10 +641,10 @@ export class WorldRenderer {
     const w = canvas.width;
     const h = canvas.height;
     g.clearRect(0, 0, w, h);
-    g.fillStyle = '#07111a';
+    g.fillStyle = '#060d14';
     g.fillRect(0, 0, w, h);
 
-    const viewRange = 72; // tiles radius shown
+    const viewRange = 72;
     const px = Math.round(state.player.x);
     const py = Math.round(state.player.y);
     const step = 4;
@@ -557,7 +660,7 @@ export class WorldRenderer {
         const explored = !!state.exploredChunks[`${cx},${cy}`];
         const b = getBiomeAt(wx, wy, state.worldSeed);
         g.fillStyle = BIOME_INFO[b].mapColor;
-        g.globalAlpha = explored ? 0.92 : 0.25;
+        g.globalAlpha = explored ? 0.94 : 0.2;
         const mx = ((dx + viewRange) / (viewRange * 2)) * w;
         const my = ((dy + viewRange) / (viewRange * 2)) * h;
         g.fillRect(mx, my, cellPx + 0.6, cellPx + 0.6);
@@ -575,12 +678,12 @@ export class WorldRenderer {
         const my = ((dy + viewRange) / (viewRange * 2)) * h;
         g.fillStyle = '#f87171';
         g.beginPath();
-        g.arc(mx, my, 3.2, 0, Math.PI * 2);
+        g.arc(mx, my, 3.4, 0, Math.PI * 2);
         g.fill();
       }
     }
 
-    // Discovered POI markers on minimap (never show undiscovered secrets)
+    // Discovered POI markers on minimap
     if (state.discoveredPOIs) {
       for (const poi of state.discoveredPOIs) {
         const dx = poi.x - px;
@@ -594,21 +697,32 @@ export class WorldRenderer {
       }
     }
 
-    // Shelter marker (160,160)
+    // Shelter beacon (160,160)
     const sdx = 160 - px;
     const sdy = 160 - py;
     if (Math.abs(sdx) <= viewRange && Math.abs(sdy) <= viewRange) {
       const mx = ((sdx + viewRange) / (viewRange * 2)) * w;
       const my = ((sdy + viewRange) / (viewRange * 2)) * h;
-      g.fillStyle = '#fde047';
-      g.fillRect(mx - 2.5, my - 2.5, 5, 5);
+      g.fillStyle = '#fbbf24';
+      g.fillRect(mx - 3, my - 3, 6, 6);
+      g.strokeStyle = '#ffffff';
+      g.lineWidth = 1;
+      g.strokeRect(mx - 3, my - 3, 6, 6);
     }
 
-    // Player dot at center
-    g.fillStyle = '#ffffff';
+    // Player beacon at center
+    g.fillStyle = '#38bdf8';
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = 1.5;
     g.beginPath();
-    g.arc(w / 2, h / 2, 3.5, 0, Math.PI * 2);
+    g.arc(w / 2, h / 2, 3.8, 0, Math.PI * 2);
     g.fill();
+    g.stroke();
+
+    // Crisp outer reticle frame
+    g.strokeStyle = 'rgba(45, 212, 191, 0.35)';
+    g.lineWidth = 1;
+    g.strokeRect(0.5, 0.5, w - 1, h - 1);
   }
 
   public renderFullWorldMap(canvas: HTMLCanvasElement, state: GameState): void {
@@ -644,17 +758,23 @@ export class WorldRenderer {
         const py = (poi.y / WORLD_H) * h;
         g.fillStyle = poi.kind === 'crystal_chamber' ? '#38bdf8' : poi.kind === 'ancient_ruins' ? '#c084fc' : '#2dd4bf';
         g.fillRect(px - 3, py - 3, 6, 6);
+        g.strokeStyle = '#060c14';
+        g.lineWidth = 1;
+        g.strokeRect(px - 3, py - 3, 6, 6);
       }
     }
 
-    // Shelter icon
+    // Shelter beacon
     const sx = (160 / WORLD_W) * w;
     const sy = (160 / WORLD_H) * h;
     g.fillStyle = '#fde047';
     g.beginPath();
-    g.arc(sx, sy, 5, 0, Math.PI * 2);
+    g.arc(sx, sy, 5.5, 0, Math.PI * 2);
     g.fill();
     g.font = 'bold 11px sans-serif';
+    g.fillStyle = '#060c14';
+    g.fillText('Refugio', sx + 9, sy + 5);
+    g.fillStyle = '#fef08a';
     g.fillText('Refugio', sx + 8, sy + 4);
 
     // Bosses
@@ -666,9 +786,12 @@ export class WorldRenderer {
       g.beginPath();
       g.arc(bx, by, 4.5, 0, Math.PI * 2);
       g.fill();
-      g.font = '10px sans-serif';
+      g.font = 'bold 10px sans-serif';
+      const txt = defeated ? `✓ ${boss.name}` : boss.name;
+      g.fillStyle = '#060c14';
+      g.fillText(txt, bx + 8, by + 4);
       g.fillStyle = defeated ? '#86efac' : '#fecaca';
-      g.fillText(defeated ? `✓ ${boss.name}` : boss.name, bx + 7, by + 3);
+      g.fillText(txt, bx + 7, by + 3);
     }
 
     // Player
