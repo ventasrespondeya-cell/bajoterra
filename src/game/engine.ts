@@ -18,13 +18,16 @@ import {
 } from './data';
 import { WorldRenderer } from './renderer';
 import {
+  checkStorageCapabilities,
   createInitialGameState,
   detectV3SaveRaw,
   hasExistingV4Save,
-  loadGameV4,
-  migrateV3ToV4,
-  parseImportedJsonSave,
+  loadGameV4Detailed,
+  parseImportedJsonSaveDetailed,
+  requestPersistentStorageIfNeeded,
   saveGameV4,
+  type SaveResult,
+  type StorageCapabilities,
 } from './save';
 import {
   TileType,
@@ -70,6 +73,9 @@ export class BajoterraEngine {
   private lastHudPush = 0;
   private dpr = 1;
   private lastMinimapDraw = 0;
+  private autoSaveErrorNotified = false;
+  public lastSaveResult: SaveResult | null = null;
+  public storageCapabilities: StorageCapabilities | null = null;
 
   constructor() {
     this.chunks = new ChunkManager(this.state.worldSeed, this.state.tilesDelta);
@@ -78,10 +84,11 @@ export class BajoterraEngine {
     this.checkSavesAvailability();
   }
 
-  private async checkSavesAvailability(): Promise<void> {
+  public async checkSavesAvailability(): Promise<void> {
     this.hasV4 = await hasExistingV4Save();
     this.v3RawCache = await detectV3SaveRaw();
     this.hasV3 = !!this.v3RawCache;
+    this.storageCapabilities = await checkStorageCapabilities();
     this.emitHud(true);
   }
 
@@ -193,66 +200,91 @@ export class BajoterraEngine {
 
   public startNewGame(): void {
     this.state = createInitialGameState();
+    this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
     this.chunks.reset(this.state.worldSeed, this.state.tilesDelta);
     this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
     this.renderer.resetCamera(this.state.player.x, this.state.player.y);
     this.seedInitialEntities();
     this.screen = 'PLAYING';
+    void requestPersistentStorageIfNeeded();
     this.notify('¡Nueva expedición iniciada en las Cuevas Verdes!');
     this.emitHud(true);
   }
 
   public async continueSavedGame(): Promise<void> {
-    const loaded = await loadGameV4();
-    if (!loaded) {
+    const loadRes = await loadGameV4Detailed({ syncStores: true });
+    if (!loadRes.state) {
       this.startNewGame();
       return;
     }
-    this.state = loaded;
+    this.state = loadRes.state;
+    this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
     this.chunks.reset(this.state.worldSeed, this.state.tilesDelta);
     this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
     this.renderer.resetCamera(this.state.player.x, this.state.player.y);
     this.seedInitialEntities();
     this.screen = 'PLAYING';
-    this.notify('Partida 4.0 cargada.');
+    void requestPersistentStorageIfNeeded();
+    this.notify(
+      loadRes.recoveredFromCorruption
+        ? 'Partida 4.0 recuperada desde copia de respaldo válida.'
+        : 'Partida 4.0 cargada.'
+    );
     this.emitHud(true);
   }
 
   public async importDetectedV3Save(): Promise<boolean> {
     if (!this.v3RawCache) return false;
-    try {
-      const parsed = JSON.parse(this.v3RawCache);
-      this.state = migrateV3ToV4(parsed);
-      this.applyOptionsToAudio();
-      this.chunks.reset(this.state.worldSeed, this.state.tilesDelta);
-      this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
-      this.renderer.resetCamera(this.state.player.x, this.state.player.y);
-      this.seedInitialEntities();
-      await saveGameV4(this.state);
-      this.hasV4 = true;
-      this.screen = 'PLAYING';
-      this.notify('¡Partida de Bajoterra 3.0 importada sin sobrescribir la original!');
-      this.emitHud(true);
-      return true;
-    } catch {
+    const parsed = parseImportedJsonSaveDetailed(this.v3RawCache);
+    if (!parsed.ok || parsed.kind !== 'v3' || !parsed.state) {
+      this.notify(parsed.error || 'No se pudo validar la partida 3.0 local.');
       return false;
     }
-  }
-
-  public async importJsonText(jsonText: string): Promise<'v4' | 'v3' | null> {
-    const res = parseImportedJsonSave(jsonText);
-    if (!res) return null;
-    this.state = res.state;
+    const saveRes = await saveGameV4(parsed.state, { reason: 'import' });
+    this.lastSaveResult = saveRes;
+    if (!saveRes.ok) {
+      this.notify('No se pudo guardar la migración 3.0 en el navegador. Verifica el almacenamiento.');
+      return false;
+    }
+    this.state = parsed.state;
+    this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
     this.chunks.reset(this.state.worldSeed, this.state.tilesDelta);
     this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
     this.renderer.resetCamera(this.state.player.x, this.state.player.y);
     this.seedInitialEntities();
-    await saveGameV4(this.state);
     this.hasV4 = true;
     this.screen = 'PLAYING';
+    void requestPersistentStorageIfNeeded();
+    this.notify('¡Partida de Bajoterra 3.0 importada sin sobrescribir la original!');
+    this.emitHud(true);
+    return true;
+  }
+
+  public async importJsonText(jsonText: string): Promise<'v4' | 'v3' | null> {
+    const res = parseImportedJsonSaveDetailed(jsonText);
+    if (!res.ok || !res.kind || !res.state) {
+      this.notify(res.error || 'Archivo de partida no válido.');
+      return null;
+    }
+    const saveRes = await saveGameV4(res.state, { reason: 'import' });
+    this.lastSaveResult = saveRes;
+    if (!saveRes.ok) {
+      this.notify('Importación validada pero falló el guardado en el navegador. Exporta un respaldo JSON.');
+      return null;
+    }
+    this.state = res.state;
+    this.autoSaveErrorNotified = false;
+    this.applyOptionsToAudio();
+    this.chunks.reset(this.state.worldSeed, this.state.tilesDelta);
+    this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
+    this.renderer.resetCamera(this.state.player.x, this.state.player.y);
+    this.seedInitialEntities();
+    this.hasV4 = true;
+    this.screen = 'PLAYING';
+    void requestPersistentStorageIfNeeded();
     this.notify(
       res.kind === 'v3'
         ? 'Respaldo 3.0 migrado a Bajoterra 4.0.'
@@ -262,11 +294,61 @@ export class BajoterraEngine {
     return res.kind;
   }
 
-  public async manualSave(): Promise<void> {
-    await saveGameV4(this.state);
+  public async manualSave(): Promise<SaveResult> {
+    const res = await saveGameV4(this.state, { reason: 'manual' });
+    this.lastSaveResult = res;
+    if (!res.ok) {
+      this.notify('Error al guardar: almacenamiento lleno o bloqueado. Exporta respaldo JSON.');
+      return res;
+    }
     this.hasV4 = true;
+    this.autoSaveErrorNotified = false;
     sound.playUi();
-    this.notify('Partida guardada en el navegador.');
+    if (res.storedIn === 'both') {
+      this.notify('Partida guardada (IndexedDB y navegador).');
+    } else if (res.storedIn === 'indexeddb') {
+      this.notify('Partida guardada en IndexedDB (almacenamiento local no disponible).');
+    } else {
+      this.notify('Partida guardada en almacenamiento local (IndexedDB no disponible).');
+    }
+    return res;
+  }
+
+  private async runBackgroundSave(reason: 'autosave' | 'battle' | 'sync'): Promise<void> {
+    const res = await saveGameV4(this.state, { reason });
+    if (res.skipped) return;
+    this.lastSaveResult = res;
+    if (res.ok) {
+      this.hasV4 = true;
+      this.autoSaveErrorNotified = false;
+    } else if (!this.autoSaveErrorNotified) {
+      this.autoSaveErrorNotified = true;
+      this.notify('Aviso: no se pudo autoguardar. Usa Exportar Respaldo JSON.');
+    }
+  }
+
+  public handleLifecycleSave(_source: 'pagehide' | 'visibility-hidden'): void {
+    if (this.screen === 'TITLE') return;
+    // Synchronous localStorage best-effort + async IDB attempt; close events cannot guarantee async completion
+    void saveGameV4(this.state, { reason: 'lifecycle', syncLocalStorageFirst: true }).then((res) => {
+      if (!res.skipped) {
+        this.lastSaveResult = res;
+        if (res.ok) this.hasV4 = true;
+      }
+    });
+  }
+
+  public async handleTabReturn(): Promise<void> {
+    this.clearInputs();
+    this.lastTs = performance.now();
+    this.resizeCanvas();
+    if (this.screen === 'TITLE') {
+      await this.checkSavesAvailability();
+      return;
+    }
+    this.storageCapabilities = await checkStorageCapabilities();
+    await this.runBackgroundSave('sync');
+    this.emitHud(true);
   }
 
   public setScreen(screen: UIScreen): void {
@@ -438,7 +520,7 @@ export class BajoterraEngine {
       this.autoSaveTimer += dt;
       if (this.autoSaveTimer >= 25) {
         this.autoSaveTimer = 0;
-        saveGameV4(this.state);
+        void this.runBackgroundSave('autosave');
       }
 
       this.updatePlayerMovement(dt);
@@ -1111,7 +1193,7 @@ export class BajoterraEngine {
         if (this.combat.battle?.outcome === 'victory' || this.combat.battle?.outcome === 'captured') {
           this.entities = this.entities.filter((x) => x.uid !== ent.uid);
         }
-        saveGameV4(this.state);
+        void this.runBackgroundSave('battle');
         this.emitHud(true);
       },
     });

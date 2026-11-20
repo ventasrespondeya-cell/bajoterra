@@ -27,6 +27,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         onImportJsonFile(reader.result);
       }
     };
+    reader.onerror = () => {
+      onImportJsonFile('');
+    };
     reader.readAsText(f);
     e.target.value = '';
   };
@@ -88,6 +91,12 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         <p className="text-sm md:text-base text-slate-200/90 max-w-xl leading-relaxed mb-7">
           Excava cavernas generadas por chunks, ilumina pasadizos ocultos, construye tu refugio, cría y evoluciona babosas hasta Megamorph y domina el combate táctico con Pulso Rápido.
         </p>
+
+        {snap.toast && (
+          <div className="bg-[#0e1a26] border border-cyan-400/50 rounded-xl px-4 py-2.5 text-xs text-cyan-100 max-w-md mb-4">
+            {snap.toast}
+          </div>
+        )}
 
         {confirmAction ? (
           <div className="bg-[#0e1a26] border border-amber-400/50 rounded-xl p-4 max-w-md mb-4">

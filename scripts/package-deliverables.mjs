@@ -64,7 +64,7 @@ if (fs.existsSync(zipOut)) fs.unlinkSync(zipOut);
 
 try {
   execSync(
-    `python3 -c "import zipfile, os; z = zipfile.ZipFile('public/Bajoterra_4_0_Proyecto.zip', 'w', zipfile.ZIP_DEFLATED); z.write('public/Bajoterra_4_0.html', 'Bajoterra_4_0.html'); z.write('public/LEEME_Bajoterra_4_0.txt', 'LEEME_Bajoterra_4_0.txt'); [z.write(os.path.join(dp, f), os.path.join(dp, f)) for dp, dn, fn in os.walk('src') for f in fn]; z.write('package.json', 'package.json'); z.write('index.html', 'index.html'); z.close()"`,
+    `python3 -c "import zipfile, os; z = zipfile.ZipFile('public/Bajoterra_4_0_Proyecto.zip', 'w', zipfile.ZIP_DEFLATED); z.write('public/Bajoterra_4_0.html', 'Bajoterra_4_0.html'); z.write('public/LEEME_Bajoterra_4_0.txt', 'LEEME_Bajoterra_4_0.txt'); [z.write(os.path.join(dp, f), os.path.join(dp, f)) for d in ('src', 'tests') if os.path.exists(d) for dp, dn, fn in os.walk(d) for f in fn]; z.write('package.json', 'package.json'); z.write('index.html', 'index.html'); z.close()"`,
     { cwd: root, stdio: 'inherit' }
   );
   console.log(`Generated ${zipOut}`);

@@ -30,9 +30,13 @@ export const PauseModal: React.FC<PauseModalProps> = ({ snap, onResume, onTitle 
     const reader = new FileReader();
     reader.onload = async () => {
       if (typeof reader.result === 'string') {
-        const res = await gameEngine.importJsonText(reader.result);
-        if (!res) gameEngine.notify('Archivo de partida no válido.');
+        await gameEngine.importJsonText(reader.result);
+      } else {
+        gameEngine.notify('No se pudo leer el archivo seleccionado.');
       }
+    };
+    reader.onerror = () => {
+      gameEngine.notify('Error al leer el archivo de respaldo.');
     };
     reader.readAsText(f);
     e.target.value = '';
@@ -139,9 +143,14 @@ export const PauseModal: React.FC<PauseModalProps> = ({ snap, onResume, onTitle 
           <div className="text-xs font-extrabold text-cyan-300 uppercase tracking-wider">
             Guardado y Compatibilidad 3.0
           </div>
+          {snap.toast && (
+            <div className="px-3 py-2 rounded-lg bg-slate-900/90 border border-cyan-400/40 text-xs text-cyan-100">
+              {snap.toast}
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button
-              onClick={() => gameEngine.manualSave()}
+              onClick={() => void gameEngine.manualSave()}
               className="py-2.5 px-3 rounded-xl bg-cyan-500/20 border border-cyan-400/50 text-cyan-100 font-bold text-xs hover:bg-cyan-500/30 cursor-pointer"
             >
               Guardar Partida Ahora

@@ -6,7 +6,6 @@ import { GameHUD } from './components/GameHUD';
 import { PauseModal } from './components/PauseModal';
 import { TitleScreen } from './components/TitleScreen';
 import { gameEngine } from './game/engine';
-import { saveGameV4 } from './game/save';
 import type { HudSnapshot } from './game/types';
 
 export default function App() {
@@ -25,8 +24,14 @@ export default function App() {
     const onBlur = () => gameEngine.clearInputs();
     const onResize = () => gameEngine.resizeCanvas();
     const onPageHide = () => {
-      if (gameEngine.screen !== 'TITLE') {
-        saveGameV4(gameEngine.state);
+      gameEngine.handleLifecycleSave('pagehide');
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        gameEngine.clearInputs();
+        gameEngine.handleLifecycleSave('visibility-hidden');
+      } else if (document.visibilityState === 'visible') {
+        void gameEngine.handleTabReturn();
       }
     };
 
@@ -35,6 +40,7 @@ export default function App() {
     window.addEventListener('blur', onBlur);
     window.addEventListener('resize', onResize);
     window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       unsub();
@@ -44,6 +50,7 @@ export default function App() {
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, []);
 

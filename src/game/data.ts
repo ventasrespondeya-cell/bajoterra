@@ -643,6 +643,8 @@ export function getSpecies(id: string): SlugSpecies {
   return SPECIES_LIST.find((s) => s.id === id) || SPECIES_LIST[0];
 }
 
+let slugUidSeq = 1;
+
 export function createSlugInstance(
   id: string,
   level = 1,
@@ -655,7 +657,7 @@ export function createSlugInstance(
   const maxHp = sp.baseHp + level * 6 + traitHp;
   const maxEnergy = 14 + Math.floor(level * 1.5);
   return {
-    uid: `${sp.id}_${Math.random().toString(36).slice(2, 9)}`,
+    uid: `${sp.id}_${Date.now().toString(36)}_${slugUidSeq++}_${Math.random().toString(36).slice(2, 6)}`,
     id: sp.id,
     name: sp.name,
     type: sp.type,

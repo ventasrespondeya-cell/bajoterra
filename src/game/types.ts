@@ -274,8 +274,14 @@ export interface PlayerState {
   perks: string[];
 }
 
+export interface SaveMetadata {
+  revision: number;
+  savedAt: number;
+}
+
 export interface GameState {
   version: '4.0';
+  saveMeta?: SaveMetadata;
   worldSeed: number;
   worldWidth: number;
   worldHeight: number;

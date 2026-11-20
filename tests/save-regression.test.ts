@@ -1,0 +1,833 @@
+import { beforeEach, describe, test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+// Stub minimal DOM canvas before importing engine.ts
+const canvasStub = () => ({
+  width: 300,
+  height: 200,
+  parentElement: { getBoundingClientRect: () => ({ width: 800, height: 600 }) },
+  getContext: () => ({
+    fillRect: () => {},
+    clearRect: () => {},
+    drawImage: () => {},
+    beginPath: () => {},
+    arc: () => {},
+    fill: () => {},
+    stroke: () => {},
+    createRadialGradient: () => ({ addColorStop: () => {} }),
+    save: () => {},
+    restore: () => {},
+    translate: () => {},
+    scale: () => {},
+    setTransform: () => {},
+    fillText: () => {},
+  }),
+});
+
+(globalThis as Record<string, unknown>).document = {
+  createElement: canvasStub,
+  visibilityState: 'visible',
+};
+if (typeof (globalThis as Record<string, unknown>).window === 'undefined') {
+  (globalThis as Record<string, unknown>).window = {
+    location: { protocol: 'http:' },
+    devicePixelRatio: 1,
+  };
+}
+
+class MockLocalStorage {
+  private map = new Map<string, string>();
+  public failGet = false;
+  public failSetError: Error | null = null;
+
+  getItem(key: string): string | null {
+    if (this.failGet) throw new Error('SecurityError: localStorage blocked');
+    return this.map.has(key) ? this.map.get(key)! : null;
+  }
+  setItem(key: string, val: string): void {
+    if (this.failSetError) throw this.failSetError;
+    this.map.set(key, String(val));
+  }
+  removeItem(key: string): void {
+    this.map.delete(key);
+  }
+  clear(): void {
+    this.map.clear();
+  }
+  setRaw(key: string, val: string): void {
+    this.map.set(key, val);
+  }
+  getRaw(key: string): string | null {
+    return this.map.get(key) ?? null;
+  }
+}
+
+class MockIndexedDB {
+  public dbs = new Map<string, Map<string, Map<string, string>>>();
+  public failOpenError: Error | null = null;
+  public failReadError: Error | null = null;
+  public failWriteError: Error | null = null;
+  public writeDelaysMs: number[] = [];
+
+  private ensureStore(dbName: string, storeName = 'saves'): Map<string, string> {
+    if (!this.dbs.has(dbName)) this.dbs.set(dbName, new Map());
+    const db = this.dbs.get(dbName)!;
+    if (!db.has(storeName)) db.set(storeName, new Map());
+    return db.get(storeName)!;
+  }
+
+  setRaw(dbName: string, key: string, value: string): void {
+    this.ensureStore(dbName).set(key, value);
+  }
+
+  getRaw(dbName: string, key: string): string | null {
+    return this.ensureStore(dbName).get(key) ?? null;
+  }
+
+  open(dbName: string, _version?: number): unknown {
+    const req: Record<string, unknown> = {
+      result: null,
+      error: null,
+      onupgradeneeded: null,
+      onsuccess: null,
+      onerror: null,
+      onblocked: null,
+    };
+
+    const delay = this.writeDelaysMs.length > 0 ? 0 : 1;
+    setTimeout(() => {
+      if (this.failOpenError) {
+        req.error = this.failOpenError;
+        if (typeof req.onerror === 'function') (req.onerror as () => void)();
+        return;
+      }
+
+      if (!this.dbs.has(dbName)) {
+        this.dbs.set(dbName, new Map());
+      }
+      const dbStores = this.dbs.get(dbName)!;
+
+      const dbObj: Record<string, unknown> = {
+        objectStoreNames: {
+          contains: (name: string) => dbStores.has(name),
+        },
+        createObjectStore: (name: string) => {
+          if (!dbStores.has(name)) dbStores.set(name, new Map());
+        },
+        close: () => {},
+        onversionchange: null,
+        transaction: (storeName: string, _mode: string) => {
+          const store = this.ensureStore(dbName, storeName);
+          const tx: Record<string, unknown> = {
+            error: null,
+            oncomplete: null,
+            onerror: null,
+            onabort: null,
+            objectStore: () => ({
+              get: (key: string) => {
+                const getReq: Record<string, unknown> = {
+                  result: undefined,
+                  error: null,
+                  onsuccess: null,
+                  onerror: null,
+                };
+                setTimeout(() => {
+                  if (this.failReadError) {
+                    getReq.error = this.failReadError;
+                    if (typeof getReq.onerror === 'function') (getReq.onerror as () => void)();
+                    return;
+                  }
+                  getReq.result = store.get(key);
+                  if (typeof getReq.onsuccess === 'function') (getReq.onsuccess as () => void)();
+                }, 1);
+                return getReq;
+              },
+              put: (val: string, key: string) => {
+                const putReq: Record<string, unknown> = {
+                  error: null,
+                  onerror: null,
+                };
+                const d = this.writeDelaysMs.length > 0 ? this.writeDelaysMs.shift()! : 2;
+                setTimeout(() => {
+                  if (this.failWriteError) {
+                    putReq.error = this.failWriteError;
+                    tx.error = this.failWriteError;
+                    if (typeof putReq.onerror === 'function') (putReq.onerror as () => void)();
+                    if (typeof tx.onerror === 'function') (tx.onerror as () => void)();
+                    return;
+                  }
+                  store.set(key, String(val));
+                  if (typeof tx.oncomplete === 'function') (tx.oncomplete as () => void)();
+                }, d);
+                return putReq;
+              },
+            }),
+          };
+          return tx;
+        },
+      };
+
+      req.result = dbObj;
+      if (!dbStores.has('saves') && typeof req.onupgradeneeded === 'function') {
+        (req.onupgradeneeded as () => void)();
+      }
+      if (typeof req.onsuccess === 'function') {
+        (req.onsuccess as () => void)();
+      }
+    }, delay);
+
+    return req;
+  }
+}
+
+const mockLs = new MockLocalStorage();
+const mockIdb = new MockIndexedDB();
+(globalThis as Record<string, unknown>).localStorage = mockLs;
+(globalThis as Record<string, unknown>).indexedDB = mockIdb;
+
+const {
+  V4_SAVE_KEY,
+  V4_DB_NAME,
+  V3_SAVE_KEY,
+  MAX_IMPORT_BYTES,
+  createInitialGameState,
+  saveGameV4,
+  loadGameV4,
+  loadGameV4Detailed,
+  parseImportedJsonSave,
+  parseImportedJsonSaveDetailed,
+  normalizeV4State,
+  migrateV3ToV4,
+  checkStorageCapabilities,
+  requestPersistentStorageIfNeeded,
+  resetSaveRuntimeForTests,
+} = await import('../src/game/save.ts');
+const { CombatManager } = await import('../src/game/combat.ts');
+const { QUEST_LIST, createSlugInstance, getSpecies } = await import('../src/game/data.ts');
+const { gameEngine } = await import('../src/game/engine.ts');
+const { TileType } = await import('../src/game/types.ts');
+
+beforeEach(() => {
+  mockLs.clear();
+  mockLs.failGet = false;
+  mockLs.failSetError = null;
+  mockIdb.dbs.clear();
+  mockIdb.failOpenError = null;
+  mockIdb.failReadError = null;
+  mockIdb.failWriteError = null;
+  mockIdb.writeDelaysMs = [];
+  (globalThis as Record<string, unknown>).localStorage = mockLs;
+  (globalThis as Record<string, unknown>).indexedDB = mockIdb;
+  (globalThis as Record<string, unknown>).window = {
+    location: { protocol: 'http:' },
+    devicePixelRatio: 1,
+  };
+  Object.defineProperty(globalThis, 'navigator', {
+    value: undefined,
+    configurable: true,
+    writable: true,
+  });
+  resetSaveRuntimeForTests();
+});
+
+describe('Bajoterra 4.0 — FASE 2: Protección Integral de Partidas', () => {
+  test('A. Guardado normal en IndexedDB', async () => {
+    const state = createInitialGameState();
+    state.inventory.ore = 42;
+    const res = await saveGameV4(state, { reason: 'manual' });
+    assert.equal(res.ok, true);
+    assert.equal(res.indexedDB.ok, true);
+    assert.equal(res.storedIn, 'both');
+    const rawIdb = mockIdb.getRaw(V4_DB_NAME, V4_SAVE_KEY);
+    assert.ok(rawIdb && rawIdb.includes('"ore":42'));
+  });
+
+  test('B. Guardado normal en localStorage', async () => {
+    const state = createInitialGameState();
+    state.inventory.crystal = 19;
+    const res = await saveGameV4(state, { reason: 'manual' });
+    assert.equal(res.ok, true);
+    assert.equal(res.localStorage.ok, true);
+    const rawLs = mockLs.getRaw(V4_SAVE_KEY);
+    assert.ok(rawLs && rawLs.includes('"crystal":19'));
+  });
+
+  test('C. Fallo de IndexedDB con recuperación desde localStorage', async () => {
+    const state = createInitialGameState();
+    state.inventory.ore = 77;
+    mockIdb.failWriteError = Object.assign(new Error('Quota exceeded'), { name: 'QuotaExceededError' });
+
+    const saveRes = await saveGameV4(state, { reason: 'manual' });
+    assert.equal(saveRes.ok, true);
+    assert.equal(saveRes.storedIn, 'localstorage');
+    assert.equal(saveRes.indexedDB.ok, false);
+    assert.equal(saveRes.localStorage.ok, true);
+
+    mockIdb.failOpenError = new Error('IDB unavailable');
+    const loadRes = await loadGameV4Detailed({ syncStores: false });
+    assert.ok(loadRes.state);
+    assert.equal(loadRes.source, 'localstorage');
+    assert.equal(loadRes.state.inventory.ore, 77);
+  });
+
+  test('D. Fallo de localStorage con recuperación desde IndexedDB', async () => {
+    const state = createInitialGameState();
+    state.inventory.wood = 55;
+    mockLs.failSetError = Object.assign(new Error('LS quota'), { name: 'QuotaExceededError' });
+
+    const saveRes = await saveGameV4(state, { reason: 'manual' });
+    assert.equal(saveRes.ok, true);
+    assert.equal(saveRes.storedIn, 'indexeddb');
+    assert.equal(saveRes.localStorage.ok, false);
+    assert.equal(saveRes.indexedDB.ok, true);
+
+    mockLs.failGet = true;
+    const loadRes = await loadGameV4Detailed({ syncStores: false });
+    assert.ok(loadRes.state);
+    assert.equal(loadRes.source, 'indexeddb');
+    assert.equal(loadRes.state.inventory.wood, 55);
+  });
+
+  test('E. Dos copias diferentes: recuperar siempre la más reciente y sincronizar', async () => {
+    const older = createInitialGameState();
+    older.inventory.ore = 5;
+    older.saveMeta = { revision: 2, savedAt: 1000 };
+
+    const newer = createInitialGameState();
+    newer.inventory.ore = 88;
+    newer.saveMeta = { revision: 5, savedAt: 5000 };
+
+    // Case 1: IndexedDB stale, localStorage newer (fixes old bug rawIdb || rawLs)
+    mockIdb.setRaw(V4_DB_NAME, V4_SAVE_KEY, JSON.stringify(older));
+    mockLs.setRaw(V4_SAVE_KEY, JSON.stringify(newer));
+
+    const res1 = await loadGameV4Detailed({ syncStores: true });
+    assert.ok(res1.state);
+    assert.equal(res1.source, 'localstorage');
+    assert.equal(res1.state.inventory.ore, 88);
+    assert.equal(res1.syncedStores, true);
+    const syncedIdb = JSON.parse(mockIdb.getRaw(V4_DB_NAME, V4_SAVE_KEY)!);
+    assert.equal(syncedIdb.inventory.ore, 88);
+
+    // Case 2: IndexedDB newer, localStorage stale (without metadata legacy fallback)
+    const legacyOlder = createInitialGameState();
+    delete legacyOlder.saveMeta;
+    legacyOlder.playTimeSec = 10;
+    legacyOlder.inventory.ore = 12;
+
+    const legacyNewer = createInitialGameState();
+    delete legacyNewer.saveMeta;
+    legacyNewer.playTimeSec = 240;
+    legacyNewer.inventory.ore = 64;
+
+    mockIdb.setRaw(V4_DB_NAME, V4_SAVE_KEY, JSON.stringify(legacyNewer));
+    mockLs.setRaw(V4_SAVE_KEY, JSON.stringify(legacyOlder));
+    const res2 = await loadGameV4Detailed({ syncStores: true });
+    assert.ok(res2.state);
+    assert.equal(res2.source, 'indexeddb');
+    assert.equal(res2.state.inventory.ore, 64);
+    const syncedLs = JSON.parse(mockLs.getRaw(V4_SAVE_KEY)!);
+    assert.equal(syncedLs.inventory.ore, 64);
+  });
+
+  test('F. Dos guardados consecutivos: escritura antigua no reemplaza una nueva y autoguardado no se acumula', async () => {
+    const state = createInitialGameState();
+    state.inventory.ore = 10;
+    mockIdb.writeDelaysMs = [45, 5]; // First IDB write is much slower than second
+
+    const p1 = saveGameV4(state, { reason: 'manual' });
+    state.inventory.ore = 99;
+    const p2 = saveGameV4(state, { reason: 'manual' });
+
+    // Coalesced autosave while queue is busy must be skipped without queuing
+    const pAuto = saveGameV4(state, { reason: 'autosave' });
+
+    const [r1, r2, rAuto] = await Promise.all([p1, p2, pAuto]);
+    assert.equal(r1.ok, true);
+    assert.equal(r2.ok, true);
+    assert.ok(r2.revision > r1.revision);
+    assert.equal(rAuto.skipped, true);
+
+    const idbFinal = JSON.parse(mockIdb.getRaw(V4_DB_NAME, V4_SAVE_KEY)!);
+    const lsFinal = JSON.parse(mockLs.getRaw(V4_SAVE_KEY)!);
+    assert.equal(idbFinal.inventory.ore, 99);
+    assert.equal(lsFinal.inventory.ore, 99);
+    assert.equal(idbFinal.saveMeta.revision, r2.revision);
+    assert.equal(lsFinal.saveMeta.revision, r2.revision);
+  });
+
+  test('G. Ambas ubicaciones fallan: reportar error y no anunciar éxito', async () => {
+    const state = createInitialGameState();
+    mockIdb.failWriteError = new Error('IDB disk full');
+    mockLs.failSetError = new Error('LS disk full');
+
+    const res = await saveGameV4(state, { reason: 'manual' });
+    assert.equal(res.ok, false);
+    assert.equal(res.storedIn, 'none');
+
+    gameEngine.startNewGame();
+    const engRes = await gameEngine.manualSave();
+    assert.equal(engRes.ok, false);
+    assert.equal(engRes.storedIn, 'none');
+    const toast = gameEngine.getSnapshot().toast;
+    assert.ok(toast.includes('Error al guardar'), `Unexpected toast: ${toast}`);
+  });
+
+  test('H. Importación de una partida válida 4.0 (incluyendo 4.0 sin metadatos)', async () => {
+    const v4 = createInitialGameState();
+    delete v4.saveMeta;
+    v4.player.x = 182.5;
+    v4.player.y = 144.25;
+    v4.inventory.relics = 7;
+
+    const parsed = parseImportedJsonSaveDetailed(JSON.stringify(v4));
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.kind, 'v4');
+    assert.equal(parsed.state?.inventory.relics, 7);
+
+    const legacyImport = parseImportedJsonSave(JSON.stringify(v4));
+    assert.ok(legacyImport);
+    assert.equal(legacyImport.kind, 'v4');
+  });
+
+  test('I. Importación de una partida válida 3.0 sin destruir el guardado 3.0 original', async () => {
+    const v3Save = {
+      player: { x: 64, y: 72, hp: 90, maxHp: 110, level: 4, xp: 20 },
+      party: [
+        { id: 'infurnus', name: 'Infurnus', level: 3, xp: 10, hp: 50, maxHp: 63, atk: 18, spd: 12, friend: 45, mega: false },
+        { id: 'flaringo', name: 'Flaringo', level: 2, xp: 0, hp: 40, maxHp: 63, atk: 18, spd: 13, friend: 30, mega: true },
+      ],
+      pets: [{ id: 'enigmo', level: 2, hp: 58, maxHp: 58, atk: 20, spd: 14, friend: 60 }],
+      active: 1,
+      inventory: { ore: 14, berries: 5, capsules: 6, wood: 9, stone: 12 },
+      tiles: { '70,70': 10, '71,70': 12 },
+      worldSeed: 91234,
+      won: 11,
+      discoveries: ['Pradera', 'Magma'],
+      quest: { ore: 18, wins: 11, biomes: 2 },
+    };
+
+    const rawV3 = JSON.stringify(v3Save);
+    mockLs.setRaw(V3_SAVE_KEY, rawV3);
+    const parsed = parseImportedJsonSaveDetailed(rawV3);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.kind, 'v3');
+    assert.ok(parsed.state);
+    assert.equal(parsed.state.worldSeed, 91234);
+    assert.equal(parsed.state.party.length, 2);
+    assert.equal(parsed.state.storage.length, 1);
+    assert.equal(parsed.state.activePartyIndex, 1);
+    assert.equal(parsed.state.party[1].mega, true);
+    assert.ok(parsed.state.discoveries.includes('Magma'));
+    assert.equal(parsed.state.stats.wins, 11);
+    // V3 storage key remains untouched
+    assert.equal(mockLs.getRaw(V3_SAVE_KEY), rawV3);
+
+    // Also test direct migrateV3ToV4 compatibility
+    const direct = migrateV3ToV4(v3Save);
+    assert.equal(direct.version, '4.0');
+  });
+
+  test('J. Rechazo de JSON corrupto, vacío, versión errónea y tamaño excesivo', () => {
+    assert.equal(parseImportedJsonSaveDetailed('').ok, false);
+    assert.equal(parseImportedJsonSaveDetailed('{corrupt json').ok, false);
+    assert.equal(parseImportedJsonSaveDetailed('[]').ok, false);
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify({ version: '99.0' })).ok, false);
+
+    const oversized = ' '.repeat(MAX_IMPORT_BYTES + 10);
+    const bigRes = parseImportedJsonSaveDetailed(oversized);
+    assert.equal(bigRes.ok, false);
+    assert.ok(bigRes.error?.includes('límite'));
+  });
+
+  test('K. Rechazo de inventarios, estadísticas, coordenadas, huevos y opciones inválidas', () => {
+    const makeBase = () => createInitialGameState();
+
+    // Negative inventory
+    const badInv = makeBase();
+    badInv.inventory.ore = -5;
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badInv)).ok, false);
+
+    // Float / NaN / unknown key in inventory
+    const floatInv = makeBase() as unknown as Record<string, unknown>;
+    (floatInv.inventory as Record<string, unknown>).ore = 2.5;
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(floatInv)).ok, false);
+
+    const nanInv = makeBase() as unknown as Record<string, unknown>;
+    (nanInv.inventory as Record<string, unknown>).ore = 'NaN';
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(nanInv)).ok, false);
+
+    // Negative stats
+    const badStats = makeBase();
+    badStats.stats.wins = -1;
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badStats)).ok, false);
+
+    // Impossible player HP & out-of-bounds coords
+    const badHp = makeBase();
+    badHp.player.hp = 9999;
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badHp)).ok, false);
+
+    const badPos = makeBase();
+    badPos.player.x = 999;
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badPos)).ok, false);
+
+    // Out-of-bounds activePartyIndex
+    const badIdx = makeBase();
+    badIdx.activePartyIndex = 3; // party has 3 items -> max valid 2
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badIdx)).ok, false);
+
+    // Invalid egg steps
+    const badEgg = makeBase();
+    badEgg.eggs = [
+      {
+        id: 'egg_1',
+        parentAName: 'A',
+        parentBName: 'B',
+        speciesId: 'infurnus',
+        stepsRemaining: 100,
+        totalSteps: 40,
+        bonusTrait: 'Vitalidad +',
+      },
+    ];
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badEgg)).ok, false);
+
+    // Invalid tile delta coordinate & type
+    const badTile = makeBase();
+    badTile.tilesDelta = { '999,10': 5 };
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badTile)).ok, false);
+
+    // Invalid option
+    const badOpt = makeBase();
+    badOpt.options.volume = 2.5;
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(badOpt)).ok, false);
+
+    // normalizeV4State also rejects corrupted inputs
+    assert.throws(() => normalizeV4State({ version: '4.0', player: { x: -10, y: 10 } as never }));
+  });
+
+  test('L. Rechazo de identificadores únicos duplicados', () => {
+    const dupSlug = createInitialGameState();
+    dupSlug.storage = [{ ...dupSlug.party[0] }]; // duplicate uid across party and storage
+    const rSlug = parseImportedJsonSaveDetailed(JSON.stringify(dupSlug));
+    assert.equal(rSlug.ok, false);
+    assert.ok(rSlug.error?.toLowerCase().includes('duplicado'));
+
+    const dupEgg = createInitialGameState();
+    dupEgg.eggs = [
+      {
+        id: 'egg_dup',
+        parentAName: 'A',
+        parentBName: 'B',
+        speciesId: 'infurnus',
+        stepsRemaining: 10,
+        totalSteps: 40,
+        bonusTrait: 'Vitalidad +',
+      },
+      {
+        id: 'egg_dup',
+        parentAName: 'A',
+        parentBName: 'B',
+        speciesId: 'aquabeak',
+        stepsRemaining: 20,
+        totalSteps: 40,
+        bonusTrait: 'Potencia +',
+      },
+    ];
+    const rEgg = parseImportedJsonSaveDetailed(JSON.stringify(dupEgg));
+    assert.equal(rEgg.ok, false);
+    assert.ok(rEgg.error?.toLowerCase().includes('duplicado'));
+
+    const dupQuest = createInitialGameState();
+    dupQuest.claimedQuests = ['q_main_1', 'q_main_1'];
+    assert.equal(parseImportedJsonSaveDetailed(JSON.stringify(dupQuest)).ok, false);
+  });
+
+  test('M. Fallo de importación nunca sobrescribe la partida actual ni la guardada', async () => {
+    gameEngine.startNewGame();
+    gameEngine.state.inventory.ore = 123;
+    gameEngine.state.player.x = 175;
+    await gameEngine.manualSave();
+
+    const failed = await gameEngine.importJsonText('{invalid_json');
+    assert.equal(failed, null);
+    assert.equal(gameEngine.state.inventory.ore, 123);
+    assert.equal(gameEngine.state.player.x, 175);
+
+    const invalidSave = createInitialGameState();
+    invalidSave.inventory.ore = -50;
+    const failedValidation = await gameEngine.importJsonText(JSON.stringify(invalidSave));
+    assert.equal(failedValidation, null);
+    assert.equal(gameEngine.state.inventory.ore, 123);
+
+    // Also test storage failure during import does not replace current state
+    mockIdb.failWriteError = new Error('IDB fail');
+    mockLs.failSetError = new Error('LS fail');
+    const validImport = createInitialGameState();
+    validImport.inventory.ore = 555;
+    const failedSave = await gameEngine.importJsonText(JSON.stringify(validImport));
+    assert.equal(failedSave, null);
+    assert.equal(gameEngine.state.inventory.ore, 123);
+  });
+
+  test('N. Recuperación de copia válida cuando la otra está corrupta y reparación automática', async () => {
+    const valid = createInitialGameState();
+    valid.inventory.shadowShard = 33;
+    valid.saveMeta = { revision: 9, savedAt: 9000 };
+
+    // 1) IndexedDB corrupt, localStorage valid
+    mockIdb.setRaw(V4_DB_NAME, V4_SAVE_KEY, '{"version":"4.0","player":null');
+    mockLs.setRaw(V4_SAVE_KEY, JSON.stringify(valid));
+    const res1 = await loadGameV4Detailed({ syncStores: true });
+    assert.ok(res1.state);
+    assert.equal(res1.recoveredFromCorruption, true);
+    assert.equal(res1.source, 'localstorage');
+    assert.equal(res1.syncedStores, true);
+    assert.equal(res1.state.inventory.shadowShard, 33);
+    assert.equal(JSON.parse(mockIdb.getRaw(V4_DB_NAME, V4_SAVE_KEY)!).inventory.shadowShard, 33);
+
+    // 2) localStorage corrupt, IndexedDB valid
+    mockLs.setRaw(V4_SAVE_KEY, 'corrupt_text');
+    const res2 = await loadGameV4();
+    assert.ok(res2);
+    assert.equal(res2.inventory.shadowShard, 33);
+    assert.equal(JSON.parse(mockLs.getRaw(V4_SAVE_KEY)!).inventory.shadowShard, 33);
+  });
+
+  test('O. Conservación completa de bloques, recursos, babosas, huevos, misiones, stats y ubicación', async () => {
+    const rich = createInitialGameState();
+    rich.worldSeed = 555111;
+    rich.player.x = 212.75;
+    rich.player.y = 98.25;
+    rich.player.level = 6;
+    rich.player.xp = 34;
+    rich.player.perks = ['Resistencia Térmica'];
+    rich.tilesDelta = { '161,160': TileType.WALL, '162,160': TileType.TORCH, '163,160': TileType.DOOR_OPEN };
+    rich.exploredChunks = { '10,10': 1, '13,6': 1 };
+    rich.inventory.ore = 44;
+    rich.inventory.masterCapsules = 3;
+    rich.inventory.relics = 5;
+    const bredSlug = createSlugInstance('aetherion', 5, { isBred: true, bonusTrait: 'Potencia +' });
+    bredSlug.mega = true;
+    rich.party.push(bredSlug);
+    rich.activePartyIndex = 3;
+    rich.storage.push(createSlugInstance('voltrix', 3));
+    rich.eggs.push({
+      id: 'egg_persist_1',
+      parentAName: 'Infurnus',
+      parentBName: 'Aquabeak',
+      speciesId: 'infurnus',
+      stepsRemaining: 17.5,
+      totalSteps: 40,
+      bonusTrait: 'Velocidad +',
+    });
+    rich.discoveries = ['Verdes', 'Magma', 'Heladas'];
+    rich.defeatedBosses = ['boss_magma'];
+    rich.claimedQuests = ['q_main_1', 'q_main_2'];
+    rich.shelterTier = 3;
+    rich.stats = {
+      oreMined: 52,
+      wins: 14,
+      torchesPlaced: 9,
+      structuresBuilt: 12,
+      chestsOpened: 4,
+      eggsHatched: 2,
+      bossesDefeated: 1,
+      megaUnlocked: 1,
+      steps: 420.5,
+    };
+    rich.options = {
+      soundEnabled: false,
+      volume: 0.75,
+      touchControls: 'on',
+      lightingQuality: 'eco',
+      showMinimap: false,
+    };
+
+    const saveRes = await saveGameV4(rich, { reason: 'manual' });
+    assert.equal(saveRes.ok, true);
+
+    const loaded = await loadGameV4();
+    assert.ok(loaded);
+    assert.equal(loaded.worldSeed, 555111);
+    assert.equal(loaded.player.x, 212.75);
+    assert.equal(loaded.player.y, 98.25);
+    assert.deepEqual(loaded.player.perks, ['Resistencia Térmica']);
+    assert.deepEqual(loaded.tilesDelta, rich.tilesDelta);
+    assert.deepEqual(loaded.exploredChunks, rich.exploredChunks);
+    assert.equal(loaded.inventory.ore, 44);
+    assert.equal(loaded.inventory.masterCapsules, 3);
+    assert.equal(loaded.inventory.relics, 5);
+    assert.equal(loaded.party.length, 4);
+    assert.equal(loaded.party[3].id, 'aetherion');
+    assert.equal(loaded.party[3].mega, true);
+    assert.equal(loaded.party[3].bonusTrait, 'Potencia +');
+    assert.equal(loaded.storage.length, 1);
+    assert.equal(loaded.activePartyIndex, 3);
+    assert.equal(loaded.eggs.length, 1);
+    assert.equal(loaded.eggs[0].stepsRemaining, 17.5);
+    assert.deepEqual(loaded.discoveries, ['Verdes', 'Magma', 'Heladas']);
+    assert.deepEqual(loaded.defeatedBosses, ['boss_magma']);
+    assert.deepEqual(loaded.claimedQuests, ['q_main_1', 'q_main_2']);
+    assert.equal(loaded.shelterTier, 3);
+    assert.deepEqual(loaded.stats, rich.stats);
+    assert.deepEqual(loaded.options, rich.options);
+  });
+
+  test('Capacidades de almacenamiento (navigator.storage) y compatibilidad bajo file://', async () => {
+    // 1) Browser without navigator.storage & under file://
+    (globalThis as Record<string, unknown>).window = { location: { protocol: 'file:' } };
+    const capFile = await checkStorageCapabilities();
+    assert.equal(capFile.isFileProtocol, true);
+    assert.equal(capFile.storageApiAvailable, false);
+    const persistFile = await requestPersistentStorageIfNeeded();
+    assert.equal(persistFile.supported, false);
+    assert.equal(persistFile.granted, null);
+
+    // 2) Browser rejecting persistence
+    resetSaveRuntimeForTests();
+    (globalThis as Record<string, unknown>).window = { location: { protocol: 'https:' } };
+    Object.defineProperty(globalThis, 'navigator', {
+      value: {
+        storage: {
+          estimate: async () => ({ quota: 50_000_000, usage: 120_000 }),
+          persisted: async () => false,
+          persist: async () => false,
+        },
+      },
+      configurable: true,
+    });
+    const capHttps = await checkStorageCapabilities();
+    assert.equal(capHttps.estimateSupported, true);
+    assert.equal(capHttps.quotaBytes, 50_000_000);
+    assert.equal(capHttps.persisted, false);
+    const persistRejected = await requestPersistentStorageIfNeeded();
+    assert.equal(persistRejected.supported, true);
+    assert.equal(persistRejected.granted, false);
+  });
+
+  test('Ciclo de vida: guardado síncrono en pagehide y recuperación al volver a la pestaña', async () => {
+    gameEngine.startNewGame();
+    gameEngine.state.inventory.ore = 31;
+    gameEngine.handleLifecycleSave('pagehide');
+    // Immediately check localStorage synchronously
+    const rawLs = mockLs.getRaw(V4_SAVE_KEY);
+    assert.ok(rawLs);
+    assert.equal(JSON.parse(rawLs).inventory.ore, 31);
+
+    await gameEngine.handleTabReturn();
+    const rawIdb = mockIdb.getRaw(V4_DB_NAME, V4_SAVE_KEY);
+    assert.ok(rawIdb);
+    assert.equal(JSON.parse(rawIdb).inventory.ore, 31);
+  });
+});
+
+describe('Bajoterra 4.0 — Regresión permanente de FASE 1 (7 comprobaciones)', () => {
+  test('FASE 1.1 y 1.2: Sincronización post-turno enemigo y cancelación de temporizadores al cerrar combate', async () => {
+    const s1 = createInitialGameState();
+    const cm1 = new CombatManager();
+    let syncs = 0;
+    cm1.startBattle(s1, {
+      kind: 'wild',
+      speciesId: 'burpy',
+      level: 1,
+      onStateChange: () => {
+        syncs++;
+      },
+    });
+    cm1.executeNormalAttack(s1);
+    if (cm1.battle && cm1.battle.turn === 'enemy') {
+      await new Promise((r) => setTimeout(r, 600));
+      assert.ok(syncs >= 1);
+    }
+    cm1.closeBattle();
+
+    const s2 = createInitialGameState();
+    const cm2 = new CombatManager();
+    let ghostSync = 0;
+    cm2.startBattle(s2, {
+      kind: 'wild',
+      speciesId: 'burpy',
+      level: 2,
+      onStateChange: () => {
+        ghostSync++;
+      },
+    });
+    cm2.executeDefense(s2);
+    const hpBeforeClose = s2.party[0].hp;
+    cm2.closeBattle();
+    await new Promise((r) => setTimeout(r, 600));
+    assert.equal(ghostSync, 0);
+    assert.equal(s2.party[0].hp, hpBeforeClose);
+  });
+
+  test('FASE 1.3: Alineación Math.floor en interacción y colisión de tiles', () => {
+    gameEngine.startNewGame();
+    gameEngine.state.player.x = 158.9;
+    gameEngine.state.player.y = 158.1;
+    gameEngine.state.player.facingX = 1;
+    gameEngine.state.player.facingY = 0;
+    const target = (gameEngine as unknown as { getTargetTile: () => { x: number; y: number } }).getTargetTile();
+    assert.deepEqual(target, { x: 160, y: 158 });
+
+    const wallX = 162;
+    const wallY = 158;
+    gameEngine.chunks.setTile(wallX, wallY, TileType.ROCK);
+    gameEngine.chunks.setTile(wallX - 1, wallY, TileType.FLOOR);
+    gameEngine.chunks.setTile(wallX - 1, wallY - 1, TileType.FLOOR);
+    gameEngine.chunks.setTile(wallX - 1, wallY + 1, TileType.FLOOR);
+    gameEngine.state.player.x = wallX - 0.95;
+    gameEngine.state.player.y = wallY;
+    const engInternal = gameEngine as unknown as {
+      keysHeld: Set<string>;
+      updatePlayerMovement: (dt: number) => void;
+    };
+    engInternal.keysHeld.clear();
+    engInternal.keysHeld.add('d');
+    engInternal.updatePlayerMovement(0.05);
+    assert.ok(gameEngine.state.player.x + 0.5 < wallX);
+    engInternal.keysHeld.clear();
+  });
+
+  test('FASE 1.4: Listener de teclado en BattleModal sin needlePos en dependencias', () => {
+    const bmSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/BattleModal.tsx'), 'utf8');
+    assert.ok(bmSrc.includes('useCallback'));
+    assert.ok(bmSrc.includes('[pulseMinigame, confirmPulseHit]'));
+  });
+
+  test('FASE 1.5: Misiones multicondición q_main_1 y q_main_2', () => {
+    gameEngine.startNewGame();
+    const q1 = QUEST_LIST.find((q) => q.id === 'q_main_1')!;
+    const q2 = QUEST_LIST.find((q) => q.id === 'q_main_2')!;
+
+    gameEngine.state.stats.oreMined = 10;
+    gameEngine.state.stats.torchesPlaced = 1;
+    assert.equal(gameEngine.isQuestComplete(q1), false);
+    assert.equal(gameEngine.claimQuest('q_main_1'), false);
+
+    gameEngine.state.stats.torchesPlaced = 2;
+    assert.equal(gameEngine.isQuestComplete(q1), true);
+    assert.equal(gameEngine.claimQuest('q_main_1'), true);
+
+    gameEngine.state.stats.structuresBuilt = 4;
+    gameEngine.state.shelterTier = 1;
+    assert.equal(gameEngine.isQuestComplete(q2), false);
+    assert.equal(gameEngine.claimQuest('q_main_2'), false);
+
+    gameEngine.state.shelterTier = 2;
+    assert.equal(gameEngine.isQuestComplete(q2), true);
+    assert.equal(gameEngine.claimQuest('q_main_2'), true);
+  });
+
+  test('FASE 1.6 y 1.7: Errata Cañón Estático corregida y soporte file:// en PauseModal', () => {
+    const voltrix = getSpecies('voltrix');
+    assert.ok(voltrix.specialMoves.some((m) => m.name === 'Cañón Estático'));
+    const dataSrc = fs.readFileSync(path.join(process.cwd(), 'src/game/data.ts'), 'utf8');
+    assert.equal(dataSrc.includes('Caón Estático'), false);
+
+    const pauseSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/PauseModal.tsx'), 'utf8');
+    assert.ok(pauseSrc.includes("window.location.protocol === 'file:'"));
+    assert.ok(pauseSrc.includes('href="./Bajoterra_4_0.html"'));
+  });
+});
