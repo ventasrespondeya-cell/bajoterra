@@ -89,6 +89,67 @@ class SoundEngine {
   playUi(): void {
     this.tone(480, 560, 0.05, 'sine', 0.45);
   }
+
+  playBlasterSelect(): void {
+    this.tone(360, 620, 0.055, 'triangle', 0.55);
+  }
+
+  playBlasterFire(heavy = false, perfect = false): void {
+    this.tone(heavy ? 185 : 270, heavy ? 85 : 130, heavy ? 0.14 : 0.09, 'sawtooth', heavy ? 1.05 : 0.85);
+    setTimeout(() => this.tone(perfect ? 880 : 520, perfect ? 1320 : 280, 0.09, 'sine', 0.65), 25);
+  }
+
+  playPerfectRelease(): void {
+    this.tone(740, 1180, 0.11, 'sine', 0.75);
+  }
+
+  playSlugTransform(element: string): void {
+    const baseFreq =
+      element === 'Electrico' || element === 'Luz'
+        ? 580
+        : element === 'Fuego'
+        ? 440
+        : element === 'Tierra' || element === 'Sombra'
+        ? 300
+        : 490;
+    this.tone(baseFreq, baseFreq * 1.9, 0.14, 'triangle', 0.85);
+    setTimeout(() => this.tone(baseFreq * 1.5, baseFreq * 2.2, 0.12, 'sine', 0.6), 45);
+  }
+
+  playClash(): void {
+    this.tone(240, 95, 0.16, 'square', 1.15);
+    setTimeout(() => this.tone(760, 420, 0.12, 'sawtooth', 0.85), 20);
+  }
+
+  playShieldBlock(perfect = false): void {
+    this.tone(perfect ? 660 : 390, perfect ? 990 : 260, 0.12, 'triangle', 0.95);
+  }
+
+  private duelMusicTimer: ReturnType<typeof setInterval> | null = null;
+  private duelStep = 0;
+
+  startDuelMusic(): void {
+    if (this.duelMusicTimer || typeof window === 'undefined') return;
+    const bassNotes = [110, 110, 130.81, 146.83, 110, 110, 164.81, 146.83];
+    this.duelStep = 0;
+    this.duelMusicTimer = setInterval(() => {
+      if (!this.enabled) return;
+      const note = bassNotes[this.duelStep % bassNotes.length];
+      this.tone(note, note * 0.98, 0.14, 'triangle', 0.22);
+      if (this.duelStep % 2 === 0) {
+        this.tone(note * 2, note * 2.02, 0.08, 'sine', 0.12);
+      }
+      this.duelStep++;
+    }, 260);
+  }
+
+  stopDuelMusic(): void {
+    if (this.duelMusicTimer !== null) {
+      clearInterval(this.duelMusicTimer);
+      this.duelMusicTimer = null;
+    }
+  }
 }
 
 export const sound = new SoundEngine();
+

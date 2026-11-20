@@ -183,7 +183,7 @@ export interface CombatantState {
   def: number;
   spd: number;
   mega: boolean;
-  shieldTurns: number;
+  shieldTurns: number; // active shield duration (> 0)
   burnTurns: number;
   stunTurns: number;
   chillTurns: number;
@@ -193,25 +193,135 @@ export interface CombatantState {
   bossId?: string;
   isMercenary?: boolean;
   cooldowns: Record<string, number>;
+  // Real-time status timers (seconds)
+  burnTimer?: number;
+  burnTickAccum?: number;
+  stunTimer?: number;
+  chillTimer?: number;
+  shieldTimer?: number;
 }
 
 export interface CombatEffectEvent {
   id: number;
   target: 'enemy' | 'ally';
-  kind: 'hit' | 'crit' | 'heal' | 'shield' | 'pulse' | 'capture' | 'status';
+  kind: 'hit' | 'crit' | 'heal' | 'shield' | 'pulse' | 'capture' | 'status' | 'transform' | 'clash';
   text: string;
   color: string;
+  x?: number;
+  y?: number;
+  age?: number;
+}
+
+export type ProjectilePhase = 'protoform' | 'transforming' | 'transformed';
+export type BlasterShotMode = 'quick' | 0 | 1 | 'pulse';
+export type ArenaObstacleKind = 'cover' | 'reflector' | 'boost_ring' | 'updraft';
+
+export interface DuelArenaObstacle {
+  id: string;
+  kind: ArenaObstacleKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  hp?: number;
+  maxHp?: number;
+  element?: ElementType;
+  label?: string;
+}
+
+export interface DuelistArenaState {
+  x: number;
+  y: number;
+  vy: number;
+  aimAngle: number;
+  charge: number; // 0..1
+  charging: boolean;
+  recoil: number; // seconds
+  guardTimer: number; // seconds remaining
+  guardCooldown: number; // seconds remaining
+  reloadTimer: number; // seconds remaining
+  hitFlash: number; // seconds
+  perfectFlash: number; // seconds
+  telegraphProgress: number; // 0..1 for enemy
+  aiCooldown: number; // seconds until next enemy decision
+  aiTargetY: number;
+}
+
+export interface DuelProjectile {
+  id: number;
+  owner: 'ally' | 'enemy';
+  speciesId: string;
+  slugName: string;
+  element: ElementType;
+  mega: boolean;
+  mode: 'quick' | 'move0' | 'move1' | 'pulse' | 'capsule';
+  capsuleKey?: 'capsules' | 'masterCapsules';
+  moveIndex?: 0 | 1;
+  moveId?: string;
+  moveEffect?: 'burn' | 'chill' | 'stun' | 'heal' | 'shield' | 'pierce' | 'drain';
+  x: number;
+  y: number;
+  prevX: number;
+  prevY: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  distanceTraveled: number;
+  transformDist: number;
+  phase: ProjectilePhase;
+  transformTimer: number;
+  chargeScore: number;
+  perfectRelease: boolean;
+  powerScore: number;
+  gravityScale: number;
+  homing: number; // rad/s
+  bouncesLeft: number;
+  phaseObstacles: boolean;
+  pierceLeft: number;
+  aoeRadius: number;
+  trail: Array<{ x: number; y: number; r: number }>;
+  alive: boolean;
+  hitTarget?: boolean;
+}
+
+export interface DuelShockwave {
+  id: number;
+  x: number;
+  y: number;
+  radius: number;
+  maxRadius: number;
+  alpha: number;
+  color: string;
+  label?: string;
+  kind: 'impact' | 'transform' | 'clash' | 'shield' | 'heal' | 'capture';
 }
 
 export interface BattleState {
   active: boolean;
   kind: 'wild' | 'mercenary' | 'boss';
+  biome: BiomeId;
   subtitle: string;
   enemy: CombatantState;
-  turn: 'player' | 'enemy' | 'resolving' | 'pulse_window' | 'ended';
+  turn: 'duel' | 'ended';
+  selectedMode: BlasterShotMode;
   pulseCharge: number; // 0..100
   pulseWindowActive: boolean;
   pulseReason: string;
+  elapsedSec: number;
+  hitstopTimer: number;
+  cameraShake: number;
+  playerDuelist: DuelistArenaState;
+  enemyDuelist: DuelistArenaState;
+  projectiles: DuelProjectile[];
+  obstacles: DuelArenaObstacle[];
+  shockwaves: DuelShockwave[];
+  allyStatus: {
+    shieldTimer: number;
+    burnTimer: number;
+    burnTickAccum: number;
+    chillTimer: number;
+    stunTimer: number;
+  };
   log: string[];
   effects: CombatEffectEvent[];
   outcome?: 'victory' | 'defeat' | 'captured' | 'escaped';

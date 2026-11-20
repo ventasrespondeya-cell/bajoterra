@@ -1,10 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Backpack, RefreshCw, Shield, Sparkles, Swords, Zap } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Backpack,
+  Crosshair,
+  Shield,
+  Sparkles,
+  Swords,
+  Zap,
+} from 'lucide-react';
+import { ARENA_HEIGHT, ARENA_WIDTH } from '../game/combatArenas';
+import { CombatManager } from '../game/combat';
+import { DuelArenaRenderer } from '../game/combatRenderer';
 import { BIOME_INFO, ELEMENT_CHART, getElementMultiplier, getSpecies } from '../game/data';
 import { getEffectiveMoveEnergyCost, getMoveMasteryInfo } from '../game/progression';
-import { getBiomeAt } from '../game/world';
-import type { BattleState, GameState } from '../game/types';
-import { CombatManager } from '../game/combat';
+import { getSlugCombatProfile } from '../game/slugCombatProfiles';
+import type { BattleState, BlasterShotMode, GameState } from '../game/types';
 import { SlugPortrait, type SlugPortraitMood } from './SlugPortrait';
 
 interface BattleModalProps {
@@ -15,68 +26,184 @@ interface BattleModalProps {
 }
 
 export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat, onSync }) => {
-  const [subMenu, setSubMenu] = useState<'main' | 'bag' | 'swap'>('main');
-  const [pulseMinigame, setPulseMinigame] = useState(false);
-  const [needlePos, setNeedlePos] = useState(0); // 0..100
-  const rafRef = useRef<number | null>(null);
-  const needleRef = useRef(0);
+  const [bagOpen, setBagOpen] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rendererRef = useRef<DuelArenaRenderer | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
+  const upHeldRef = useRef(false);
+  const downHeldRef = useRef(false);
 
   const ally = state.party[state.activePartyIndex] || state.party[0];
   const allySpecies = getSpecies(ally.id);
+  const allyProfile = getSlugCombatProfile(allySpecies);
   const enemy = battle.enemy;
   const mult = getElementMultiplier(ally.type, enemy.type);
+  const biomeInfo = BIOME_INFO[battle.biome] || BIOME_INFO.Verdes;
 
-  const currentBiome = getBiomeAt(
-    Math.round(state.player.x),
-    Math.round(state.player.y),
-    state.worldSeed
-  );
-  const biomeInfo = BIOME_INFO[currentBiome];
+  const updateVerticalHold = useCallback(() => {
+    const dir = upHeldRef.current && !downHeldRef.current ? -1 : downHeldRef.current && !upHeldRef.current ? 1 : 0;
+    combat.setVerticalInput(dir);
+  }, [combat]);
 
+  const toArenaCoords = useCallback((clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: ARENA_WIDTH * 0.6, y: ARENA_HEIGHT * 0.5 };
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = ARENA_WIDTH / Math.max(1, rect.width);
+    const scaleY = ARENA_HEIGHT / Math.max(1, rect.height);
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  }, []);
+
+  // 60fps Canvas Duel Loop + throttled React HUD sync
   useEffect(() => {
-    if (!pulseMinigame) return;
-    const start = performance.now();
-    const tick = (now: number) => {
-      const elapsed = (now - start) / 1000;
-      const p = (Math.sin(elapsed * 5.2 - Math.PI / 2) * 0.5 + 0.5) * 100;
-      needleRef.current = p;
-      setNeedlePos(p);
-      if (elapsed > 2.2) {
-        setPulseMinigame(false);
-        combat.triggerPulsoRapido(state, 0.35);
+    if (!rendererRef.current) {
+      rendererRef.current = new DuelArenaRenderer();
+    }
+    let rafId = 0;
+    let lastTime = performance.now();
+    let lastUiSync = lastTime;
+
+    const frame = (now: number) => {
+      const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
+      lastTime = now;
+
+      if (combat.battle && combat.battle.turn === 'duel') {
+        combat.step(dt, state);
+      }
+
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (ctx && combat.battle && rendererRef.current) {
+        rendererRef.current.render(ctx, combat.battle, state, combat, state.options);
+      }
+
+      if (now - lastUiSync >= 85) {
+        lastUiSync = now;
+        onSync();
+      }
+      rafId = requestAnimationFrame(frame);
+    };
+
+    rafId = requestAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(rafId);
+    };
+  }, [combat, state, onSync]);
+
+  const selectOrFireMode = useCallback(
+    (mode: BlasterShotMode) => {
+      if (!combat.battle || combat.battle.turn !== 'duel') return;
+      if (combat.battle.selectedMode === mode && mode !== 'quick') {
+        combat.fireBlasterShot(state, { charge: 0.78, modeOverride: mode });
         onSync();
         return;
       }
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [pulseMinigame, combat, state, onSync]);
+      combat.setSelectedMode(state, mode);
+      onSync();
+    },
+    [combat, state, onSync]
+  );
 
-  const confirmPulseHit = useCallback(() => {
-    if (!pulseMinigame) return;
-    setPulseMinigame(false);
-    const distFromCenter = Math.abs(needleRef.current - 50) / 50;
-    const score = Math.max(0, 1 - distFromCenter);
-    combat.triggerPulsoRapido(state, score);
-    onSync();
-  }, [pulseMinigame, combat, state, onSync]);
+  // Stable keyboard controls (WASD/Arrows dodge, 1-4 switch slug, Z/X skills, Shift/F shield, R pulse, Space charge/fire)
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (!combat.battle || combat.battle.turn !== 'duel') return;
+      const key = e.key.toLowerCase();
+
+      if (key === 'w' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        upHeldRef.current = true;
+        updateVerticalHold();
+      } else if (key === 's' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        downHeldRef.current = true;
+        updateVerticalHold();
+      } else if (key === '1' || key === '2' || key === '3' || key === '4') {
+        const idx = Number(key) - 1;
+        if (state.party[idx]) {
+          combat.swapSlug(state, idx);
+          onSync();
+        }
+      } else if (key === 'q') {
+        const len = state.party.length;
+        if (len > 1) {
+          for (let offset = 1; offset <= len; offset++) {
+            const idx = (state.activePartyIndex - offset + len) % len;
+            if (state.party[idx].hp > 0) {
+              combat.swapSlug(state, idx);
+              onSync();
+              break;
+            }
+          }
+        }
+      } else if (key === 'e') {
+        const len = state.party.length;
+        if (len > 1) {
+          for (let offset = 1; offset <= len; offset++) {
+            const idx = (state.activePartyIndex + offset) % len;
+            if (state.party[idx].hp > 0) {
+              combat.swapSlug(state, idx);
+              onSync();
+              break;
+            }
+          }
+        }
+      } else if (key === 'z') {
+        selectOrFireMode(0);
+      } else if (key === 'x') {
+        selectOrFireMode(1);
+      } else if (key === 'r') {
+        if (combat.battle.pulseWindowActive) {
+          combat.fireBlasterShot(state, { charge: 0.8, modeOverride: 'pulse' });
+          onSync();
+        }
+      } else if (key === 'f' || e.key === 'Shift') {
+        e.preventDefault();
+        combat.activateGuard(state);
+        onSync();
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        if (!e.repeat) {
+          combat.beginCharge(state);
+        }
+      }
+    },
+    [combat, state, onSync, selectOrFireMode, updateVerticalHold]
+  );
+
+  const handleKeyUp = useCallback(
+    (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (key === 'w' || e.key === 'ArrowUp') {
+        upHeldRef.current = false;
+        updateVerticalHold();
+      } else if (key === 's' || e.key === 'ArrowDown') {
+        downHeldRef.current = false;
+        updateVerticalHold();
+      } else if (e.key === ' ') {
+        if (combat.battle?.turn === 'duel' && combat.battle.playerDuelist.charging) {
+          combat.releaseChargeAndFire(state);
+          onSync();
+        }
+      }
+    },
+    [combat, state, onSync, updateVerticalHold]
+  );
 
   useEffect(() => {
-    if (!pulseMinigame) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === ' ') {
-        e.preventDefault();
-        confirmPulseHit();
-      }
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      combat.setVerticalInput(0);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [pulseMinigame, confirmPulseHit]);
+  }, [handleKeyDown, handleKeyUp, combat]);
 
-  const canAct = battle.turn === 'player' && !pulseMinigame;
+  const canAct = battle.turn === 'duel';
 
   const lastAllyEf = battle.effects.filter((ef) => ef.target === 'ally').slice(-1)[0];
   const lastEnemyEf = battle.effects.filter((ef) => ef.target === 'enemy').slice(-1)[0];
@@ -84,18 +211,18 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
   const allyMood: SlugPortraitMood =
     ally.hp <= 0
       ? 'ko'
-      : lastAllyEf?.kind === 'hit'
+      : battle.playerDuelist.hitFlash > 0
       ? 'hit'
-      : lastAllyEf?.kind === 'heal' || lastAllyEf?.kind === 'shield'
+      : lastAllyEf?.kind === 'heal' || battle.playerDuelist.guardTimer > 0
       ? 'happy'
-      : battle.pulseWindowActive
+      : battle.playerDuelist.charging
       ? 'attack'
       : 'idle';
 
   const enemyMood: SlugPortraitMood =
     enemy.hp <= 0
       ? 'ko'
-      : lastEnemyEf?.kind === 'hit' || lastEnemyEf?.kind === 'crit' || lastEnemyEf?.kind === 'pulse'
+      : battle.enemyDuelist.hitFlash > 0
       ? 'hit'
       : enemy.telegraphing === 'heavy'
       ? 'attack'
@@ -104,248 +231,188 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
   const allyHpPct = Math.max(0, Math.min(100, (ally.hp / Math.max(1, ally.maxHp)) * 100));
   const allyEnPct = Math.max(0, Math.min(100, (ally.energy / Math.max(1, ally.maxEnergy)) * 100));
   const enemyHpPct = Math.max(0, Math.min(100, (enemy.hp / Math.max(1, enemy.maxHp)) * 100));
+  const guardCd = battle.playerDuelist.guardCooldown;
+  const chargePct = Math.round(battle.playerDuelist.charge * 100);
+  const inSweetSpot = battle.playerDuelist.charge >= 0.62 && battle.playerDuelist.charge <= 0.88;
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center p-2.5 sm:p-5 bg-[#03080e]/88 backdrop-blur-sm">
-      <div className="bt-panel bt-animate-modal w-full max-w-3xl rounded-2xl p-3.5 sm:p-5 max-h-[96dvh] overflow-y-auto bt-scroll">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-400/20 pb-2.5 mb-3">
+    <div className="fixed inset-0 z-30 flex items-center justify-center p-1.5 sm:p-4 bg-[#03080e]/90 backdrop-blur-sm">
+      <div className="bt-panel bt-animate-modal w-full max-w-4xl rounded-2xl p-2.5 sm:p-4 max-h-[97dvh] overflow-y-auto bt-scroll">
+        {/* Header Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-400/20 pb-2 mb-2.5">
           <div>
-            <h2 className="text-base sm:text-xl font-extrabold text-white flex items-center gap-2 tracking-tight">
-              <Swords className="w-5 h-5 text-teal-300" />
-              Combate Táctico Híbrido
+            <h2 className="text-sm sm:text-lg font-extrabold text-white flex items-center gap-2 tracking-tight">
+              <Swords className="w-4 h-4 sm:w-5 sm:h-5 text-teal-300" />
+              Duelo de Blásteres · Bajoterra
             </h2>
-            <p className="text-xs text-slate-300">
+            <p className="text-[11px] text-slate-300">
               {battle.subtitle} · <span style={{ color: biomeInfo.accent }}>{biomeInfo.name}</span>
             </p>
           </div>
-          <div className="text-right text-xs font-extrabold px-2.5 py-1 rounded-lg bt-inset">
-            <span
-              style={{ color: mult > 1.2 ? '#4ade80' : mult < 0.9 ? '#f87171' : '#cbd5e1' }}
-            >
-              {mult > 1.2
-                ? 'Ventaja elemental ×1.75'
-                : mult < 0.9
-                ? 'Desventaja ×0.65'
-                : 'Afinidad neutra ×1.0'}
-            </span>
-          </div>
-        </div>
-
-        {/* Dynamic Biome Battle Arena Stage */}
-        <div
-          className="rounded-xl border border-cyan-400/25 p-3 sm:p-4 mb-3 relative overflow-hidden"
-          style={{
-            background: `radial-gradient(circle at 25% 55%, ${biomeInfo.accent}22 0%, rgba(8,18,28,0.92) 55%), radial-gradient(circle at 80% 35%, ${ELEMENT_CHART[enemy.type]?.color || '#f43f5e'}20 0%, #071019 100%)`,
-          }}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 relative z-10">
-            {/* Ally Combatant */}
-            <div className="bt-card rounded-xl p-3.5 border-teal-400/35 relative">
-              <div className="flex items-center justify-between gap-2 mb-2.5">
-                <div className="min-w-0">
-                  <div className="text-sm font-extrabold text-white flex items-center gap-1.5 truncate">
-                    <span className="truncate">{ally.name}</span>
-                    {ally.mega && <span className="text-amber-300 text-xs">★ Megamorph</span>}
-                  </div>
-                  <div className="text-[11px] text-slate-300 mt-0.5">
-                    Nv.{ally.level} ·{' '}
-                    <span className="font-bold" style={{ color: ELEMENT_CHART[ally.type]?.color }}>
-                      {ally.type}
-                    </span>
-                    {ally.bonusTrait ? ` · ${ally.bonusTrait}` : ''}
-                  </div>
-                  {combat.allyShieldTurns > 0 && (
-                    <div className="text-[11px] font-bold text-sky-300 mt-0.5">🛡 Escudo activo</div>
-                  )}
-                </div>
-                <div
-                  key={`ally_${lastAllyEf?.id || 0}`}
-                  className={lastAllyEf?.kind === 'hit' ? 'bt-animate-hit' : 'bt-animate-slug'}
-                >
-                  <SlugPortrait speciesId={ally.id} mega={ally.mega} mood={allyMood} size={68} />
-                </div>
-              </div>
-
-              <div className="flex justify-between text-xs text-slate-200 tabular-nums mb-1 font-semibold">
-                <span>Salud</span>
-                <span>
-                  {ally.hp} / {ally.maxHp}
-                </span>
-              </div>
-              <div className="h-2.5 bg-[#060d14] border border-white/10 rounded-full overflow-hidden mb-2">
-                <div
-                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-300 transition-all duration-200"
-                  style={{ width: `${allyHpPct}%` }}
-                />
-              </div>
-
-              <div className="flex justify-between text-xs text-slate-300 tabular-nums mb-1">
-                <span>Energía</span>
-                <span>
-                  {ally.energy} / {ally.maxEnergy}
-                </span>
-              </div>
-              <div className="h-2 bg-[#060d14] border border-white/10 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-cyan-500 to-sky-300 transition-all duration-200"
-                  style={{ width: `${allyEnPct}%` }}
-                />
-              </div>
-
-              <div className="mt-2 min-h-[18px] flex flex-wrap gap-2">
-                {battle.effects
-                  .filter((ef) => ef.target === 'ally')
-                  .slice(-2)
-                  .map((ef) => (
-                    <span key={ef.id} className="text-xs font-extrabold" style={{ color: ef.color }}>
-                      {ef.text}
-                    </span>
-                  ))}
-              </div>
-            </div>
-
-            {/* Enemy Combatant */}
-            <div
-              className={`bt-card rounded-xl p-3.5 relative ${
-                enemy.telegraphing === 'heavy'
-                  ? 'border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.2)]'
-                  : 'border-rose-400/40'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2 mb-2.5">
-                <div className="min-w-0">
-                  <div className="text-sm font-extrabold text-white truncate">
-                    {enemy.name}
-                    {enemy.isBoss && <span className="ml-1.5 text-[11px] text-rose-300 font-bold">· JEFE</span>}
-                  </div>
-                  <div className="text-[11px] text-slate-300 mt-0.5">
-                    Nv.{enemy.level} ·{' '}
-                    <span className="font-bold" style={{ color: ELEMENT_CHART[enemy.type]?.color }}>
-                      {enemy.type}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-amber-200 mt-0.5 flex flex-wrap gap-x-2">
-                    {enemy.burnTurns > 0 && <span>🔥 Quemado</span>}
-                    {enemy.chillTurns > 0 && <span>❄️ Enfriado</span>}
-                    {enemy.stunTurns > 0 && <span>⚡ Aturdido</span>}
-                    {enemy.shieldTurns > 0 && <span>🛡 Escudo</span>}
-                  </div>
-                </div>
-                <div
-                  key={`enemy_${lastEnemyEf?.id || 0}`}
-                  className={
-                    lastEnemyEf?.kind === 'hit' ||
-                    lastEnemyEf?.kind === 'crit' ||
-                    lastEnemyEf?.kind === 'pulse'
-                      ? 'bt-animate-hit'
-                      : 'bt-animate-slug'
-                  }
-                >
-                  <SlugPortrait speciesId={enemy.id} mega={enemy.mega} mood={enemyMood} size={68} flipX />
-                </div>
-              </div>
-
-              <div className="flex justify-between text-xs text-slate-200 tabular-nums mb-1 font-semibold">
-                <span>Salud Rival</span>
-                <span>
-                  {enemy.hp} / {enemy.maxHp}
-                </span>
-              </div>
-              <div className="h-2.5 bg-[#060d14] border border-white/10 rounded-full overflow-hidden mb-2">
-                <div
-                  className="h-full bg-gradient-to-r from-rose-500 to-orange-400 transition-all duration-200"
-                  style={{ width: `${enemyHpPct}%` }}
-                />
-              </div>
-
-              {enemy.telegraphing === 'heavy' ? (
-                <div className="text-xs font-extrabold text-amber-200 bg-amber-500/15 border border-amber-400/50 rounded-lg px-2.5 py-1.5 mb-1">
-                  ⚠ ¡Preparando golpe pesado! Usa Pulso Rápido o Defensa.
-                </div>
-              ) : (
-                <div className="text-[11px] text-slate-400 mb-1">
-                  Observa los turnos del rival para sincronizar tu Pulso Rápido.
-                </div>
-              )}
-
-              <div className="mt-1.5 min-h-[18px] flex flex-wrap gap-2">
-                {battle.effects
-                  .filter((ef) => ef.target === 'enemy')
-                  .slice(-2)
-                  .map((ef) => (
-                    <span key={ef.id} className="text-xs font-extrabold" style={{ color: ef.color }}>
-                      {ef.text}
-                    </span>
-                  ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* PULSO RÁPIDO Energy Conduit & Timing Bar */}
-        <div className="bt-inset border-teal-400/40 rounded-xl p-3 mb-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <div className="flex items-center gap-2">
-              <Zap
-                className={`w-4 h-4 ${
-                  battle.pulseWindowActive ? 'text-teal-300 bt-animate-aura' : 'text-slate-400'
-                }`}
-              />
-              <span className="text-xs font-extrabold tracking-wider text-teal-200 uppercase">
-                Pulso Rápido ({battle.pulseCharge}%)
+          <div className="flex items-center gap-2">
+            <div className="text-[11px] font-extrabold px-2.5 py-1 rounded-lg bt-inset">
+              <span style={{ color: mult > 1.2 ? '#4ade80' : mult < 0.9 ? '#f87171' : '#cbd5e1' }}>
+                {mult > 1.2 ? 'Ventaja ×1.75' : mult < 0.9 ? 'Desventaja ×0.65' : 'Afinidad ×1.0'}
               </span>
-              {battle.pulseReason && (
-                <span className="text-xs text-amber-200 hidden sm:inline">· {battle.pulseReason}</span>
-              )}
             </div>
             {battle.pulseWindowActive && canAct && (
               <button
-                onClick={() => setPulseMinigame(true)}
-                className="bt-btn-primary px-3.5 py-1.5 rounded-lg font-extrabold text-xs cursor-pointer min-h-[36px]"
+                onClick={() => {
+                  combat.fireBlasterShot(state, { charge: 0.8, modeOverride: 'pulse' });
+                  onSync();
+                }}
+                className="bt-btn-primary px-3 py-1.5 rounded-lg font-extrabold text-xs cursor-pointer flex items-center gap-1"
               >
-                ⚡ Activar Pulso Rápido
+                <Zap className="w-3.5 h-3.5" />
+                Pulso [R]
               </button>
             )}
           </div>
+        </div>
 
-          {!pulseMinigame ? (
-            <div className="h-2.5 bg-[#050b12] border border-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-sky-500 via-cyan-400 to-teal-300 transition-all duration-200"
-                style={{ width: `${battle.pulseCharge}%` }}
-              />
-            </div>
-          ) : (
-            <div className="mt-2">
-              <div className="relative h-8 bg-[#050b12] border border-teal-400 rounded-xl overflow-hidden mb-2">
-                {/* Sweet spot center */}
-                <div className="absolute inset-y-0 left-[38%] right-[38%] bg-teal-400/35 border-x-2 border-teal-300" />
+        {/* Dualist Status Strip */}
+        <div className="grid grid-cols-2 gap-2 mb-2.5">
+          {/* Player Slug Status */}
+          <div className="bt-card rounded-xl p-2 sm:p-2.5 border-teal-400/35 flex items-center gap-2.5">
+            <SlugPortrait speciesId={ally.id} mega={ally.mega} mood={allyMood} size={46} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-xs sm:text-sm font-extrabold text-white truncate">
+                  {ally.name} {ally.mega ? '★' : ''}
+                </span>
+                <span className="text-[10px] font-bold text-slate-300 shrink-0">Nv.{ally.level}</span>
+              </div>
+              <div className="h-2 bg-[#060d14] rounded-full overflow-hidden mt-1 mb-1">
                 <div
-                  className="absolute inset-y-0 w-2.5 bg-white shadow-[0_0_12px_#5eead4]"
-                  style={{ left: `calc(${needlePos}% - 5px)` }}
+                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-300 transition-all duration-100"
+                  style={{ width: `${allyHpPct}%` }}
                 />
               </div>
-              <button
-                onClick={confirmPulseHit}
-                className="bt-btn-primary w-full py-2.5 rounded-xl font-extrabold text-sm cursor-pointer min-h-[44px]"
-              >
-                ¡DISPARAR AHORA! (Espacio o Clic)
-              </button>
+              <div className="flex items-center justify-between text-[10px] text-slate-300 tabular-nums">
+                <span>PS {ally.hp}/{ally.maxHp}</span>
+                <span className="text-cyan-300 font-bold">
+                  EN {Math.floor(ally.energy)}/{ally.maxEnergy}
+                </span>
+              </div>
+              <div className="h-1.5 bg-[#060d14] rounded-full overflow-hidden mt-0.5">
+                <div
+                  className="h-full bg-gradient-to-r from-cyan-500 to-sky-300 transition-all duration-100"
+                  style={{ width: `${allyEnPct}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Enemy Status */}
+          <div
+            className={`bt-card rounded-xl p-2 sm:p-2.5 flex items-center gap-2.5 ${
+              enemy.telegraphing === 'heavy' ? 'border-amber-400' : 'border-rose-400/40'
+            }`}
+          >
+            <div className="min-w-0 flex-1 text-right">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold text-slate-300 shrink-0">Nv.{enemy.level}</span>
+                <span className="text-xs sm:text-sm font-extrabold text-white truncate">
+                  {enemy.name} {enemy.isBoss ? '· JEFE' : ''}
+                </span>
+              </div>
+              <div className="h-2 bg-[#060d14] rounded-full overflow-hidden mt-1 mb-1">
+                <div
+                  className="h-full bg-gradient-to-r from-rose-500 to-orange-400 transition-all duration-100 ml-auto"
+                  style={{ width: `${enemyHpPct}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-300 tabular-nums">
+                <span className="text-amber-200 truncate">
+                  {(enemy.burnTimer || 0) > 0 && '🔥 '}
+                  {(enemy.chillTimer || 0) > 0 && '❄️ '}
+                  {(enemy.stunTimer || 0) > 0 && '⚡ '}
+                  {(enemy.shieldTimer || 0) > 0 && '🛡 '}
+                  {enemy.telegraphing === 'heavy' ? '⚠ CARGANDO' : enemy.type}
+                </span>
+                <span>PS {enemy.hp}/{enemy.maxHp}</span>
+              </div>
+              <div className="text-[10px] text-teal-300 font-bold mt-0.5">
+                Pulso: {Math.round(battle.pulseCharge)}%
+              </div>
+            </div>
+            <SlugPortrait speciesId={enemy.id} mega={enemy.mega} mood={enemyMood} size={46} flipX />
+          </div>
+        </div>
+
+        {/* Interactive 2D Blaster Duel Arena Canvas */}
+        <div className="relative rounded-xl border border-cyan-400/35 overflow-hidden bg-[#050a12] mb-2.5 select-none">
+          <canvas
+            ref={canvasRef}
+            width={ARENA_WIDTH}
+            height={ARENA_HEIGHT}
+            className="w-full h-auto block cursor-crosshair touch-none"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              combat.activateGuard(state);
+              onSync();
+            }}
+            onPointerDown={(e) => {
+              if (!canAct || e.button === 2) return;
+              activePointerIdRef.current = e.pointerId;
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+              const pt = toArenaCoords(e.clientX, e.clientY);
+              combat.aimAtArenaPoint(pt.x, pt.y);
+              combat.beginCharge(state);
+            }}
+            onPointerMove={(e) => {
+              if (!canAct) return;
+              const pt = toArenaCoords(e.clientX, e.clientY);
+              combat.aimAtArenaPoint(pt.x, pt.y);
+            }}
+            onPointerUp={(e) => {
+              if (activePointerIdRef.current === e.pointerId) {
+                activePointerIdRef.current = null;
+              }
+              if (canAct && combat.battle?.playerDuelist.charging) {
+                const pt = toArenaCoords(e.clientX, e.clientY);
+                combat.aimAtArenaPoint(pt.x, pt.y);
+                combat.releaseChargeAndFire(state);
+                onSync();
+              }
+            }}
+            onPointerCancel={() => {
+              activePointerIdRef.current = null;
+              if (combat.battle?.playerDuelist.charging) {
+                combat.releaseChargeAndFire(state);
+                onSync();
+              }
+            }}
+          />
+
+          {/* Bottom-left live charge gauge overlay (minimal, never obstructs lanes) */}
+          {canAct && (
+            <div className="pointer-events-none absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between gap-2 text-[11px]">
+              <div className="bg-[#06101b]/85 border border-cyan-400/30 rounded-lg px-2.5 py-1 flex items-center gap-2">
+                <Crosshair className="w-3.5 h-3.5 text-teal-300" />
+                <span className="text-slate-200 font-bold">
+                  {allySpecies.name} · {allyProfile.roleLabel}
+                </span>
+                {battle.playerDuelist.charging && (
+                  <span className={`font-extrabold ${inSweetSpot ? 'text-amber-300' : 'text-teal-300'}`}>
+                    Carga {chargePct}% {inSweetSpot ? '★ Zona Maestra' : ''}
+                  </span>
+                )}
+              </div>
+              <div className="hidden sm:block bg-[#06101b]/85 border border-white/10 rounded-lg px-2.5 py-1 text-slate-300">
+                Apunta y mantén clic / Espacio para lanzar · W/S esquivar · Clic derecho Escudo
+              </div>
             </div>
           )}
         </div>
 
-        {/* Battle Log */}
-        <div className="bt-inset rounded-xl p-3 mb-3 text-xs text-slate-100 min-h-[48px]">
-          <div className="font-semibold">{battle.log[0]}</div>
-          {battle.log[1] && <div className="text-slate-400 mt-0.5">{battle.log[1]}</div>}
-        </div>
-
-        {/* Ended State or Command Deck */}
+        {/* Ended Outcome Banner OR Live Blaster Controls */}
         {battle.turn === 'ended' ? (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bt-card border-teal-400/50 rounded-xl p-4">
-            <div className="text-sm font-bold text-teal-100">{battle.rewardText}</div>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bt-card border-teal-400/50 rounded-xl p-3.5">
+            <div>
+              <div className="text-sm font-extrabold text-teal-100">{battle.rewardText}</div>
+              {battle.log[1] && <div className="text-xs text-slate-300 mt-0.5">{battle.log[1]}</div>}
+            </div>
             <button
               onClick={() => {
                 combat.closeBattle();
@@ -356,198 +423,238 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
               Continuar Exploración
             </button>
           </div>
-        ) : subMenu === 'main' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              disabled={!canAct}
-              onClick={() => {
-                combat.executeNormalAttack(state);
-                onSync();
-              }}
-              className="bt-btn-secondary p-3 rounded-xl border-cyan-400/40 text-left disabled:opacity-45 cursor-pointer min-h-[54px]"
-            >
-              <div className="text-sm font-extrabold text-white flex items-center gap-1.5">
-                <Swords className="w-4 h-4 text-cyan-300" />
-                Ataque Elemental
+        ) : (
+          <div className="space-y-2">
+            {/* Bandolier Chambers (1-4) + Mobile Dodge Pad */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 flex-1">
+                {state.party.map((s, idx) => {
+                  const isActive = idx === state.activePartyIndex;
+                  const sHpPct = Math.max(0, Math.min(100, (s.hp / Math.max(1, s.maxHp)) * 100));
+                  return (
+                    <button
+                      key={s.uid}
+                      disabled={!canAct || s.hp <= 0}
+                      onClick={() => {
+                        combat.swapSlug(state, idx);
+                        onSync();
+                      }}
+                      className={`p-1.5 rounded-xl border text-left transition-all flex items-center gap-2 min-h-[48px] cursor-pointer disabled:opacity-40 ${
+                        isActive
+                          ? 'bg-teal-950/60 border-teal-300 shadow-[0_0_12px_rgba(45,212,191,0.25)]'
+                          : 'bt-btn-secondary border-slate-700/80'
+                      }`}
+                    >
+                      <SlugPortrait speciesId={s.id} mega={s.mega} mood={s.hp <= 0 ? 'ko' : 'idle'} size={30} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] font-extrabold text-white truncate">
+                          [{idx + 1}] {s.name}
+                        </div>
+                        <div className="h-1.5 bg-[#050b12] rounded-full overflow-hidden mt-0.5">
+                          <div className="h-full bg-emerald-400" style={{ width: `${sHpPct}%` }} />
+                        </div>
+                        <div className="text-[9px] text-cyan-300 tabular-nums mt-0.5">
+                          EN {Math.floor(s.energy)}/{s.maxEnergy}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
-              <div className="text-[11px] text-slate-300 mt-0.5 tabular-nums">
-                Potencia base {ally.atk} · +2 Energía · +24% Pulso
-              </div>
-            </button>
 
-            <button
-              disabled={!canAct}
-              onClick={() => {
-                combat.executeDefense(state);
-                onSync();
-              }}
-              className="bt-btn-secondary p-3 rounded-xl text-left disabled:opacity-45 cursor-pointer min-h-[54px]"
-            >
-              <div className="text-sm font-extrabold text-white flex items-center gap-1.5">
-                <Shield className="w-4 h-4 text-sky-300" />
-                Escudo y Recarga
-              </div>
-              <div className="text-[11px] text-slate-300 mt-0.5">
-                Reduce daño 58% · +4 Energía · +30% Pulso
-              </div>
-            </button>
-
-            {allySpecies.specialMoves.map((mv, i) => {
-              const cd = combat.allyCooldowns[mv.id] || 0;
-              const masteryPts = ally.moveMastery?.[i as 0 | 1] ?? 0;
-              const masteryInfo = getMoveMasteryInfo(masteryPts);
-              const effectiveCost = getEffectiveMoveEnergyCost(mv.energyCost, masteryPts);
-              const disabled = !canAct || cd > 0 || ally.energy < effectiveCost;
-              return (
+              {/* Touch-friendly vertical dodge controls */}
+              <div className="flex sm:flex-col gap-1">
                 <button
-                  key={mv.id}
-                  disabled={disabled}
-                  onClick={() => {
-                    combat.executeSpecialMove(state, i as 0 | 1);
-                    onSync();
-                  }}
-                  className="bt-btn-secondary p-3 rounded-xl border-indigo-400/45 text-left disabled:opacity-40 cursor-pointer min-h-[54px]"
+                  onPointerDown={() => combat.setVerticalInput(-1)}
+                  onPointerUp={() => combat.setVerticalInput(0)}
+                  onPointerLeave={() => combat.setVerticalInput(0)}
+                  onClick={() => combat.moveDuelistStep(-30)}
+                  className="bt-btn-secondary px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 min-h-[34px] cursor-pointer"
+                  aria-label="Mover bláster arriba"
                 >
-                  <div className="flex justify-between text-sm font-extrabold text-white gap-2">
-                    <span className="flex items-center gap-1.5 truncate">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                      <span className="truncate">{mv.name}</span>
-                      {masteryInfo.rank > 0 ? (
-                        <span className="text-[10px] font-bold text-amber-300 shrink-0">
-                          {masteryInfo.label}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="text-xs text-teal-300 tabular-nums shrink-0">
-                      {cd > 0 ? `Espera ${cd}t` : `${effectiveCost} EN`}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-300 mt-0.5">{mv.description}</div>
+                  <ArrowUp className="w-3.5 h-3.5 text-cyan-300" />
+                  Subir
                 </button>
-              );
-            })}
+                <button
+                  onPointerDown={() => combat.setVerticalInput(1)}
+                  onPointerUp={() => combat.setVerticalInput(0)}
+                  onPointerLeave={() => combat.setVerticalInput(0)}
+                  onClick={() => combat.moveDuelistStep(30)}
+                  className="bt-btn-secondary px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 min-h-[34px] cursor-pointer"
+                  aria-label="Mover bláster abajo"
+                >
+                  <ArrowDown className="w-3.5 h-3.5 text-cyan-300" />
+                  Bajar
+                </button>
+              </div>
+            </div>
 
-            <button
-              disabled={!canAct}
-              onClick={() => setSubMenu('bag')}
-              className="bt-btn-secondary p-2.5 rounded-xl border-amber-400/35 text-sm font-bold text-amber-200 disabled:opacity-45 cursor-pointer min-h-[44px] flex items-center justify-center gap-2"
-            >
-              <Backpack className="w-4 h-4 text-amber-300" />
-              Mochila y Captura
-            </button>
-
-            <div className="grid grid-cols-2 gap-2">
+            {/* Shot Mode & Tactical Actions */}
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-2">
               <button
                 disabled={!canAct}
-                onClick={() => setSubMenu('swap')}
-                className="bt-btn-secondary p-2.5 rounded-xl text-sm font-bold text-slate-100 disabled:opacity-45 cursor-pointer min-h-[44px] flex items-center justify-center gap-1.5"
+                onPointerDown={() => {
+                  combat.setSelectedMode(state, 'quick');
+                  combat.beginCharge(state);
+                }}
+                onPointerUp={() => {
+                  if (combat.battle?.playerDuelist.charging) {
+                    combat.releaseChargeAndFire(state);
+                    onSync();
+                  }
+                }}
+                className={`p-2.5 rounded-xl border text-left cursor-pointer min-h-[54px] ${
+                  battle.selectedMode === 'quick'
+                    ? 'bg-cyan-950/60 border-cyan-300'
+                    : 'bt-btn-secondary border-cyan-400/35'
+                }`}
               >
-                <RefreshCw className="w-3.5 h-3.5 text-cyan-300" />
-                Babosas
+                <div className="text-xs font-extrabold text-white flex items-center gap-1">
+                  <Crosshair className="w-3.5 h-3.5 text-cyan-300" />
+                  Disparo Rápido
+                </div>
+                <div className="text-[10px] text-slate-300 mt-0.5">0 EN · +2 EN al golpear</div>
               </button>
+
+              {allySpecies.specialMoves.map((mv, i) => {
+                const idx = i as 0 | 1;
+                const cd = combat.getMoveCooldown(ally, mv.id);
+                const masteryPts = ally.moveMastery?.[idx] ?? 0;
+                const masteryInfo = getMoveMasteryInfo(masteryPts);
+                const effectiveCost = getEffectiveMoveEnergyCost(mv.energyCost, masteryPts);
+                const selected = battle.selectedMode === idx;
+                const locked = !canAct || cd > 0 || ally.energy < effectiveCost;
+                return (
+                  <button
+                    key={mv.id}
+                    disabled={locked}
+                    onClick={() => selectOrFireMode(idx)}
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer disabled:opacity-40 min-h-[54px] ${
+                      selected
+                        ? 'bg-indigo-950/70 border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.25)]'
+                        : 'bt-btn-secondary border-indigo-400/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1 text-xs font-extrabold text-white">
+                      <span className="truncate flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-amber-300 shrink-0" />
+                        [{idx === 0 ? 'Z' : 'X'}] {mv.name}
+                      </span>
+                      <span className="text-[10px] text-teal-300 shrink-0 tabular-nums">
+                        {cd > 0 ? `${cd.toFixed(1)}s` : `${effectiveCost}EN`}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-300 mt-0.5 truncate">
+                      {selected ? 'Cargado: dispara en arena o clic aquí' : mv.description}
+                      {masteryInfo.rank > 0 ? ` · ${masteryInfo.label}` : ''}
+                    </div>
+                  </button>
+                );
+              })}
+
+              <button
+                disabled={!canAct || guardCd > 0}
+                onClick={() => {
+                  combat.activateGuard(state);
+                  onSync();
+                }}
+                className="bt-btn-secondary p-2.5 rounded-xl border-sky-400/40 text-left cursor-pointer disabled:opacity-40 min-h-[54px]"
+              >
+                <div className="flex items-center justify-between text-xs font-extrabold text-white">
+                  <span className="flex items-center gap-1">
+                    <Shield className="w-3.5 h-3.5 text-sky-300" />
+                    Escudo [F]
+                  </span>
+                  {guardCd > 0 && <span className="text-[10px] text-sky-300">{guardCd.toFixed(1)}s</span>}
+                </div>
+                <div className="text-[10px] text-slate-300 mt-0.5">Bloquea impacto · +2 EN</div>
+              </button>
+
+              <button
+                disabled={!canAct}
+                onClick={() => setBagOpen((v) => !v)}
+                className="bt-btn-secondary p-2.5 rounded-xl border-amber-400/40 text-left cursor-pointer min-h-[54px]"
+              >
+                <div className="text-xs font-extrabold text-amber-200 flex items-center gap-1">
+                  <Backpack className="w-3.5 h-3.5 text-amber-300" />
+                  Mochila y Captura
+                </div>
+                <div className="text-[10px] text-slate-300 mt-0.5">
+                  Cilindros {state.inventory.capsules + state.inventory.masterCapsules} · Bayas {state.inventory.berries}
+                </div>
+              </button>
+
               <button
                 disabled={!canAct || battle.kind === 'boss'}
                 onClick={() => {
                   combat.attemptRun(state);
                   onSync();
                 }}
-                className="p-2.5 rounded-xl bg-[#261419] border border-rose-500/45 hover:border-rose-400 text-sm font-bold text-rose-200 disabled:opacity-40 cursor-pointer min-h-[44px]"
+                className="p-2.5 rounded-xl bg-[#261419] border border-rose-500/45 hover:border-rose-400 text-xs font-bold text-rose-200 disabled:opacity-40 cursor-pointer min-h-[54px]"
               >
-                Huir
+                Retirarse
               </button>
             </div>
-          </div>
-        ) : subMenu === 'bag' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              disabled={!canAct || state.inventory.berries <= 0}
-              onClick={() => {
-                combat.useItem(state, 'berries');
-                setSubMenu('main');
-                onSync();
-              }}
-              className="bt-btn-secondary p-3 rounded-xl border-emerald-500/45 text-left disabled:opacity-40 cursor-pointer min-h-[52px]"
-            >
-              <div className="text-sm font-bold text-white">Baya Subterránea ({state.inventory.berries})</div>
-              <div className="text-xs text-slate-300">Restaura 32 PS al aliado activo</div>
-            </button>
 
-            <button
-              disabled={!canAct || state.inventory.core <= 0}
-              onClick={() => {
-                combat.useItem(state, 'core');
-                setSubMenu('main');
-                onSync();
-              }}
-              className="bt-btn-secondary p-3 rounded-xl border-cyan-500/45 text-left disabled:opacity-40 cursor-pointer min-h-[52px]"
-            >
-              <div className="text-sm font-bold text-white">Núcleo de Energía ({state.inventory.core})</div>
-              <div className="text-xs text-slate-300">Recarga +8 Energía</div>
-            </button>
+            {/* Expandable Bag / Capture Drawer */}
+            {bagOpen && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                <button
+                  disabled={!canAct || state.inventory.berries <= 0}
+                  onClick={() => {
+                    combat.useItem(state, 'berries');
+                    setBagOpen(false);
+                    onSync();
+                  }}
+                  className="bt-btn-secondary p-2.5 rounded-xl border-emerald-500/40 text-left disabled:opacity-40 cursor-pointer"
+                >
+                  <div className="text-xs font-bold text-white">Baya ({state.inventory.berries})</div>
+                  <div className="text-[10px] text-slate-300">+34 PS al aliado</div>
+                </button>
+                <button
+                  disabled={!canAct || state.inventory.core <= 0}
+                  onClick={() => {
+                    combat.useItem(state, 'core');
+                    setBagOpen(false);
+                    onSync();
+                  }}
+                  className="bt-btn-secondary p-2.5 rounded-xl border-cyan-500/40 text-left disabled:opacity-40 cursor-pointer"
+                >
+                  <div className="text-xs font-bold text-white">Núcleo ({state.inventory.core})</div>
+                  <div className="text-[10px] text-slate-300">+8 Energía al instante</div>
+                </button>
+                <button
+                  disabled={!canAct || state.inventory.capsules <= 0 || battle.kind !== 'wild'}
+                  onClick={() => {
+                    combat.useItem(state, 'capsules');
+                    setBagOpen(false);
+                    onSync();
+                  }}
+                  className="bt-btn-secondary p-2.5 rounded-xl border-indigo-400/40 text-left disabled:opacity-40 cursor-pointer"
+                >
+                  <div className="text-xs font-bold text-white">Cilindro ({state.inventory.capsules})</div>
+                  <div className="text-[10px] text-slate-300">Lanza cápsula física</div>
+                </button>
+                <button
+                  disabled={!canAct || state.inventory.masterCapsules <= 0 || battle.kind !== 'wild'}
+                  onClick={() => {
+                    combat.useItem(state, 'masterCapsules');
+                    setBagOpen(false);
+                    onSync();
+                  }}
+                  className="bt-btn-secondary p-2.5 rounded-xl border-purple-400/50 text-left disabled:opacity-40 cursor-pointer"
+                >
+                  <div className="text-xs font-bold text-white">Maestro ({state.inventory.masterCapsules})</div>
+                  <div className="text-[10px] text-slate-300">Alta tasa de captura</div>
+                </button>
+              </div>
+            )}
 
-            <button
-              disabled={!canAct || state.inventory.capsules <= 0 || battle.kind !== 'wild'}
-              onClick={() => {
-                combat.useItem(state, 'capsules');
-                setSubMenu('main');
-                onSync();
-              }}
-              className="bt-btn-secondary p-3 rounded-xl border-indigo-400/45 text-left disabled:opacity-40 cursor-pointer min-h-[52px]"
-            >
-              <div className="text-sm font-bold text-white">Cilindro de Captura ({state.inventory.capsules})</div>
-              <div className="text-xs text-slate-300">Captura babosas salvajes</div>
-            </button>
-
-            <button
-              disabled={!canAct || state.inventory.masterCapsules <= 0 || battle.kind !== 'wild'}
-              onClick={() => {
-                combat.useItem(state, 'masterCapsules');
-                setSubMenu('main');
-                onSync();
-              }}
-              className="bt-btn-secondary p-3 rounded-xl border-purple-400/50 text-left disabled:opacity-40 cursor-pointer min-h-[52px]"
-            >
-              <div className="text-sm font-bold text-white">Cilindro Maestro ({state.inventory.masterCapsules})</div>
-              <div className="text-xs text-slate-300">Probabilidad muy alta de captura</div>
-            </button>
-
-            <button
-              onClick={() => setSubMenu('main')}
-              className="bt-btn-secondary sm:col-span-2 p-2.5 rounded-xl font-bold text-xs cursor-pointer min-h-[44px]"
-            >
-              Volver al menú principal
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {state.party.map((s, idx) => (
-              <button
-                key={s.uid}
-                disabled={!canAct || s.hp <= 0 || idx === state.activePartyIndex}
-                onClick={() => {
-                  combat.swapSlug(state, idx);
-                  setSubMenu('main');
-                  onSync();
-                }}
-                className="bt-btn-secondary p-2.5 rounded-xl text-left disabled:opacity-40 cursor-pointer flex items-center gap-2.5 min-h-[56px]"
-              >
-                <SlugPortrait speciesId={s.id} mega={s.mega} mood={s.hp <= 0 ? 'ko' : 'idle'} size={40} />
-                <div className="min-w-0">
-                  <div className="text-sm font-bold text-white truncate">
-                    {s.name} {s.mega ? '★' : ''} (Nv.{s.level})
-                  </div>
-                  <div className="text-xs text-slate-300 tabular-nums">
-                    {s.type} · PS {s.hp}/{s.maxHp} · EN {s.energy}/{s.maxEnergy}
-                  </div>
-                </div>
-              </button>
-            ))}
-            <button
-              onClick={() => setSubMenu('main')}
-              className="bt-btn-secondary sm:col-span-2 p-2.5 rounded-xl font-bold text-xs cursor-pointer min-h-[44px]"
-            >
-              Volver al menú principal
-            </button>
+            {/* Concise Live Duel Feed */}
+            <div className="bt-inset rounded-xl px-3 py-2 text-xs text-slate-200 flex items-center justify-between gap-2">
+              <span className="truncate font-semibold">{battle.log[0]}</span>
+              {battle.log[1] && <span className="text-[11px] text-slate-400 hidden md:inline truncate">{battle.log[1]}</span>}
+            </div>
           </div>
         )}
       </div>

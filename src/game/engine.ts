@@ -206,6 +206,12 @@ export class BajoterraEngine {
         ? {
             ...this.combat.battle,
             enemy: { ...this.combat.battle.enemy },
+            playerDuelist: { ...this.combat.battle.playerDuelist },
+            enemyDuelist: { ...this.combat.battle.enemyDuelist },
+            allyStatus: { ...this.combat.battle.allyStatus },
+            projectiles: this.combat.battle.projectiles.map((p) => ({ ...p, trail: [...p.trail] })),
+            obstacles: this.combat.battle.obstacles.map((o) => ({ ...o })),
+            shockwaves: this.combat.battle.shockwaves.map((s) => ({ ...s })),
             log: [...this.combat.battle.log],
             effects: [...this.combat.battle.effects],
           }
@@ -1516,10 +1522,17 @@ export class BajoterraEngine {
     ent.cooldown = 6;
     const spId = ent.speciesId || 'infurnus';
 
+    const currentBiome = getBiomeAt(
+      Math.round(this.state.player.x),
+      Math.round(this.state.player.y),
+      this.state.worldSeed
+    );
+
     this.combat.startBattle(this.state, {
       kind: ent.kind === 'boss' ? 'boss' : ent.kind === 'mercenary' ? 'mercenary' : 'wild',
       speciesId: spId,
       level: ent.level,
+      biome: currentBiome,
       nameOverride: ent.kind === 'boss' ? ent.name : undefined,
       bossId: ent.bossId,
       iconOverride: ent.kind === 'boss' ? ent.icon : undefined,

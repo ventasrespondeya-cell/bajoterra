@@ -13,13 +13,19 @@ const canvasStub = () => ({
     clearRect: () => {},
     drawImage: () => {},
     beginPath: () => {},
+    closePath: () => {},
+    moveTo: () => {},
+    lineTo: () => {},
+    quadraticCurveTo: () => {},
     arc: () => {},
     fill: () => {},
     stroke: () => {},
+    createLinearGradient: () => ({ addColorStop: () => {} }),
     createRadialGradient: () => ({ addColorStop: () => {} }),
     save: () => {},
     restore: () => {},
     translate: () => {},
+    rotate: () => {},
     scale: () => {},
     setTransform: () => {},
     fillText: () => {},
@@ -207,6 +213,9 @@ const {
   resetSaveRuntimeForTests,
 } = await import('../src/game/save.ts');
 const { CombatManager } = await import('../src/game/combat.ts');
+const { DuelArenaRenderer } = await import('../src/game/combatRenderer.ts');
+const { SLUG_COMBAT_PROFILES, getSlugCombatProfile } = await import('../src/game/slugCombatProfiles.ts');
+const { buildArenaForBiome } = await import('../src/game/combatArenas.ts');
 const {
   BOSS_DEFINITIONS,
   CHUNK_SIZE,
@@ -767,22 +776,23 @@ describe('Bajoterra 4.0 — FASE 2: Protección Integral de Partidas', () => {
 });
 
 describe('Bajoterra 4.0 — Regresión permanente de FASE 1 (7 comprobaciones)', () => {
-  test('FASE 1.1 y 1.2: Sincronización post-turno enemigo y cancelación de temporizadores al cerrar combate', async () => {
+  test('FASE 1.1 y 1.2: Sincronización de duelo y cierre limpio sin callbacks fantasma', async () => {
     const s1 = createInitialGameState();
     const cm1 = new CombatManager();
     let syncs = 0;
     cm1.startBattle(s1, {
       kind: 'wild',
-      speciesId: 'burpy',
+      speciesId: 'infurnus',
       level: 1,
       onStateChange: () => {
         syncs++;
       },
     });
-    cm1.executeNormalAttack(s1);
-    if (cm1.battle && cm1.battle.turn === 'enemy') {
-      await new Promise((r) => setTimeout(r, 600));
-      assert.ok(syncs >= 1);
+    const proj = cm1.fireBlasterShot(s1, { charge: 0.78, angle: -0.08 });
+    assert.ok(proj);
+    assert.ok(syncs >= 1);
+    for (let i = 0; i < 40 && cm1.battle?.turn === 'duel'; i++) {
+      cm1.step(0.03, s1);
     }
     cm1.closeBattle();
 
@@ -791,16 +801,17 @@ describe('Bajoterra 4.0 — Regresión permanente de FASE 1 (7 comprobaciones)',
     let ghostSync = 0;
     cm2.startBattle(s2, {
       kind: 'wild',
-      speciesId: 'burpy',
+      speciesId: 'infurnus',
       level: 2,
       onStateChange: () => {
         ghostSync++;
       },
     });
-    cm2.executeDefense(s2);
     const hpBeforeClose = s2.party[0].hp;
     cm2.closeBattle();
-    await new Promise((r) => setTimeout(r, 600));
+    ghostSync = 0;
+    cm2.step(0.05, s2);
+    await new Promise((r) => setTimeout(r, 80));
     assert.equal(ghostSync, 0);
     assert.equal(s2.party[0].hp, hpBeforeClose);
   });
@@ -833,10 +844,10 @@ describe('Bajoterra 4.0 — Regresión permanente de FASE 1 (7 comprobaciones)',
     engInternal.keysHeld.clear();
   });
 
-  test('FASE 1.4: Listener de teclado en BattleModal sin needlePos en dependencias', () => {
+  test('FASE 1.4: Listeners de teclado estables en BattleModal sin recreación por fotograma', () => {
     const bmSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/BattleModal.tsx'), 'utf8');
     assert.ok(bmSrc.includes('useCallback'));
-    assert.ok(bmSrc.includes('[pulseMinigame, confirmPulseHit]'));
+    assert.ok(bmSrc.includes('[handleKeyDown, handleKeyUp, combat]'));
   });
 
   test('FASE 1.5: Misiones multicondición q_main_1 y q_main_2', () => {
@@ -1210,7 +1221,8 @@ describe('Bajoterra 4.0 — FASE 3: Hogar Viviente y Babosas Compañeras', () =>
     const cm = new CombatManager();
     cm.startBattle(gameEngine.state, { kind: 'wild', speciesId: 'infurnus', level: 1 });
     assert.ok(cm.battle?.active);
-    cm.executeNormalAttack(gameEngine.state);
+    cm.fireBlasterShot(gameEngine.state, { charge: 0.75 });
+    cm.step(0.03, gameEngine.state);
     cm.closeBattle();
   });
 });
@@ -1375,9 +1387,16 @@ describe('Bajoterra 4.0 — FASE 4: Vínculos, Maestría y Evolución de Babosas
     cm.startBattle(state, { kind: 'wild', speciesId: 'musgacorn', level: 1 });
     // Swap from party[0] to party[1]; party[2] never participates
     cm.swapSlug(state, 1);
-    cm.resolveEnemyTurn(state);
+    for (let i = 0; i < 10; i++) cm.step(0.03, state);
     cm.battle!.enemy.hp = 1;
-    cm.executeNormalAttack(state); // finishes battle with party[1]
+    cm.battle!.obstacles = [];
+    cm.battle!.playerDuelist.y = 268;
+    cm.battle!.enemyDuelist.y = 268;
+    cm.fireBlasterShot(state, { charge: 0.92, angle: -0.07 });
+    for (let i = 0; i < 55 && cm.battle?.turn === 'duel'; i++) {
+      cm.battle!.enemyDuelist.y = 268;
+      cm.step(0.025, state);
+    }
 
     assert.equal(cm.battle?.outcome, 'victory');
     assert.ok(state.party[1].xp > slug1XpBefore || state.party[1].level > 1);
@@ -1438,7 +1457,7 @@ describe('Bajoterra 4.0 — FASE 4: Vínculos, Maestría y Evolución de Babosas
     const cm = new CombatManager();
     cm.startBattle(state, { kind: 'wild', speciesId: 'frostcrawler', level: 1 });
     const startMastery0 = ally.moveMastery?.[0] ?? 0;
-    cm.executeSpecialMove(state, 0);
+    cm.fireBlasterShot(state, { charge: 0.8, modeOverride: 0 });
     assert.equal(ally.moveMastery?.[0], startMastery0 + 10);
     cm.closeBattle();
   });
@@ -1589,25 +1608,27 @@ describe('Bajoterra 4.0 — PARTE A (FASE 5 Gate): Correcciones Obligatorias de 
     ally.energy = 5;
     const m1Before = ally.moveMastery![1];
     const m0Before = ally.moveMastery![0];
-    cm.executeSpecialMove(state, 1);
+    const blockedShot = cm.fireBlasterShot(state, { charge: 0.78, modeOverride: 1 });
+    assert.equal(blockedShot, null);
     assert.equal(ally.moveMastery![1], m1Before);
     assert.equal(ally.energy, 5);
-    assert.equal(cm.battle?.turn, 'player');
+    assert.equal(cm.battle?.turn, 'duel');
 
     // Execute Move 0 legitimately -> deducts exact effective cost and grants +10 mastery
     ally.energy = 10;
     const sp = getSpecies(ally.id);
     const expectedCost0 = getEffectiveMoveEnergyCost(sp.specialMoves[0].energyCost, m0Before);
-    cm.executeSpecialMove(state, 0);
+    const firedShot = cm.fireBlasterShot(state, { charge: 0.78, modeOverride: 0 });
+    assert.ok(firedShot);
     assert.equal(ally.energy, 10 - expectedCost0);
     assert.equal(ally.moveMastery![0], m0Before + 10);
 
-    // Trying to execute again during enemy turn or cooldown awards 0 mastery
-    cm.executeSpecialMove(state, 0);
+    // Trying to execute again during reload or move cooldown awards 0 mastery
+    assert.equal(cm.fireBlasterShot(state, { charge: 0.78, modeOverride: 0 }), null);
     assert.equal(ally.moveMastery![0], m0Before + 10);
 
-    cm.battle!.turn = 'player';
-    cm.executeSpecialMove(state, 0); // on cooldown
+    cm.battle!.playerDuelist.reloadTimer = 0; // reload ready, but move 0 is still on cooldown
+    assert.equal(cm.fireBlasterShot(state, { charge: 0.78, modeOverride: 0 }), null);
     assert.equal(ally.moveMastery![0], m0Before + 10);
     cm.closeBattle();
   });
@@ -2037,6 +2058,135 @@ describe('Bajoterra 4.0 — FASE 6: Dirección Artística, Sprites de Especies y
     assert.equal(state.home?.residents.length, 1);
   });
 });
+
+describe('Bajoterra 4.0 — FASE 7: Renacimiento Total del Combate (Blásteres, Transformación y Duelos)', () => {
+  test('F7.1 Perfiles físicos y siluetas de transformación diferenciadas para las 15 especies', () => {
+    assert.equal(SPECIES_LIST.length, 15);
+    const seenSilhouettes = new Set<string>();
+    for (const sp of SPECIES_LIST) {
+      const p = getSlugCombatProfile(sp);
+      assert.equal(p.speciesId, sp.id);
+      assert.ok(p.maxLaunchSpeed > p.baseLaunchSpeed);
+      assert.ok(p.transformDist >= 80 && p.transformDist <= 200);
+      seenSilhouettes.add(p.silhouette);
+    }
+    // All 15 species map cleanly to distinct transformation silhouettes
+    assert.equal(seenSilhouettes.size, 15);
+    assert.equal(Object.keys(SLUG_COMBAT_PROFILES).length, 15);
+    // Light/rail species (Voltrix/Tazerling) must be substantially faster than heavy seismic Lariat
+    assert.ok(getSlugCombatProfile('voltrix').maxLaunchSpeed > getSlugCombatProfile('lariat').maxLaunchSpeed + 250);
+  });
+
+  test('F7.2 Arenas interactivas para los 4 biomas y trayectoria coherente con física de disparo', () => {
+    for (const biome of ['Verdes', 'Magma', 'Heladas', 'Sombrias'] as const) {
+      const arena = buildArenaForBiome(biome);
+      assert.equal(arena.biome, biome);
+      assert.ok(arena.obstacles.length >= 3);
+    }
+
+    const state = createInitialGameState();
+    const cm = new CombatManager();
+    cm.startBattle(state, { kind: 'wild', speciesId: 'infurnus', level: 2, biome: 'Magma' });
+    cm.aimAtArenaPoint(560, 170);
+    cm.beginCharge(state);
+    for (let i = 0; i < 10; i++) cm.step(0.04, state);
+    assert.ok(cm.battle!.playerDuelist.charge > 0.4);
+
+    const preview = cm.computeTrajectoryPreview(state);
+    assert.ok(preview.points.length >= 6);
+    assert.ok(preview.transformPoint, 'La trayectoria debe marcar el punto de transformación Velocimorph');
+
+    const proj = cm.releaseChargeAndFire(state);
+    assert.ok(proj);
+    assert.equal(proj!.phase, 'protoform');
+    cm.closeBattle();
+  });
+
+  test('F7.3 Transformación por velocidad (protoforma -> transformando -> transformada) e impacto sin duplicar UIDs', () => {
+    const state = createInitialGameState();
+    const origPartyLen = state.party.length;
+    const origUids = state.party.map((s) => s.uid);
+
+    const cm = new CombatManager();
+    cm.startBattle(state, { kind: 'wild', speciesId: 'aquabeak', level: 2, biome: 'Verdes' });
+    cm.battle!.obstacles = []; // open flight lane to observe pure transform progression
+    cm.battle!.enemy.hp = 500;
+    cm.battle!.enemyDuelist.y = 268;
+    cm.battle!.playerDuelist.y = 268;
+
+    const proj = cm.fireBlasterShot(state, { charge: 0.78, angle: -0.11 });
+    assert.ok(proj);
+    assert.equal(proj!.phase, 'protoform');
+
+    let sawTransformingOrTransformed = false;
+    for (let i = 0; i < 50; i++) {
+      cm.battle!.enemyDuelist.y = 268;
+      cm.step(0.025, state);
+      const ph: string = proj!.phase;
+      if (ph === 'transforming' || ph === 'transformed') {
+        sawTransformingOrTransformed = true;
+      }
+    }
+    assert.equal(sawTransformingOrTransformed, true);
+    assert.ok(cm.battle!.enemy.hp < 500);
+    assert.equal(state.party.length, origPartyLen);
+    assert.deepEqual(state.party.map((s) => s.uid), origUids);
+    cm.closeBattle();
+  });
+
+  test('F7.4 Choque aéreo de babosas, Guardia del Bláster, Cilindro de Captura físico y renderizado high/eco', () => {
+    const state = createInitialGameState();
+    state.inventory.capsules = 3;
+    const cm = new CombatManager();
+    cm.startBattle(state, { kind: 'wild', speciesId: 'frostcrawler', level: 2, biome: 'Heladas' });
+    cm.battle!.obstacles = [];
+
+    // 1. Mid-air slug clash
+    const allyProj = cm.fireBlasterShot(state, { charge: 0.78, angle: 0 });
+    assert.ok(allyProj);
+    allyProj!.x = 450;
+    allyProj!.y = 260;
+    cm.battle!.projectiles.push({
+      ...allyProj!,
+      id: 99999,
+      owner: 'enemy',
+      speciesId: 'frostcrawler',
+      element: 'Hielo',
+      x: 458,
+      y: 260,
+      vx: -700,
+      vy: 0,
+      trail: [],
+    });
+    cm.step(0.016, state);
+    assert.ok(cm.battle!.shockwaves.some((s) => s.kind === 'clash'));
+
+    // 2. Guard defense mitigates incoming shot & grants energy
+    state.party[0].energy = 2;
+    assert.equal(cm.activateGuard(state), true);
+    assert.ok(state.party[0].energy >= 4);
+    assert.ok(cm.battle!.playerDuelist.guardTimer > 0);
+
+    // 3. Physical capture capsule launch consumes 1 capsule cleanly
+    const capsBefore = state.inventory.capsules;
+    assert.equal(cm.useItem(state, 'capsules'), true);
+    assert.equal(state.inventory.capsules, capsBefore - 1);
+    assert.ok(cm.battle!.projectiles.some((p) => p.mode === 'capsule'));
+
+    // 4. Stress-step & render arena in both 'high' and 'eco' lighting modes
+    const renderer = new DuelArenaRenderer();
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    for (const quality of ['high', 'eco'] as const) {
+      state.options.lightingQuality = quality;
+      for (let f = 0; f < 25 && cm.battle?.turn === 'duel'; f++) {
+        cm.step(0.02, state);
+        if (cm.battle) renderer.render(ctx, cm.battle, state, cm, state.options);
+      }
+    }
+    cm.closeBattle();
+  });
+});
+
 
 
 

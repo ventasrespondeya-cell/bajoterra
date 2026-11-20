@@ -1,0 +1,317 @@
+import type { SlugSpecies } from './types';
+
+export type SlugWeightClass = 'ligera' | 'equilibrada' | 'pesada';
+
+export type TransformSilhouette =
+  | 'phoenix_flame' // Infurnus: blazing wings & tail flare
+  | 'hydro_serpent' // Aquabeak: sleek hydro finned torpedo
+  | 'volt_bolt' // Tazerling: jagged electric plasma beast
+  | 'cryo_drill' // Frostcrawler: armored ice beetle drill
+  | 'seraph_prism' // Doc: 4-winged radiant beacon
+  | 'abyss_wyvern' // Darkfurnus: horned shadow-fire wyvern
+  | 'crimson_falcon' // Flaringo: diving crimson phoenix
+  | 'terra_rhino' // Lariat: horned basalt boulder-ram
+  | 'astral_eye' // Enigmo: psychic tentacled eye orb
+  | 'thorn_stag' // Musgacorn: antlered spore spirit
+  | 'magma_meteor' // Piroclasto: volcanic obsidian comet
+  | 'glacier_lance' // Glaciomita: razor ice crystal spear
+  | 'rail_viper' // Voltrix: twin-arc electromagnetic serpent
+  | 'void_wraith' // Umbrospect: ghostly cloaked eclipse phantom
+  | 'celestial_nova'; // Aetherion: harmonic multi-ring star core
+
+export interface SlugCombatProfile {
+  speciesId: string;
+  roleLabel: string;
+  weightClass: SlugWeightClass;
+  baseLaunchSpeed: number; // px/s at 0 charge
+  maxLaunchSpeed: number; // px/s at 1.0 charge
+  gravityScale: number; // 0 = laser flat, 1 = standard arc
+  transformDist: number; // distance traveled (px) before Velocimorph triggers
+  hitboxRadius: number;
+  bounces: number; // wall/platform bounces
+  homing: number; // rad/s subtle curve toward rival
+  phaseObstacles: boolean; // passes through 1 cover obstacle
+  aoeRadius: number; // impact shockwave radius
+  reloadSec: number; // quick fire cycle seconds
+  silhouette: TransformSilhouette;
+  trailStyle: 'embers' | 'bubbles' | 'sparks' | 'snowflakes' | 'halos' | 'void' | 'petals' | 'shards';
+  transformCallout: string;
+}
+
+export const SLUG_COMBAT_PROFILES: Record<string, SlugCombatProfile> = {
+  infurnus: {
+    speciesId: 'infurnus',
+    roleLabel: 'Asalto Ígneo',
+    weightClass: 'equilibrada',
+    baseLaunchSpeed: 540,
+    maxLaunchSpeed: 880,
+    gravityScale: 0.72,
+    transformDist: 135,
+    hitboxRadius: 15,
+    bounces: 0,
+    homing: 0.12,
+    phaseObstacles: false,
+    aoeRadius: 34,
+    reloadSec: 0.42,
+    silhouette: 'phoenix_flame',
+    trailStyle: 'embers',
+    transformCallout: '¡Velocimorph Solar!',
+  },
+  aquabeak: {
+    speciesId: 'aquabeak',
+    roleLabel: 'Presión Acuática',
+    weightClass: 'equilibrada',
+    baseLaunchSpeed: 560,
+    maxLaunchSpeed: 870,
+    gravityScale: 0.55,
+    transformDist: 145,
+    hitboxRadius: 15,
+    bounces: 1,
+    homing: 0,
+    phaseObstacles: false,
+    aoeRadius: 42,
+    reloadSec: 0.44,
+    silhouette: 'hydro_serpent',
+    trailStyle: 'bubbles',
+    transformCallout: '¡Torpedo Abisal!',
+  },
+  tazerling: {
+    speciesId: 'tazerling',
+    roleLabel: 'Velocista Eléctrico',
+    weightClass: 'ligera',
+    baseLaunchSpeed: 690,
+    maxLaunchSpeed: 1040,
+    gravityScale: 0.2,
+    transformDist: 98,
+    hitboxRadius: 13,
+    bounces: 0,
+    homing: 0.25,
+    phaseObstacles: false,
+    aoeRadius: 24,
+    reloadSec: 0.34,
+    silhouette: 'volt_bolt',
+    trailStyle: 'sparks',
+    transformCallout: '¡Descarga Súbita!',
+  },
+  frostcrawler: {
+    speciesId: 'frostcrawler',
+    roleLabel: 'Control Glacial',
+    weightClass: 'pesada',
+    baseLaunchSpeed: 490,
+    maxLaunchSpeed: 790,
+    gravityScale: 0.9,
+    transformDist: 155,
+    hitboxRadius: 17,
+    bounces: 0,
+    homing: 0,
+    phaseObstacles: false,
+    aoeRadius: 46,
+    reloadSec: 0.5,
+    silhouette: 'cryo_drill',
+    trailStyle: 'snowflakes',
+    transformCallout: '¡Taladro Escarcha!',
+  },
+  doc: {
+    speciesId: 'doc',
+    roleLabel: 'Sanadora Luminosa',
+    weightClass: 'ligera',
+    baseLaunchSpeed: 570,
+    maxLaunchSpeed: 910,
+    gravityScale: 0.32,
+    transformDist: 118,
+    hitboxRadius: 14,
+    bounces: 0,
+    homing: 0.45,
+    phaseObstacles: false,
+    aoeRadius: 30,
+    reloadSec: 0.42,
+    silhouette: 'seraph_prism',
+    trailStyle: 'halos',
+    transformCallout: '¡Pulso Serafín!',
+  },
+  darkfurnus: {
+    speciesId: 'darkfurnus',
+    roleLabel: 'Depredador Umbrío',
+    weightClass: 'equilibrada',
+    baseLaunchSpeed: 590,
+    maxLaunchSpeed: 940,
+    gravityScale: 0.52,
+    transformDist: 122,
+    hitboxRadius: 15,
+    bounces: 0,
+    homing: 0.3,
+    phaseObstacles: false,
+    aoeRadius: 36,
+    reloadSec: 0.4,
+    silhouette: 'abyss_wyvern',
+    trailStyle: 'void',
+    transformCallout: '¡Llama Abismal!',
+  },
+  flaringo: {
+    speciesId: 'flaringo',
+    roleLabel: 'Acrobática Carmesí',
+    weightClass: 'ligera',
+    baseLaunchSpeed: 550,
+    maxLaunchSpeed: 900,
+    gravityScale: 1.05,
+    transformDist: 112,
+    hitboxRadius: 14,
+    bounces: 1,
+    homing: 0.22,
+    phaseObstacles: false,
+    aoeRadius: 32,
+    reloadSec: 0.36,
+    silhouette: 'crimson_falcon',
+    trailStyle: 'embers',
+    transformCallout: '¡Picado Carmesí!',
+  },
+  lariat: {
+    speciesId: 'lariat',
+    roleLabel: 'Ariete Sísmico',
+    weightClass: 'pesada',
+    baseLaunchSpeed: 460,
+    maxLaunchSpeed: 760,
+    gravityScale: 1.15,
+    transformDist: 158,
+    hitboxRadius: 19,
+    bounces: 1,
+    homing: 0,
+    phaseObstacles: false,
+    aoeRadius: 52,
+    reloadSec: 0.54,
+    silhouette: 'terra_rhino',
+    trailStyle: 'shards',
+    transformCallout: '¡Impacto Sísmico!',
+  },
+  enigmo: {
+    speciesId: 'enigmo',
+    roleLabel: 'Artillería Psíquica',
+    weightClass: 'ligera',
+    baseLaunchSpeed: 560,
+    maxLaunchSpeed: 890,
+    gravityScale: 0.14,
+    transformDist: 115,
+    hitboxRadius: 15,
+    bounces: 0,
+    homing: 1.35,
+    phaseObstacles: false,
+    aoeRadius: 44,
+    reloadSec: 0.45,
+    silhouette: 'astral_eye',
+    trailStyle: 'halos',
+    transformCallout: '¡Visión Astral!',
+  },
+  musgacorn: {
+    speciesId: 'musgacorn',
+    roleLabel: 'Drenaje Natural',
+    weightClass: 'equilibrada',
+    baseLaunchSpeed: 510,
+    maxLaunchSpeed: 820,
+    gravityScale: 0.84,
+    transformDist: 140,
+    hitboxRadius: 16,
+    bounces: 2,
+    homing: 0.15,
+    phaseObstacles: false,
+    aoeRadius: 40,
+    reloadSec: 0.46,
+    silhouette: 'thorn_stag',
+    trailStyle: 'petals',
+    transformCallout: '¡Brote Guardián!',
+  },
+  piroclasto: {
+    speciesId: 'piroclasto',
+    roleLabel: 'Cometa Volcánico',
+    weightClass: 'pesada',
+    baseLaunchSpeed: 455,
+    maxLaunchSpeed: 770,
+    gravityScale: 1.18,
+    transformDist: 165,
+    hitboxRadius: 20,
+    bounces: 0,
+    homing: 0,
+    phaseObstacles: false,
+    aoeRadius: 68,
+    reloadSec: 0.58,
+    silhouette: 'magma_meteor',
+    trailStyle: 'embers',
+    transformCallout: '¡Meteoro Basalto!',
+  },
+  glaciomita: {
+    speciesId: 'glaciomita',
+    roleLabel: 'Rebote Cristalino',
+    weightClass: 'equilibrada',
+    baseLaunchSpeed: 575,
+    maxLaunchSpeed: 915,
+    gravityScale: 0.48,
+    transformDist: 130,
+    hitboxRadius: 15,
+    bounces: 2,
+    homing: 0,
+    phaseObstacles: false,
+    aoeRadius: 36,
+    reloadSec: 0.44,
+    silhouette: 'glacier_lance',
+    trailStyle: 'snowflakes',
+    transformCallout: '¡Lanza Prisma!',
+  },
+  voltrix: {
+    speciesId: 'voltrix',
+    roleLabel: 'Riel Electromagnético',
+    weightClass: 'ligera',
+    baseLaunchSpeed: 740,
+    maxLaunchSpeed: 1120,
+    gravityScale: 0.08,
+    transformDist: 92,
+    hitboxRadius: 13,
+    bounces: 0,
+    homing: 0.2,
+    phaseObstacles: false,
+    aoeRadius: 28,
+    reloadSec: 0.36,
+    silhouette: 'rail_viper',
+    trailStyle: 'sparks',
+    transformCallout: '¡Riel Hipersónico!',
+  },
+  umbrospect: {
+    speciesId: 'umbrospect',
+    roleLabel: 'Infiltración Espectral',
+    weightClass: 'ligera',
+    baseLaunchSpeed: 610,
+    maxLaunchSpeed: 950,
+    gravityScale: 0.22,
+    transformDist: 110,
+    hitboxRadius: 15,
+    bounces: 0,
+    homing: 0.55,
+    phaseObstacles: true,
+    aoeRadius: 38,
+    reloadSec: 0.43,
+    silhouette: 'void_wraith',
+    trailStyle: 'void',
+    transformCallout: '¡Fase Espectral!',
+  },
+  aetherion: {
+    speciesId: 'aetherion',
+    roleLabel: 'Resonancia Legendaria',
+    weightClass: 'equilibrada',
+    baseLaunchSpeed: 660,
+    maxLaunchSpeed: 1020,
+    gravityScale: 0.18,
+    transformDist: 102,
+    hitboxRadius: 17,
+    bounces: 1,
+    homing: 0.85,
+    phaseObstacles: true,
+    aoeRadius: 56,
+    reloadSec: 0.4,
+    silhouette: 'celestial_nova',
+    trailStyle: 'halos',
+    transformCallout: '¡Singularidad Viva!',
+  },
+};
+
+export function getSlugCombatProfile(speciesOrId: string | SlugSpecies): SlugCombatProfile {
+  const id = typeof speciesOrId === 'string' ? speciesOrId : speciesOrId.id;
+  return SLUG_COMBAT_PROFILES[id] || SLUG_COMBAT_PROFILES.infurnus;
+}
