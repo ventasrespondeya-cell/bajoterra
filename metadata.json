@@ -1,0 +1,6 @@
+{
+  "name": "Bajoterra 4.0 — Mundo Vivo",
+  "description": "Videojuego 2D de exploración subterránea procedural, construcción, captura y crianza de babosas, y combate táctico híbrido.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,124 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { BattleModal } from './components/BattleModal';
+import { ExpeditionModal } from './components/ExpeditionModal';
+import { FullMapModal } from './components/FullMapModal';
+import { GameHUD } from './components/GameHUD';
+import { PauseModal } from './components/PauseModal';
+import { TitleScreen } from './components/TitleScreen';
+import { gameEngine } from './game/engine';
+import { saveGameV4 } from './game/save';
+import type { HudSnapshot } from './game/types';
+
+export default function App() {
+  const [snap, setSnap] = useState<HudSnapshot>(() => gameEngine.getSnapshot());
+  const mainCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const minimapRef = useRef<HTMLCanvasElement | null>(null);
+  const fullMapRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const unsub = gameEngine.subscribe(setSnap);
+    gameEngine.attachCanvases(mainCanvasRef.current, minimapRef.current, fullMapRef.current);
+    gameEngine.startLoop();
+
+    const onKeyDown = (e: KeyboardEvent) => gameEngine.handleKeyDown(e);
+    const onKeyUp = (e: KeyboardEvent) => gameEngine.handleKeyUp(e);
+    const onBlur = () => gameEngine.clearInputs();
+    const onResize = () => gameEngine.resizeCanvas();
+    const onPageHide = () => {
+      if (gameEngine.screen !== 'TITLE') {
+        saveGameV4(gameEngine.state);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('pagehide', onPageHide);
+
+    return () => {
+      unsub();
+      gameEngine.stopLoop();
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, []);
+
+  useEffect(() => {
+    gameEngine.attachCanvases(mainCanvasRef.current, minimapRef.current, fullMapRef.current);
+  }, [snap.screen, snap.options.showMinimap]);
+
+  return (
+    <div className="relative w-full h-[100dvh] overflow-hidden bg-[#060c13]">
+      {/* Isolated 60fps Canvas Viewport */}
+      <canvas
+        ref={mainCanvasRef}
+        onClick={(e) => gameEngine.handleCanvasClick(e.clientX, e.clientY)}
+        className="w-full h-full block pixelated cursor-crosshair"
+      />
+
+      {snap.screen === 'TITLE' && (
+        <TitleScreen
+          snap={snap}
+          onNewGame={() => gameEngine.startNewGame()}
+          onContinue={() => gameEngine.continueSavedGame()}
+          onImportV3Detected={() => gameEngine.importDetectedV3Save()}
+          onImportJsonFile={(txt) => {
+            gameEngine.importJsonText(txt);
+          }}
+        />
+      )}
+
+      {snap.screen !== 'TITLE' && !snap.battle && (
+        <GameHUD
+          snap={snap}
+          minimapRef={minimapRef}
+          onSelectHotbar={(idx) => gameEngine.setHotbar(idx)}
+          onSelectParty={(idx) => gameEngine.setActivePartyIndex(idx)}
+          onOpenExpedition={() => gameEngine.setScreen('EXPEDITION')}
+          onOpenMap={() => gameEngine.setScreen('FULL_MAP')}
+          onOpenPause={() => gameEngine.setScreen('PAUSED')}
+          onToggleSound={() =>
+            gameEngine.updateOptions({ soundEnabled: !snap.options.soundEnabled })
+          }
+          onAction={() => gameEngine.performPrimaryAction()}
+          onPulse={() => gameEngine.triggerExplorationPulse()}
+          onJoystick={(x, y) => gameEngine.setJoystick(x, y)}
+          onTouchSprint={(active) => gameEngine.setTouchSprint(active)}
+        />
+      )}
+
+      {snap.battle && (
+        <BattleModal
+          battle={snap.battle}
+          state={gameEngine.state}
+          combat={gameEngine.combat}
+          onSync={() => gameEngine.emitHud(true)}
+        />
+      )}
+
+      {snap.screen === 'EXPEDITION' && !snap.battle && (
+        <ExpeditionModal snap={snap} onClose={() => gameEngine.setScreen('PLAYING')} />
+      )}
+
+      {snap.screen === 'FULL_MAP' && !snap.battle && (
+        <FullMapModal
+          snap={snap}
+          fullMapRef={fullMapRef}
+          onClose={() => gameEngine.setScreen('PLAYING')}
+        />
+      )}
+
+      {snap.screen === 'PAUSED' && !snap.battle && (
+        <PauseModal
+          snap={snap}
+          onResume={() => gameEngine.setScreen('PLAYING')}
+          onTitle={() => gameEngine.setScreen('TITLE')}
+        />
+      )}
+    </div>
+  );
+}

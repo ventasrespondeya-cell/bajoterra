@@ -1,0 +1,25 @@
+BAJOTERRA 3.0 — EXPANSIÓN DEL MUNDO
+
+Windows 11: abre Bajoterra_3_0_Expansion.html con Edge o Chrome.
+No requiere instalador ni conexión.
+
+CONTROLES
+WASD / flechas: movimiento
+Shift: correr
+E: interactuar / minar / construir
+M: alternar modo
+I: estuche y refugio
+Espacio: pulso de explorador (+2 EXP)
+
+NOVEDADES 3.0
+- Mundo ampliado a 180 x 180 sectores de cuadrícula.
+- Minimapa en tiempo real.
+- Misiones con recompensas: minería, duelos y descubrimiento de biomas.
+- Nuevas babosas: Flaringo, Lariat y Enigmo.
+- Cristales de energía raros en Minas de Sombra.
+- Progreso de misiones y descubrimientos guardado en la partida.
+- Autoguardado local cada 30 segundos y al salir.
+- Movimiento y sprint más ágiles.
+
+NOTA
+El mundo se genera de forma determinista por semilla. Las zonas exploradas mantienen su diseño y las modificaciones de bloques se guardan en la partida.

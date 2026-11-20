@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#101923"><title>Bajoterra: Ecos del Subsuelo — v3.0 Expansión</title>
+<style>
+:root{--bg:#0b121a;--panel:#142330;--line:#345164;--cyan:#58e4ef;--gold:#f4bd65;--txt:#e8f4f7;--muted:#9db5bf}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:system-ui,Segoe UI,sans-serif;touch-action:none}
+#app{height:100dvh;display:grid;grid-template-rows:auto 1fr auto;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);background:radial-gradient(ellipse at 50% 0,#1a3040,#091018 65%)}
+header{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #294354;background:#0c1720eF;z-index:2}
+.brand{font-weight:900;letter-spacing:.08em;font-size:clamp(12px,2vw,17px)}.brand span{color:var(--cyan)}.tag{font-size:10px;color:#b7d4dc;border:1px solid #3b6576;padding:3px 6px;border-radius:20px}
+.hud{margin-left:auto;display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}.hud b{color:#fff}
+main{position:relative;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 245px;gap:8px;padding:8px}
+#stage{position:relative;min-width:0;min-height:0;border:1px solid #35596a;border-radius:12px;overflow:hidden;background:#111d25;box-shadow:0 12px 40px #0008}
+canvas{width:100%;height:100%;display:block;image-rendering:pixelated}
+#toast{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:#08131de8;border:1px solid #4b7889;padding:8px 13px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap;z-index:4}
+#toast.show{opacity:1}
+#minimap{position:absolute;right:12px;top:12px;width:132px;height:132px;border:1px solid #72dbe877;border-radius:8px;background:#08131dcc;image-rendering:pixelated;z-index:2;pointer-events:none}
+#location{position:absolute;left:12px;top:10px;font-size:11px;color:#d5f5f7;text-shadow:0 2px 4px #000;background:#08131dbb;padding:5px 8px;border-radius:6px;pointer-events:none}
+#side{display:flex;flex-direction:column;gap:8px;min-height:0;overflow:auto}
+.panel{background:linear-gradient(145deg,#192d3a,#101e29);border:1px solid var(--line);border-radius:10px;padding:10px}
+.panel h3{font-size:11px;letter-spacing:.12em;color:var(--cyan);margin:0 0 8px;text-transform:uppercase}
+.statline{display:flex;justify-content:space-between;font-size:12px;margin:4px 0;color:var(--muted)}.statline b{color:#fff}
+.bar{height:7px;border-radius:8px;background:#263c48;overflow:hidden;margin:4px 0 7px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#42b9c7,#8cf4dc);border-radius:8px}
+.party{display:grid;gap:6px}.pet{display:flex;gap:8px;align-items:center;background:#0d1b25;border:1px solid #2b4858;border-radius:8px;padding:6px;cursor:pointer}.pet.active{border-color:var(--gold);box-shadow:inset 0 0 0 1px #f4bd6555}.orb{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:16px;background:#263f4b}.pet small{display:block;color:var(--muted);font-size:10px}
+button{border:1px solid #426778;background:linear-gradient(#244253,#172e3b);color:#f0fbff;border-radius:8px;padding:9px 10px;font-weight:700;font-size:12px;cursor:pointer;min-height:38px}
+button:hover{border-color:var(--cyan);filter:brightness(1.15)}button:active{transform:translateY(1px)}button.primary{background:linear-gradient(#247a86,#15505d);border-color:#58dce7}button.warn{border-color:#956e40;background:linear-gradient(#68482c,#382b24)}button:disabled{opacity:.35;cursor:not-allowed}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}.actions button{min-height:42px}
+footer{display:flex;gap:8px;align-items:center;padding:7px 10px;border-top:1px solid #294354;background:#0b151e;font-size:11px;color:var(--muted)}
+#log{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+#touch{display:none;position:absolute;inset:auto 10px 10px 10px;justify-content:space-between;align-items:end;pointer-events:none;z-index:3}
+#stick{width:118px;height:118px;border-radius:50%;border:2px solid #a5eaf055;background:#102d3b88;position:relative;pointer-events:auto;touch-action:none}
+#nub{position:absolute;width:42px;height:42px;border-radius:50%;background:#75dce9aa;border:2px solid #c9fbff;left:36px;top:36px}
+#touchBtns{display:grid;grid-template-columns:repeat(2,58px);gap:8px;pointer-events:auto}
+#touchBtns button{width:58px;height:58px;border-radius:16px;font-size:19px;background:#163747eF;border:1px solid #75dce9}
+.overlay{position:absolute;inset:0;background:#06111bd9;display:none;align-items:center;justify-content:center;padding:14px;z-index:5;backdrop-filter:blur(5px)}
+.dialog{width:min(650px,100%);max-height:100%;overflow:auto;background:linear-gradient(145deg,#1b3442,#101d29);border:1px solid #4b7889;border-radius:14px;padding:16px;box-shadow:0 20px 80px #000b}
+.dialog h2{margin:0 0 5px;font-size:20px}.sub{color:var(--muted);font-size:12px;margin-bottom:12px}
+.battlefield{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.fighter{background:#0d1b26;border:1px solid #2d5363;border-radius:10px;padding:10px;min-height:112px}.fighter strong{font-size:14px}.fighter .big{font-size:38px;float:right}.battlelog{min-height:38px;background:#0a1720;border-radius:7px;padding:9px;font-size:12px;color:#c9e3e9;margin:8px 0}
+.movegrid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.movegrid button{text-align:left}.movegrid small{display:block;color:#a9c5ce;font-weight:400;margin-top:3px}
+#menuGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.card{background:#0e1c27;border:1px solid #2c4a5a;border-radius:9px;padding:10px;font-size:12px}.card b{color:#fff}.card p{color:var(--muted);margin:5px 0 0}
+@media(max-width:760px){#minimap{width:92px;height:92px;top:42px;right:8px}main{grid-template-columns:1fr;padding:5px}#side{display:none}.hud{gap:5px;font-size:10px}.tag{display:none}footer{font-size:10px}#touch{display:flex}#stage{border-radius:8px}.brand{font-size:12px}}
+@media(min-width:761px) and (max-height:650px){main{grid-template-columns:minmax(0,1fr) 215px}.panel{padding:7px}}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important;transition:none!important}}
+button:focus-visible,.pet:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+</style></head>
+<body><div id="app">
+<header><div class="brand">BAJOTERRA <span>◆ ECOS DEL SUBSUELO</span></div><div class="tag">EXPANSIÓN 3.0</div><div class="hud"><span>♥ <b id="hpTop">100</b></span><span>✦ <b id="levelTop">1</b></span><span>◆ <b id="oreTop">0</b></span></div></header>
+<main><section id="stage"><canvas id="game"></canvas><div id="location">PRADERA SUBTERRÁNEA · REFUGIO</div><canvas id="minimap" width="132" height="132" aria-label="Minimapa"></canvas><div id="toast"></div>
+<div id="touch"><div id="stick"><div id="nub"></div></div><div id="touchBtns"><button id="tInteract">✋</button><button id="tMode">⛏</button><button id="tTeam">🧬</button><button id="tMenu">☰</button></div></div>
+<div class="overlay" id="battle"><div class="dialog"><h2>⚔ Duelo de babosas</h2><div class="sub" id="battleSub">Encuentro salvaje</div><div class="battlefield"><div class="fighter"><span class="big" id="enemyIcon">🔥</span><strong id="enemyName">Infurnus salvaje</strong><div class="statline"><span id="enemyType">FUEGO</span><b id="enemyHpText">40/40</b></div><div class="bar"><i id="enemyBar"></i></div></div><div class="fighter"><span class="big" id="allyIcon">🔥</span><strong id="allyName">Infurnus</strong><div class="statline"><span id="allyType">FUEGO</span><b id="allyHpText">50/50</b></div><div class="bar"><i id="allyBar"></i></div><div class="bar"><i id="xpBar"></i></div></div></div><div class="battlelog" id="battleLog">¡Un rival aparece!</div><div id="battleActions"><div class="actions"><button class="primary" id="fightBtn">LUCHAR</button><button id="bagBtn">MOCHILA</button><button id="swapBtn">BABOSAS</button><button class="warn" id="runBtn">HUIR</button></div></div><div id="battleChoices" style="display:none"></div></div></div>
+<div class="overlay" id="menu"><div class="dialog"><h2 id="menuTitle">Estuche y refugio</h2><div class="sub" id="menuSub">Administra tu expedición.</div><div id="menuGrid"></div><div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button id="saveBtn">💾 Guardar</button><button id="exportBtn">⬇ Exportar partida</button><button id="importBtn">⬆ Importar</button><button id="closeMenu" class="primary">Cerrar</button><input id="fileInput" type="file" accept=".json,application/json" hidden></div></div></div>
+</section>
+<aside id="side">
+<div class="panel"><h3>Expedición</h3><div class="statline"><span>Explorador</span><b>Nivel <span id="playerLevel">1</span></b></div><div class="bar"><i id="playerXp" style="width:0%"></i></div><div class="statline"><span>Salud</span><b id="playerHp">100 / 100</b></div><div class="bar"><i id="playerHpBar" style="width:100%"></i></div><div class="statline"><span>Minerales</span><b id="oreCount">0</b></div><div class="statline"><span>Bayas</span><b id="berryCount">3</b></div><div class="statline"><span>Cilindros</span><b id="capsuleCount">3</b></div></div>
+<div class="panel"><h3>Estuche de lanzadora</h3><div class="party" id="party"></div></div>
+<div class="panel"><h3>Acciones</h3><div class="actions"><button id="interactBtn">Interactuar</button><button id="modeBtn">⛏ Minar</button><button id="teamBtn">Equipo</button><button id="craftBtn">Fabricar</button><button id="healBtn" class="primary" style="grid-column:span 2">✚ Estación de recarga</button></div></div>
+<div class="panel"><h3>Misiones del explorador</h3><div id="questText" style="font-size:12px;color:#c5dce2;line-height:1.6">Reúne minerales y explora nuevos biomas.</div></div><div class="panel"><h3>Controles PC</h3><div style="font-size:11px;color:#9db5bf;line-height:1.6">WASD mover · Shift correr<br>E interactuar · M modo · I estuche<br>Espacio: pulso de exploración</div></div>
+</aside></main>
+<footer><span>WASD / Flechas · Shift correr · E interactuar · M minar/construir · I equipo · Espacio pulso</span><span id="log">Bienvenido al subsuelo. Busca recursos y explora.</span></footer>
+</div>
+<script>
+(()=>{
+"use strict";
+const $=id=>document.getElementById(id), canvas=$("game"),ctx=canvas.getContext("2d");
+const TILE=24, W=180,H=180, SAVE_KEY="bajoterra-v2";
+const TYPES={Fuego:{strong:["Hielo","Planta"],weak:["Agua"]},Agua:{strong:["Fuego"],weak:["Electrico"]},Electrico:{strong:["Agua"],weak:["Tierra"]},Hielo:{strong:["Tierra","Energia"],weak:["Fuego"]},Sombra:{strong:["Luz"],weak:["Luz"]},Luz:{strong:["Sombra"],weak:["Sombra"]},Tierra:{strong:["Electrico"],weak:["Hielo"]},Planta:{strong:["Agua","Tierra"],weak:["Fuego"]},Energia:{strong:["Sombra"],weak:["Hielo"]}};
+const SPECIES=[
+{id:"infurnus",name:"Infurnus",type:"Fuego",icon:"🔥",hp:54,atk:14,spd:10,move:"Impacto Ígneo",evo:"Megamorph Infurnus",favorite:"Chile ígneo"},
+{id:"aquabeak",name:"Aquabeak",type:"Agua",icon:"💧",hp:62,atk:11,spd:9,move:"Chorro Glacial",evo:"Megamorph Aquabeak",favorite:"Alga azul"},
+{id:"tazerling",name:"Tazerling",type:"Electrico",icon:"⚡",hp:48,atk:15,spd:15,move:"Pulso Voltio",evo:"Megamorph Tazerling",favorite:"Baya chispa"},
+{id:"frostcrawler",name:"Frostcrawler",type:"Hielo",icon:"❄️",hp:58,atk:13,spd:8,move:"Aguja de Hielo",evo:"Megamorph Frostcrawler",favorite:"Cristal frío"},
+{id:"doc",name:"Doc",type:"Luz",icon:"✨",hp:56,atk:9,spd:11,move:"Destello Sanador",evo:"Megamorph Doc",favorite:"Baya dulce"},
+{id:"darkfurnus",name:"Darkfurnus",type:"Sombra",icon:"🌑",hp:60,atk:16,spd:12,move:"Llama Umbría",evo:"Megamorph Darkfurnus",favorite:"Hongo oscuro"},
+{id:"flaringo",name:"Flaringo",type:"Fuego",icon:"🦩",hp:57,atk:15,spd:13,move:"Ráfaga Carmesí",evo:"Megamorph Flaringo",favorite:"Chile ígneo"},
+{id:"lariat",name:"Lariat",type:"Tierra",icon:"🪨",hp:68,atk:14,spd:7,move:"Lazo Sísmico",evo:"Megamorph Lariat",favorite:"Raíz pétrea"},
+{id:"enigmo",name:"Enigmo",type:"Energia",icon:"🔮",hp:52,atk:17,spd:14,move:"Pulso Mental",evo:"Megamorph Enigmo",favorite:"Cristal oscuro"}
+];
+const clone=o=>JSON.parse(JSON.stringify(o));
+const newSlug=(id,level=1)=>{let s=SPECIES.find(x=>x.id===id)||SPECIES[0];return {id:s.id,name:s.name,type:s.type,icon:s.icon,level,xp:0,hp:s.hp+level*3,maxHp:s.hp+level*3,atk:s.atk+Math.floor(level*1.5),spd:s.spd,friend:20,pp:12,maxPp:12,mega:false}};
+let state={player:{x:56,y:56,hp:100,maxHp:100,level:1,xp:0},party:[newSlug("infurnus"),newSlug("aquabeak"),newSlug("tazerling")],active:0,inventory:{ore:0,berries:3,capsules:3,wood:4,stone:8},mode:"mine",tiles:{},worldSeed:74192,won:0,seen:{},pets:[],discoveries:["Pradera"],quest:{ore:0,wins:0,biomes:1,rewarded:[]},battle:null,merc:{x:67,y:49,dir:1,step:0},time:0};
+let keys={},joy={x:0,y:0},lastMove=0,toastTimer=0,cam={x:0,y:0},dpr=1;
+function hash(x,y){let n=Math.sin((x+state.worldSeed)*127.1+(y-state.worldSeed)*311.7)*43758.5453;return n-Math.floor(n)}
+function biome(x,y){let dx=x-56,dy=y-56;if(y>96&&Math.abs(dx)<58)return "Magma";if(x<22&&Math.abs(dy)<58)return "Hielo";if((x>112&&y<95)||(x>105&&y>95)||(y<12&&x>35))return "Sombra";return "Pradera"}
+function baseTile(x,y){let b=biome(x,y),edge=x<2||y<2||x>W-3||y>H-3;if(edge)return 2;let h=hash(x,y);if(b==="Magma"){if(h<.07)return 7;if(h<.15)return 5;return 0}if(b==="Hielo"){if(h<.08)return 8;if(h<.15)return 5;return h<.24?4:0}if(b==="Sombra"){if(h<.055)return 9;if(h<.09)return 13;if(h<.18)return 5;return h<.25?4:0}if(h<.045)return 3;if(h<.13)return 5;if(h<.18)return 4;return 0}
+function getTile(x,y){let k=x+","+y;return state.tiles[k]!==undefined?state.tiles[k]:baseTile(x,y)}
+function setTile(x,y,v){state.tiles[x+","+y]=v}
+function solid(t){return [2,3,5,7,8,9,10,11,12,13].includes(t)}
+function tileName(t){return ({0:"suelo",2:"roca",3:"madera",4:"hongo",5:"mineral",7:"lava",8:"hielo",9:"cristal sombrío",10:"pared",11:"suelo construido",12:"lámpara",13:"cristal de energía"})[t]||"bloque"}
+function resize(){let r=$("stage").getBoundingClientRect();dpr=Math.min(devicePixelRatio||1,1.5);canvas.width=Math.floor(r.width*dpr);canvas.height=Math.floor(r.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0)}
+new ResizeObserver(resize).observe($("stage"));resize();
+function say(s){$("log").textContent=s;$("toast").textContent=s;$("toast").classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>$("toast").classList.remove("show"),1900)}
+function drawTile(x,y,sx,sy,t,b){let c={Pradera:"#344c42",Magma:"#53342b",Hielo:"#34516a",Sombra:"#342d4d"}[b]||"#344";ctx.fillStyle=c;ctx.fillRect(sx,sy,TILE,TILE);ctx.fillStyle={0:"#536e58",2:"#333c49",3:"#79563b",4:"#47775c",5:"#6d6252",7:"#a13e21",8:"#7198b7",9:"#594c7a",10:"#4d4b5b",11:"#5a493d",12:"#2d5960"}[t]||c;ctx.fillRect(sx+1,sy+1,TILE-2,TILE-2);if(t===0||t===4){ctx.fillStyle="#ffffff0b";ctx.fillRect(sx+4,sy+5,3,2);ctx.fillRect(sx+16,sy+15,2,2)}if(t===5){ctx.fillStyle=b==="Magma"?"#ef8a43":b==="Hielo"?"#8fe9ff":b==="Sombra"?"#c37bff":"#c3a66d";ctx.fillRect(sx+6,sy+6,5,5);ctx.fillRect(sx+13,sy+13,6,6)}if(t===7){ctx.fillStyle="#ff9d38";ctx.fillRect(sx+2,sy+5,20,5);ctx.fillStyle="#f5d45b";ctx.fillRect(sx+8,sy+14,7,3)}if(t===8||t===9||t===13){ctx.strokeStyle=t===8?"#b9f1ff":t===9?"#c59aff":"#72f2e8";ctx.beginPath();ctx.moveTo(sx+5,sy+19);ctx.lineTo(sx+12,sy+4);ctx.lineTo(sx+18,sy+18);ctx.stroke()}ctx.strokeStyle="#0b172522";ctx.strokeRect(sx,sy,TILE,TILE)}
+function drawCreature(x,y,icon,color,scale=1){ctx.save();ctx.translate(x,y);ctx.scale(scale,scale);ctx.fillStyle="#07101899";ctx.beginPath();ctx.ellipse(0,7,9,4,0,0,Math.PI*2);ctx.fill();ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(0,0,8,7,0,0,Math.PI*2);ctx.fill();ctx.font="12px sans-serif";ctx.textAlign="center";ctx.fillText(icon,0,4);ctx.restore()}
+function render(){let r=$("stage").getBoundingClientRect(),vw=r.width,vh=r.height;ctx.clearRect(0,0,vw,vh);cam.x=state.player.x*TILE-vw/2+TILE/2;cam.y=state.player.y*TILE-vh/2+TILE/2;let x0=Math.floor(cam.x/TILE)-1,y0=Math.floor(cam.y/TILE)-1,x1=x0+Math.ceil(vw/TILE)+3,y1=y0+Math.ceil(vh/TILE)+3;
+for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){if(x<0||y<0||x>=W||y>=H)continue;let sx=x*TILE-cam.x,sy=y*TILE-cam.y,t=getTile(x,y);drawTile(x,y,sx,sy,t,biome(x,y));if(t===12){ctx.fillStyle="#77f7ff";ctx.beginPath();ctx.arc(sx+12,sy+8,4,0,7);ctx.fill();ctx.shadowBlur=12;ctx.shadowColor="#62efff";ctx.fill();ctx.shadowBlur=0}}
+let mx=state.merc.x*TILE-cam.x,my=state.merc.y*TILE-cam.y;if(Math.abs(mx)<vw&&Math.abs(my)<vh){drawCreature(mx+12,my+12,"🦹","#8a4a55",1.25);ctx.fillStyle="#ffe0ad";ctx.font="9px sans-serif";ctx.fillText("MERCENARIO",mx+12,my-4)}
+state.pets.forEach(p=>{let px=p.x*TILE-cam.x,py=p.y*TILE-cam.y;if(px>-30&&px<vw+30&&py>-30&&py<vh+30)drawCreature(px+12,py+12,p.icon,"#4f8d85",.8)});
+let px=state.player.x*TILE-cam.x,py=state.player.y*TILE-cam.y;drawCreature(px+12,py+12,"🧑‍🚀","#64b8c7",1.25);
+ctx.fillStyle="#d8faff";ctx.font="10px sans-serif";ctx.fillText("✦ "+state.party[state.active].name,px+12,py-5);
+if(state.mode==="build"){ctx.fillStyle="#f4bd6577";ctx.fillRect(px+24,py+3,8,8)}
+}
+let lastRender=0;
+function renderLoop(ts){
+  if(!document.hidden && ts-lastRender>=33){
+    render();
+    drawMinimap(ts);
+    lastRender=ts;
+  }
+  requestAnimationFrame(renderLoop);
+}
+requestAnimationFrame(renderLoop);
+document.addEventListener("visibilitychange",()=>{
+  if(!document.hidden) lastRender=0;
+});
+function ensureProgress(){state.discoveries=state.discoveries||["Pradera"];state.quest=state.quest||{ore:0,wins:0,biomes:state.discoveries.length,rewarded:[]};state.quest.rewarded=state.quest.rewarded||[];}
+function updateQuest(){ensureProgress();let q=state.quest;let tasks=[{id:"ore",label:"Recolecta 12 minerales",v:q.ore,goal:12,reward:"+8 minerales"},{id:"wins",label:"Gana 3 duelos",v:q.wins,goal:3,reward:"+3 cilindros"},{id:"biomes",label:"Descubre los 4 biomas",v:q.biomes,goal:4,reward:"+2 núcleos"}];let out=[];for(let t of tasks){if(t.v>=t.goal&&!q.rewarded.includes(t.id)){q.rewarded.push(t.id);if(t.id==="ore")state.inventory.ore+=8;if(t.id==="wins")state.inventory.capsules+=3;if(t.id==="biomes")state.inventory.core=(state.inventory.core||0)+2;say("Misión completada: "+t.label+" · "+t.reward);}
+out.push("<b>"+t.label+"</b><br>"+Math.min(t.v,t.goal)+" / "+t.goal+" · Recompensa: "+t.reward);}$('questText').innerHTML=out.join('<hr style="border-color:#294354;border-style:solid;border-width:1px 0 0;margin:6px 0">');}
+let lastMini=0;function drawMinimap(ts=0){if(ts-lastMini<200)return;lastMini=ts;let c=$("minimap"),g=c.getContext("2d"),w=c.width,h=c.height;g.clearRect(0,0,w,h);let scale=0.72,ox=w/2-state.player.x*scale,oy=h/2-state.player.y*scale;for(let y=0;y<H;y+=6)for(let x=0;x<W;x+=6){let b=biome(x,y),col=b==="Magma"?"#9a492e":b==="Hielo"?"#75b9d3":b==="Sombra"?"#7651a0":"#47735b";g.fillStyle=col;g.fillRect(x*scale+ox,y*scale+oy,3,3);}g.fillStyle="#fff";g.beginPath();g.arc(w/2,h/2,3,0,Math.PI*2);g.fill();g.strokeStyle="#ffffff88";g.strokeRect(0,0,w,h);}
+function ui(){let p=state.player,pet=state.party[state.active];$("hpTop").textContent=p.hp;$("levelTop").textContent=p.level;$("oreTop").textContent=state.inventory.ore;$("playerLevel").textContent=p.level;$("playerHp").textContent=p.hp+" / "+p.maxHp;$("playerHpBar").style.width=(p.hp/p.maxHp*100)+"%";$("playerXp").style.width=(p.xp/(p.level*35)*100)+"%";$("oreCount").textContent=state.inventory.ore;$("berryCount").textContent=state.inventory.berries;$("capsuleCount").textContent=state.inventory.capsules;$("location").textContent=biome(Math.round(p.x),Math.round(p.y)).toUpperCase()+" · "+Math.round(p.x)+","+Math.round(p.y);$("party").innerHTML=state.party.map((s,i)=>`<div class="pet ${i===state.active?"active":""}" data-i="${i}"><div class="orb">${s.icon}</div><div><b>${s.name}${s.mega?" ★":""}</b><small>Nv.${s.level} · ${s.type} · ♥ ${s.hp}/${s.maxHp}</small></div></div>`).join("");document.querySelectorAll(".pet").forEach(el=>el.onclick=()=>{state.active=+el.dataset.i;ui();say("Babosa activa: "+state.party[state.active].name)});updateQuest()}
+function nearest(){let x=Math.round(state.player.x),y=Math.round(state.player.y);return [[0,-1],[1,0],[0,1],[-1,0]].map(([dx,dy])=>({x:x+dx,y:y+dy,t:getTile(x+dx,y+dy)})).find(o=>o.t!==0)||{x:x,y:y,t:getTile(x,y)}}
+function interact(){let n=nearest(),t=n.t;if(state.mode==="mine"){if(t===5||t===3||t===2||t===8||t===9||t===13||t===4){let gain=t===5?2:t===3?1:1;state.inventory.ore+=gain;ensureProgress();state.quest.ore+=gain;if(t===13)state.inventory.core=(state.inventory.core||0)+1;if(t===3)state.inventory.wood+=2;if(t===4)state.inventory.berries++;setTile(n.x,n.y,0);updateQuest();say("Recolectaste "+(t===5?"mineral":t===3?"madera":t===4?"bayas":t===13?"cristal de energía":"piedra")+" +"+gain);ui();return}if(t===12){heal();return}if(t===7){say("¡La lava quema! No puedes minarla sin protección.");return}say("No hay un recurso minable junto a ti.");}
+else{if(state.inventory.wood<1||state.inventory.ore<1){say("Necesitas 1 madera y 1 mineral para construir.");return}if(solid(t)){say("Ese espacio está ocupado.");return}state.inventory.wood--;state.inventory.ore--;setTile(n.x,n.y,11);say("Pared de refugio colocada.");ui()}}
+function toggleMode(){state.mode=state.mode==="mine"?"build":"mine";$("modeBtn").textContent=state.mode==="mine"?"⛏ Minar":"🧱 Construir";say(state.mode==="mine"?"Modo minería":"Modo construcción")}
+function heal(){let near=Math.hypot(state.player.x-56,state.player.y-56)<7||nearest().t===12;if(!near){say("Busca una Estación de Recarga en tu refugio.");return}state.player.hp=state.player.maxHp;state.party.forEach(s=>{s.hp=s.maxHp;s.pp=s.maxPp});say("¡Equipo completamente recargado!");ui()}
+function move(dx,dy){let nx=state.player.x+dx,ny=state.player.y+dy;if(nx<1||ny<1||nx>W-2||ny>H-2)return;let t=getTile(Math.round(nx),Math.round(ny));if(solid(t)||t===7)return;state.player.x=nx;state.player.y=ny;state.time++;let here=biome(nx,ny);ensureProgress();if(!state.discoveries.includes(here)){state.discoveries.push(here);state.quest.biomes=state.discoveries.length;say("¡Nuevo bioma descubierto: "+here+"!");updateQuest();}if(state.time%40===0)quietSave();if(state.time%8===0){let dxm=Math.sign(state.player.x-state.merc.x),dym=Math.sign(state.player.y-state.merc.y);if(Math.abs(state.player.x-state.merc.x)+Math.abs(state.player.y-state.merc.y)<16){state.merc.x+=Math.sign(state.player.x-state.merc.x)*.35;state.merc.y+=Math.sign(state.player.y-state.merc.y)*.35}else state.merc.x+=Math.sin(state.time*.17)*.25;state.merc.y+=Math.cos(state.time*.12)*.2}
+if(Math.hypot(state.player.x-state.merc.x,state.player.y-state.merc.y)<1.25){startBattle(true);return}
+if(getTile(Math.round(nx),Math.round(ny))===4&&Math.random()<.11)wildEncounter()}
+function wildEncounter(){let b=biome(state.player.x,state.player.y),ids=b==="Magma"?["flaringo","lariat","infurnus"]:b==="Hielo"?["frostcrawler","aquabeak"]:b==="Sombra"?["darkfurnus","enigmo","tazerling"]:["infurnus","tazerling","doc"];let id=ids[Math.floor(Math.random()*ids.length)];startBattle(false,id)}
+let battleEnemy=null,enemyMerc=false;
+function startBattle(merc=false,id){enemyMerc=merc;let species=SPECIES.find(s=>s.id===(id||"infurnus"))||SPECIES[0];let wild=newSlug(species.id,merc?3:Math.max(1,Math.floor(state.player.level+Math.random()*2)));wild.name=merc?"Blakk · "+wild.name:wild.name+" salvaje";wild.hp=wild.maxHp; battleEnemy={...wild};state.battle=true;$("battle").style.display="flex";$("battleSub").textContent=merc?"Duelista rival · Mercenario de Blakk":"Encuentro salvaje";$("battleLog").textContent=merc?"¡El mercenario de Blakk te desafía!":"¡Una babosa salvaje aparece!";showBattle();$("battleActions").style.display="block";$("battleChoices").style.display="none"}
+function showBattle(){let e=battleEnemy,a=state.party[state.active];$("enemyName").textContent=e.name;$("enemyIcon").textContent=e.icon;$("enemyType").textContent=e.type.toUpperCase();$("enemyHpText").textContent=e.hp+" / "+e.maxHp;$("enemyBar").style.width=(e.hp/e.maxHp*100)+"%";$("allyName").textContent=a.name+ (a.mega?" ★":"");$("allyIcon").textContent=a.icon;$("allyType").textContent=a.type.toUpperCase();$("allyHpText").textContent=a.hp+" / "+a.maxHp;$("allyBar").style.width=(a.hp/a.maxHp*100)+"%";$("xpBar").style.width=(a.xp/(a.level*35)*100)+"%"}
+function effectiveness(at,def){let t=TYPES[at]||{};if((t.strong||[]).includes(def))return 2;if((t.weak||[]).includes(def))return .5;return 1}
+function chooseMoves(){let a=state.party[state.active];$("battleActions").style.display="none";$("battleChoices").style.display="grid";$("battleChoices").className="movegrid";$("battleChoices").innerHTML=`<button data-move="0">🔥 ${a.name==="Infurnus"?"Impacto Ígneo":"Ataque elemental"}<small>${a.type} · Potencia ${a.atk} · PP ${a.pp}</small></button><button data-move="1">🛡 Escudo elemental<small>Defensa · Recupera 8 PS · PP ${a.pp}</small></button><button data-move="2">⚡ Pulso veloz<small>${a.type} · Potencia ${Math.round(a.atk*1.35)} · PP ${a.pp}</small></button><button data-move="3">💚 Drenaje vital<small>Recupera 10 PS · PP ${a.pp}</small></button>`;document.querySelectorAll("[data-move]").forEach(el=>el.onclick=()=>playerMove(+el.dataset.move))}
+function playerMove(m){let a=state.party[state.active],e=battleEnemy;if(a.pp<=0){$("battleLog").textContent="Sin energía. Usa un Núcleo o cambia de babosa.";$ ("battleActions").style.display="block";$ ("battleChoices").style.display="none";return}a.pp--;if(m===1){a.hp=Math.min(a.maxHp,a.hp+8);$("battleLog").textContent=a.name+" activa un escudo y recupera 8 PS."}else if(m===3){a.hp=Math.min(a.maxHp,a.hp+10);e.hp=Math.max(0,e.hp-Math.ceil(a.atk*.55));$("battleLog").textContent=a.name+" usa Drenaje vital."}else{let power=m===2?a.atk*1.35:a.atk;let mult=effectiveness(a.type,e.type);let dmg=Math.max(1,Math.round((power+Math.random()*5)*mult));e.hp=Math.max(0,e.hp-dmg);$("battleLog").textContent=`${a.name} inflige ${dmg} de daño. `+(mult===2?"¡Súper efectivo!":mult===.5?"No es muy eficaz.":"");}
+showBattle();if(e.hp<=0){setTimeout(victory,450);return}setTimeout(enemyTurn,650)}
+function enemyTurn(){if(!state.battle)return;let a=state.party[state.active],e=battleEnemy;let mult=effectiveness(e.type,a.type),dmg=Math.max(2,Math.round((e.atk*.72+Math.random()*4)*mult));a.hp=Math.max(0,a.hp-dmg);$("battleLog").textContent=e.name+" contraataca e inflige "+dmg+" PS"+(mult===2?" · ¡Súper efectivo!":"") ;showBattle();ui();if(a.hp<=0){let next=state.party.findIndex(s=>s.hp>0);if(next>=0){state.active=next;$("battleLog").textContent=a.name+" queda debilitada. ¡Entra "+state.party[next].name+"!";showBattle();$("battleActions").style.display="block";$("battleChoices").style.display="none";}else{state.player.hp=Math.max(1,state.player.hp-15);state.party.forEach(s=>s.hp=Math.max(1,Math.ceil(s.maxHp*.25)));endBattle("Tu equipo se retira al refugio. Has perdido algunos recursos.");}}else{$("battleActions").style.display="block";$("battleChoices").style.display="none"}}
+function victory(){let a=state.party[state.active];a.xp+=24+ battleEnemy.level*5;state.won++;ensureProgress();state.quest.wins++;updateQuest();if(enemyMerc)state.inventory.ore+=4;levelCheck(a);$("battleLog").textContent="¡Victoria! "+a.name+" gana experiencia.";setTimeout(()=>endBattle(enemyMerc?"Mercenario derrotado. +4 minerales.":"La babosa salvaje se retira."),850)}
+function levelCheck(a){while(a.xp>=a.level*35){a.xp-=a.level*35;a.level++;a.maxHp+=7;a.hp=a.maxHp;a.atk+=2;a.maxPp+=1;a.pp=a.maxPp;a.friend+=8;say(a.name+" sube al nivel "+a.level+"!")}if(a.level>=5&&a.friend>=60&&!a.mega){a.mega=true;a.name=SPECIES.find(s=>s.id===a.id).evo;a.maxHp+=18;a.hp=a.maxHp;a.atk+=5;a.icon="🌟";say("¡Evolución MEGAMORPH desbloqueada!");}}
+function endBattle(msg){state.battle=false;$("battle").style.display="none";say(msg);ui()}
+function showItems(){let inv=state.inventory;$("battleActions").style.display="none";$("battleChoices").style.display="grid";$("battleChoices").className="movegrid";$("battleChoices").innerHTML=`<button id="useBerry">🍓 Baya subterránea (${inv.berries})<small>Restaura 25 PS</small></button><button id="useCore">🔷 Núcleo de energía (${inv.core||0})<small>Recupera 5 PP (fabricable)</small></button><button id="useCapsule">🧪 Cilindro de captura (${inv.capsules})<small>Captura según PS restantes</small></button><button id="backBattle">↩ Volver<small>Regresar al menú de duelo</small></button>`;$("useBerry").onclick=()=>{if(inv.berries<1){$("battleLog").textContent="No tienes bayas.";return}inv.berries--;let a=state.party[state.active];a.hp=Math.min(a.maxHp,a.hp+25);afterItem(a.name+" recupera 25 PS.")};$("useCore").onclick=()=>{let a=state.party[state.active];a.pp=Math.min(a.maxPp,a.pp+5);afterItem("Energía restaurada.")};$("useCapsule").onclick=()=>{if(inv.capsules<1){$("battleLog").textContent="No tienes cilindros.";return}if(enemyMerc){$("battleLog").textContent="No puedes capturar babosas de un mercenario.";return}inv.capsules--;let chance=.18+(1-battleEnemy.hp/battleEnemy.maxHp)*.72;if(Math.random()<chance){let caught=newSlug(battleEnemy.id,battleEnemy.level);if(state.party.length<4)state.party.push(caught);else state.pets.push({...caught,x:state.player.x+1,y:state.player.y+1});$("battleLog").textContent="¡Capturaste a "+caught.name+"!";ui();setTimeout(()=>endBattle("Nueva babosa añadida a tu refugio."),800)}else{ $("battleLog").textContent="¡El cilindro se abrió! La babosa escapó.";setTimeout(enemyTurn,600);$("battleActions").style.display="block";$("battleChoices").style.display="none"}};$("backBattle").onclick=()=>{$("battleChoices").style.display="none";$("battleActions").style.display="grid"}}
+function afterItem(msg){$("battleLog").textContent=msg;showBattle();setTimeout(enemyTurn,500)}
+function swapMenu(){let alive=state.party.map((s,i)=>({s,i})).filter(o=>o.s.hp>0);if(alive.length<1)return;let next=alive.find(o=>o.i!==state.active);if(!next){$("battleLog").textContent="No hay otra babosa disponible.";return}state.active=next.i;$("battleLog").textContent="¡Adelante, "+next.s.name+"!";showBattle();setTimeout(enemyTurn,550)}
+function runBattle(){if(enemyMerc){$("battleLog").textContent="El mercenario bloquea la retirada.";setTimeout(enemyTurn,500);return}let a=state.party[state.active],chance=.35+a.spd/35;if(Math.random()<chance)endBattle("Escapaste del encuentro.");else{ $("battleLog").textContent="¡No has podido escapar!";setTimeout(enemyTurn,500)}}
+$("fightBtn").onclick=chooseMoves;$("bagBtn").onclick=showItems;$("swapBtn").onclick=swapMenu;$("runBtn").onclick=runBattle;
+function openMenu(title="Estuche y refugio"){if(state.battle)return;$("menuTitle").textContent=title;$("menu").style.display="flex";renderMenu()}
+function renderMenu(){let g=$("menuGrid");g.innerHTML=`<div class="card"><b>🧬 Equipo activo</b><p>${state.party.map(s=>s.icon+" "+s.name+" · Nv."+s.level+" · "+s.type).join("<br>")}</p></div><div class="card"><b>🎒 Mochila</b><p>Mineral: ${state.inventory.ore}<br>Madera: ${state.inventory.wood}<br>Bayas: ${state.inventory.berries}<br>Cilindros: ${state.inventory.capsules}</p></div><div class="card"><b>🏡 Refugio</b><p>La estación central recarga PS y energía. Coloca paredes para ampliar tu hogar.</p></div><div class="card"><b>🌱 Vínculo</b><p>${state.party.map(s=>s.name+": "+s.friend+" amistad").join("<br>")}<br>Megamorph: nivel 5 + amistad 60.</p></div><div class="card"><b>🗺 Biomas</b><p>Pradera central · Magma al sur · Hielo al oeste · Sombra al este/norte.</p></div><div class="card"><b>⚒ Fabricación</b><p>1 núcleo: 2 minerales + 1 madera.<br>2 cilindros: 3 minerales + 1 madera.</p><button id="craftCore">Fabricar núcleo</button> <button id="craftCaps">Fabricar cilindros</button></div>`;$("craftCore").onclick=()=>{if(state.inventory.ore>=2&&state.inventory.wood>=1){state.inventory.ore-=2;state.inventory.wood--;state.inventory.core=(state.inventory.core||0)+1;say("Núcleo fabricado.");renderMenu();ui()}else say("Faltan materiales.")};$("craftCaps").onclick=()=>{if(state.inventory.ore>=3&&state.inventory.wood>=1){state.inventory.ore-=3;state.inventory.wood--;state.inventory.capsules+=2;say("2 cilindros fabricados.");renderMenu();ui()}else say("Faltan materiales.")}}
+function closeMenu(){$("menu").style.display="none"}
+$("closeMenu").onclick=closeMenu;$("teamBtn").onclick=()=>openMenu();$("tTeam").onclick=()=>openMenu();$("tMenu").onclick=()=>openMenu();$("craftBtn").onclick=()=>openMenu("Taller de fabricación");
+$("modeBtn").onclick=toggleMode;$("tMode").onclick=toggleMode;$("interactBtn").onclick=interact;$("tInteract").onclick=interact;$("healBtn").onclick=heal;
+function quietSave(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(state));}catch(e){}}
+async function save(){let payload=JSON.stringify(state);try{let db=await new Promise((res,rej)=>{let q=indexedDB.open("BajoterraDB",1);q.onupgradeneeded=()=>q.result.createObjectStore("saves");q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});await new Promise((res,rej)=>{let tx=db.transaction("saves","readwrite");tx.objectStore("saves").put(payload,SAVE_KEY);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});db.close();say("Partida guardada en este dispositivo.")}catch(e){localStorage.setItem(SAVE_KEY,payload);say("Partida guardada localmente.")}}
+async function load(){try{let db=await new Promise((res,rej)=>{let q=indexedDB.open("BajoterraDB",1);q.onupgradeneeded=()=>q.result.createObjectStore("saves");q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});let raw=await new Promise((res,rej)=>{let q=db.transaction("saves").objectStore("saves").get(SAVE_KEY);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});db.close();if(raw){state=JSON.parse(raw);ensureProgress();ui();say("Partida recuperada.");return}}catch(e){}let raw=localStorage.getItem(SAVE_KEY);if(raw){try{state=JSON.parse(raw);ensureProgress();ui();say("Partida recuperada.")}catch(e){}}}
+window.addEventListener("pagehide",quietSave);
+setInterval(()=>{if(!state.battle)quietSave()},30000);
+function exportSave(){let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="bajoterra-partida.json";a.click();URL.revokeObjectURL(a.href);say("Respaldo exportado.")}
+$("saveBtn").onclick=save;$("exportBtn").onclick=exportSave;$("importBtn").onclick=()=>$("fileInput").click();$("fileInput").onchange=e=>{let f=e.target.files[0];if(!f)return;let rd=new FileReader();rd.onload=()=>{try{let v=JSON.parse(rd.result);if(!v.player||!v.party||!v.tiles)throw Error();state=v;ui();save();renderMenu();say("Partida importada correctamente.")}catch(err){say("Archivo de partida no válido.")}};rd.readAsText(f)};
+window.addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=true;if(["arrowup","arrowdown","arrowleft","arrowright"," "].includes(e.key.toLowerCase()))e.preventDefault();if(e.key.toLowerCase()==="e")interact();if(e.key.toLowerCase()==="m")toggleMode();if(e.key.toLowerCase()==="i")openMenu();if(e.key===" ") {state.player.xp+=2;if(state.player.xp>=state.player.level*35){state.player.xp=0;state.player.level++;state.player.maxHp+=5;state.player.hp=state.player.maxHp;say("¡Explorador sube al nivel "+state.player.level+"!")}ui()}});
+window.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+function loop(){
+  if(!document.hidden && !state.battle && $("menu").style.display!=="flex"){
+    let dx=0,dy=0;
+    if(keys.w||keys.arrowup)dy--;
+    if(keys.s||keys.arrowdown)dy++;
+    if(keys.a||keys.arrowleft)dx--;
+    if(keys.d||keys.arrowright)dx++;
+    dx+=joy.x; dy+=joy.y;
+    let mag=Math.hypot(dx,dy);
+    const sprint=!!keys.shift;
+    const interval=sprint?34:48;
+    const step=sprint?.34:.24;
+    if(mag>.1&&performance.now()-lastMove>interval){
+      move(dx/mag*step,dy/mag*step);
+      lastMove=performance.now();
+    }
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+let stick=$("stick"),nub=$("nub");function setJoy(e){let r=stick.getBoundingClientRect(),x=e.clientX-(r.left+r.width/2),y=e.clientY-(r.top+r.height/2),m=Math.hypot(x,y),max=38;if(m>max){x=x/m*max;y=y/m*max}joy={x:x/max,y:y/max};nub.style.left=(36+x)+"px";nub.style.top=(36+y)+"px"}stick.addEventListener("pointerdown",e=>{stick.setPointerCapture(e.pointerId);setJoy(e)});stick.addEventListener("pointermove",e=>{if(e.buttons)setJoy(e)});["pointerup","pointercancel"].forEach(ev=>stick.addEventListener(ev,()=>{joy={x:0,y:0};nub.style.left="36px";nub.style.top="36px"}));
+function initWorld(){// clear spawn pad and add a compact starter shelter
+for(let y=51;y<=61;y++)for(let x=51;x<=61;x++){if(x===51||x===61||y===51||y===61)setTile(x,y,10);else setTile(x,y,0)}
+setTile(56,51,0);setTile(54,54,12);setTile(55,55,3);setTile(57,55,3);setTile(56,56,0);
+}
+initWorld();load().then(ui);ui();
+})();
+</script></body></html>

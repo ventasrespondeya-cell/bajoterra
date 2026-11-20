@@ -1,0 +1,99 @@
+======================================================================
+BAJOTERRA 4.0 — MUNDO VIVO
+Videojuego 2D de Exploración Subterránea, Construcción y Combate Híbrido
+======================================================================
+
+1. CÓMO JUGAR (WINDOWS 11 / NAVEGADORES MODERNOS)
+----------------------------------------------------------------------
+- Abre el archivo "Bajoterra_4_0.html" haciendo doble clic directamente en
+  Microsoft Edge, Google Chrome, Firefox o Brave.
+- No requiere instalación, servidor web ni conexión a internet.
+- También es totalmente adaptable a tablets y teléfonos móviles con
+  controles táctiles integrados (joystick virtual + botones de acción).
+
+2. CONTROLES (TECLADO, RATÓN Y TÁCTIL)
+----------------------------------------------------------------------
+- W / A / S / D o Flechas   : Moverse en cuatro direcciones
+- Shift                     : Correr (consume energía/resistencia)
+- E o Clic en el terreno    : Minar, cosechar, construir, abrir puertas/cofres,
+                              usar Estación de Recarga o hablar con el Mercader
+- 1 a 8                     : Seleccionar herramienta en la barra rápida
+                              [1] Pico de Exploración
+                              [2] Antorcha (ilumina cavernas)
+                              [3] Pared de Refugio
+                              [4] Suelo de Refugio
+                              [5] Puerta Blindada
+                              [6] Estación de Recarga portátil
+                              [7] Baya Subterránea (curación rápida)
+                              [8] Pulso de Exploración / Escáner
+- Espacio                   : Emitir Pulso Escáner (detecta cofres y muros
+                              agrietados secretos cercanos; en Pulso Rápido
+                              de combate confirma el golpe de precisión)
+- Q                         : Cambiar babosa activa en exploración
+- I o Tab                   : Abrir Estuche, Inventario, Taller, Crianza,
+                              Babosapedia y Misiones
+- M                         : Abrir Mapa Completo del mundo (320 x 320)
+- Esc                       : Menú de Pausa, Opciones y Guardado
+- Controles Táctiles        : Joystick virtual izquierdo + botones Correr,
+                              Pulso, Estuche y Usar (modo Auto / Sí / No en
+                              Opciones)
+
+3. FUNCIONES IMPLEMENTADAS EN BAJOTERRA 4.0
+----------------------------------------------------------------------
+[MUNDO PROCEDURAL POR CHUNKS]
+- Mapa de 320 x 320 sectores dividido en chunks de 16 x 16 bloques.
+- Generación determinista por semilla con carga y descarga dinámica de
+  chunks alrededor del jugador para mantener 60 FPS en equipos con 8 GB
+  de RAM.
+- 4 biomas diferenciados: Cuevas Verdes, Cavernas de Magma, Cuevas Heladas
+  y Cavernas Sombrías.
+- Cuevas, lagos subterráneos, ríos de lava, pasadizos, ruinas abandonadas,
+  cofres con botín y cámaras secretas ocultas tras muros agrietados.
+- Persistencia completa de bloques modificados y chunks explorados.
+
+[ESTILO GRÁFICO Y SONIDO]
+- Sprites Pixel Art generados y cacheados en Canvas 2D.
+- Iluminación vectorial por bioma con oscuridad dinámica, linterna del
+  explorador, antorchas parpadeantes, brillo en cristales/lava y modo
+  Eco para portátiles modestos.
+- Partículas ambientales (esporas, brasas, escarcha, destellos) y audio
+  sintetizado mediante Web Audio API (sin archivos externos).
+
+[EXPLORACIÓN, CONSTRUCCIÓN Y REFUGIO]
+- Minado de minerales, piedra, madera, hongos, cristales de energía y
+  fragmentos sombríos.
+- Construcción libre de paredes, suelos, puertas funcionales (abrir/cerrar),
+  antorchas y estaciones de recarga.
+- Taller de fabricación con 9 recetas (incluyendo Cilindro Maestro y
+  Elixir Megamorph).
+- Mejoras del Refugio (Nivel 1 -> 2 -> 3): aura de regeneración,
+  incubación acelerada y teletransporte rápido al Refugio.
+
+[BABOSAS, CRIANZA Y BABOSAPEDIA]
+- 15 especies totales: conserva las 9 de Bajoterra 3.0 (Infurnus, Aquabeak,
+  Tazerling, Frostcrawler, Doc, Darkfurnus, Flaringo, Lariat, Enigmo) e
+  incorpora 6 especies originales (Musgacorn, Piroclasto, Glaciomita,
+  Voltrix, Umbrospect, Aetherion).
+- Estadísticas individuales (PS, Energía, ATQ, DEF, VEL, Amistad, Rareza),
+  experiencia, subida de nivel y evolución Megamorph.
+- Sistema de Incubadora y Crianza para emparejar babosas y eclosionar
+  crías con rasgos genéticos mejorados al caminar.
+- Babosapedia completa con registro de especies vistas y capturadas.
+
+[COMBATE TÁCTICO HÍBRIDO + PULSO RÁPIDO]
+- Combate por turnos con ataque elemental, 2 habilidades especiales por
+  especie con enfriamiento y efectos (quemadura, frío, aturdimiento,
+  escudo, drenaje, perforación), defensa y cambio de babosa.
+- Enemigos con estrategias (agresivo, defensivo, táctico) y 4 Jefes de
+  Bioma (Titán Piroclasto, Reina Glaciomita, Espectro del Abismo y
+  Comandante Blakk).
+- Mecánica PULSO RÁPIDO: al cargar el indicador al 100% o cuando el rival
+  anuncia un golpe pesado, activa una barra de precisión instantánea para
+  interrumpir al enemigo y golpear sin consumir tu turno.
+
+[GUARDADO Y COMPATIBILIDAD CON BAJOTERRA 3.0]
+- Autoguardado automático cada 25 segundos y al salir, además de guardado
+  manual en IndexedDB y localStorage.
+- Exportación e importación en JSON.
+- Detección e importación segura (sin sobrescribir el original) de
+  partidas guardadas o archivos JSON de Bajoterra 3.0.
