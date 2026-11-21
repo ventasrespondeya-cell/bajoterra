@@ -105,9 +105,14 @@ export class DuelArenaRenderer {
     }
   }
 
-  private updateParticles(battle: BattleState, highLighting: boolean): void {
+  private updateParticles(battle: BattleState, highLighting: boolean, reducedMotion = false): void {
     if (this.lastBattleRef !== battle || battle.elapsedSec < this.lastElapsed) {
       this.resetTracking(battle);
+    }
+    if (reducedMotion) {
+      this.particles = [];
+      this.lastElapsed = battle.elapsedSec;
+      return;
     }
     const dt = Math.min(0.05, Math.max(0.001, battle.elapsedSec - this.lastElapsed || 0.016));
     this.lastElapsed = battle.elapsedSec;
@@ -204,17 +209,18 @@ export class DuelArenaRenderer {
   ): void {
     const theme = buildArenaForBiome(battle.biome);
     const highLighting = options.lightingQuality !== 'eco';
-    const time = battle.elapsedSec;
+    const reducedMotion = Boolean(options.reducedMotion);
+    const time = reducedMotion ? 0 : battle.elapsedSec;
     const ally = state.party[state.activePartyIndex] || state.party[0];
     const allySpecies = getSpecies(ally.id);
     const allyElColor = ELEMENT_CHART[ally.type]?.color || '#38bdf8';
     const enemyElColor = ELEMENT_CHART[battle.enemy.type]?.color || '#f43f5e';
 
-    this.updateParticles(battle, highLighting);
+    this.updateParticles(battle, highLighting, reducedMotion);
 
     ctx.save();
-    // Bounded camera shake on heavy impacts
-    if (battle.cameraShake > 0.25) {
+    // Bounded camera shake on heavy impacts (disabled under reducedMotion)
+    if (!reducedMotion && battle.cameraShake > 0.25) {
       const mag = Math.min(4.2, battle.cameraShake);
       const sx = (Math.random() - 0.5) * mag;
       const sy = (Math.random() - 0.5) * mag;
@@ -282,9 +288,10 @@ export class DuelArenaRenderer {
       allySpecies.accent,
       ally.mega,
       time,
-      highLighting
+      highLighting,
+      reducedMotion
     );
-    this.drawEnemyDuelist(ctx, battle, enemyElColor, time, highLighting);
+    this.drawEnemyDuelist(ctx, battle, enemyElColor, time, highLighting, reducedMotion);
 
     // 6. Active Flying Projectiles (Protoforms -> Velocimorph Transformed -> Capsules)
     for (const proj of battle.projectiles) {
@@ -719,7 +726,8 @@ export class DuelArenaRenderer {
     accentColor: string,
     mega: boolean,
     time: number,
-    highLighting: boolean
+    highLighting: boolean,
+    reducedMotion = false
   ): void {
     const pd = battle.playerDuelist;
     const speedMag = Math.hypot(pd.vx, pd.vy);
@@ -830,8 +838,9 @@ export class DuelArenaRenderer {
       : pd.hitFlash > 0
       ? 'hit'
       : 'idle';
-    const chamberAnim = sampleSlugAnimationFrame(speciesId, chamberAnimState, time, false);
-    const chamberPulse = pd.charging ? 0.56 + Math.sin(time * 24) * 0.07 * pd.charge : 0.55;
+    const chamberAnim = sampleSlugAnimationFrame(speciesId, chamberAnimState, time, reducedMotion);
+    const chamberPulse =
+      !reducedMotion && pd.charging ? 0.56 + Math.sin(time * 24) * 0.07 * pd.charge : 0.55;
     ctx.rotate((chamberAnim.tiltDeg * Math.PI) / 180);
     ctx.scale(chamberPulse * chamberAnim.scaleX, chamberPulse * chamberAnim.scaleY);
     this.drawProtoformBody(ctx, speciesId, elColor, accentColor, time, pd.charging, mega, chamberAnimState);
@@ -911,7 +920,8 @@ export class DuelArenaRenderer {
     battle: BattleState,
     elColor: string,
     time: number,
-    highLighting: boolean
+    highLighting: boolean,
+    reducedMotion = false
   ): void {
     const ed = battle.enemyDuelist;
     const enemy = battle.enemy;
@@ -987,7 +997,7 @@ export class DuelArenaRenderer {
         : ed.recoil > 0.04
         ? 'fire'
         : 'idle';
-      const enemyAnim = sampleSlugAnimationFrame(enemy.id, enemyAnimState, time, false);
+      const enemyAnim = sampleSlugAnimationFrame(enemy.id, enemyAnimState, time, reducedMotion);
       ctx.save();
       ctx.translate(enemyAnim.offsetX, enemyAnim.offsetY);
       ctx.rotate((-enemyAnim.tiltDeg * Math.PI) / 180);

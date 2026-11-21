@@ -176,7 +176,7 @@ export class WorldRenderer {
         ? '#6ee7b7'
         : '#5eead4';
 
-    if (Math.random() < spawnChance) {
+    if (!state.options.reducedMotion && Math.random() < spawnChance) {
       for (let i = 0; i < this.particles.length; i++) {
         const p = this.particles[i];
         if (!p.active) {
@@ -232,8 +232,10 @@ export class WorldRenderer {
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, vw, vh);
 
-    const sxShake = this.shakeTime > 0 ? (Math.random() - 0.5) * 2 * this.shakeMag : 0;
-    const syShake = this.shakeTime > 0 ? (Math.random() - 0.5) * 2 * this.shakeMag : 0;
+    const reduced = Boolean(state.options.reducedMotion);
+    const visualTime = reduced ? 0 : timeSec;
+    const sxShake = !reduced && this.shakeTime > 0 ? (Math.random() - 0.5) * 2 * this.shakeMag : 0;
+    const syShake = !reduced && this.shakeTime > 0 ? (Math.random() - 0.5) * 2 * this.shakeMag : 0;
     const ox = Math.floor(this.camX - vw / 2 + TILE_PX / 2 + sxShake);
     const oy = Math.floor(this.camY - vh / 2 + TILE_PX / 2 + syShake);
 
@@ -264,19 +266,19 @@ export class WorldRenderer {
 
         // Animated shimmer on crystals, water, lava, torches, recharge stations
         if (tile === TileType.LAVA) {
-          const pulse = 0.18 + Math.sin(timeSec * 4 + tx + ty) * 0.1;
+          const pulse = 0.18 + Math.sin(visualTime * 4 + tx + ty) * 0.1;
           ctx.fillStyle = `rgba(253, 224, 71, ${pulse})`;
           ctx.fillRect(sx + 4, sy + 6, 12, 6);
-          const bubbleY = sy + 18 - ((timeSec * 12 + tx * 5 + ty * 7) % 10);
+          const bubbleY = sy + 18 - ((visualTime * 12 + tx * 5 + ty * 7) % 10);
           ctx.fillStyle = 'rgba(254, 240, 138, 0.52)';
           ctx.fillRect(sx + 8 + ((tx * 3) % 8), bubbleY, 3, 3);
           if ((tx + ty) % 3 === 0) {
             lightSources.push({ sx: sx + 14, sy: sy + 14, r: 78, color: 'rgba(251, 146, 60, 0.6)' });
           }
         } else if (tile === TileType.WATER) {
-          const shimmer = 0.14 + Math.sin(timeSec * 3 + tx * 0.8) * 0.08;
+          const shimmer = 0.14 + Math.sin(visualTime * 3 + tx * 0.8) * 0.08;
           ctx.fillStyle = `rgba(186, 230, 253, ${shimmer})`;
-          ctx.fillRect(sx + 4, sy + 7 + Math.sin(timeSec * 2.2 + ty) * 2, 11, 2);
+          ctx.fillRect(sx + 4, sy + 7 + Math.sin(visualTime * 2.2 + ty) * 2, 11, 2);
           ctx.fillStyle = `rgba(125, 211, 252, ${shimmer * 0.85})`;
           ctx.fillRect(sx + 11, sy + 16 + Math.cos(timeSec * 2.4 + tx) * 2, 9, 2);
         } else if (tile === TileType.TORCH) {
@@ -379,7 +381,6 @@ export class WorldRenderer {
     }
 
     // 3. Roaming wild slugs, bosses, mercenaries, merchant
-    const reduced = Boolean(state.options.reducedMotion);
     const animFrame = reduced ? 0 : (Math.floor(timeSec * 5) & 3);
 
     for (const ent of entities) {

@@ -62,7 +62,11 @@ export default function App() {
   }, [snap.screen, snap.options.showMinimap]);
 
   return (
-    <div className="relative w-full h-[100dvh] overflow-hidden bg-[#060c13]">
+    <div
+      className={`relative w-full h-[100dvh] overflow-hidden bg-[#060c13]${
+        snap.options.reducedMotion ? ' bt-reduced-motion' : ''
+      }`}
+    >
       {/* Isolated 60fps Canvas Viewport */}
       <canvas
         ref={mainCanvasRef}

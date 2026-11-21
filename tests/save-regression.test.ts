@@ -3208,6 +3208,57 @@ describe('Bajoterra 4.0 — FASE 10: Dirección Artística Principal, Anatomía 
     assert.ok(slugColumnSrc.includes('activeMood?: SlugPortraitMood'));
     assert.ok(battleModalSrc.includes('activeMood={allyMood}'));
   });
+
+  test('F11.1 Cierre de accesibilidad (reducedMotion en App/World/Combate) y regresiones HUD móvil/Escape', () => {
+    // 1. WorldRenderer & DuelArenaRenderer with reducedMotion: true (high and eco)
+    gameEngine.startNewGame();
+    const wr = new WorldRenderer();
+    const worldCtxObj = canvasStub();
+    const worldCtx = worldCtxObj.getContext() as unknown as CanvasRenderingContext2D;
+    gameEngine.state.options.reducedMotion = true;
+    wr.renderWorld(worldCtx, 640, 360, 4.2, gameEngine.state, gameEngine.chunks, gameEngine.entities, null);
+
+    const cm = new CombatManager();
+    const dr = new DuelArenaRenderer();
+    const battle = cm.startBattle(gameEngine.state, {
+      kind: 'wild',
+      biome: 'Magma',
+      speciesId: 'infurnus',
+      level: 3,
+    });
+    battle.cameraShake = 3.8;
+    battle.playerDuelist.charging = true;
+    battle.playerDuelist.charge = 0.9;
+    cm.fireBlasterShot(gameEngine.state, { modeOverride: 'quick', charge: 0.9 });
+
+    const combatCtxObj = canvasStub();
+    const combatCtx = combatCtxObj.getContext() as unknown as CanvasRenderingContext2D;
+    dr.render(combatCtx, battle, gameEngine.state, cm, {
+      ...gameEngine.state.options,
+      lightingQuality: 'high',
+      reducedMotion: true,
+    });
+    dr.render(combatCtx, battle, gameEngine.state, cm, {
+      ...gameEngine.state.options,
+      lightingQuality: 'eco',
+      reducedMotion: true,
+    });
+    // Ensure internal particle array stays empty under reducedMotion
+    assert.equal((dr as unknown as { particles: unknown[] }).particles.length, 0);
+    cm.closeBattle();
+
+    // 2. App.tsx applies global bt-reduced-motion class
+    const appSrc = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+    assert.ok(appSrc.includes('bt-reduced-motion'));
+
+    // 3. GameHUD Escape capture-phase guard + mobile top bar & Tool Selector width
+    const hudSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/GameHUD.tsx'), 'utf8');
+    assert.ok(hudSrc.includes("window.addEventListener('keydown', onKeyDown, true)"));
+    assert.ok(hudSrc.includes('e.stopPropagation()'));
+    assert.ok(hudSrc.includes('max-w-[172px]'));
+    assert.ok(hudSrc.includes('w-[min(92vw,312px)]'));
+    assert.ok(hudSrc.includes('whitespace-nowrap'));
+  });
 });
 
 

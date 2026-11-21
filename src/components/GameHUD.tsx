@@ -113,14 +113,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
         setToolMenuOpen(false);
       }
     };
     window.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, true);
     return () => {
       window.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keydown', onKeyDown, true);
     };
   }, [toolMenuOpen]);
 
@@ -192,9 +194,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       }}
     >
       {/* TOP BAR: Compact Telemetry Left | Grouped Command Icons & Minimap Right */}
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-1.5 sm:gap-2">
         {/* Top-Left: Explorer Vital Telemetry */}
-        <div className="pointer-events-auto bt-hud-panel rounded-xl px-2.5 py-2 sm:px-3 w-[186px] sm:w-[248px]">
+        <div className="pointer-events-auto bt-hud-panel rounded-xl px-2 py-2 sm:px-3 flex-1 min-w-0 max-w-[172px] min-[420px]:max-w-[196px] sm:flex-none sm:w-[248px] sm:max-w-none">
           <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold mb-1.5 gap-1.5">
             <div className="flex items-center gap-1.5 min-w-0">
               <span
@@ -261,13 +263,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         </div>
 
         {/* Top-Right: Grouped Menu Access + Compact Minimap */}
-        <div className="pointer-events-auto flex flex-col items-end gap-2">
-          <div className="bt-hud-panel rounded-xl p-1 flex items-center gap-1">
+        <div className="pointer-events-auto flex flex-col items-end gap-2 shrink-0">
+          <div className="bt-hud-panel rounded-xl p-1 flex items-center gap-0.5 min-[420px]:gap-1">
             <button
               onClick={onOpenExpedition}
               title="Inventario, Taller y Babosas (I)"
               aria-label="Estuche e Inventario"
-              className="bt-btn-secondary w-9 h-9 sm:w-auto sm:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
+              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
             >
               <Backpack className="w-4 h-4 text-amber-300" />
               <span className="hidden md:inline">Estuche</span>
@@ -276,7 +278,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               onClick={onOpenHome}
               title="Hogar y Hábitats"
               aria-label="Hogar y Hábitats"
-              className="bt-btn-secondary w-9 h-9 sm:w-auto sm:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
+              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
             >
               <Home className="w-4 h-4 text-emerald-300" />
               <span className="hidden md:inline">Hogar</span>
@@ -285,7 +287,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               onClick={onOpenMap}
               title="Mapa del subsuelo (M)"
               aria-label="Mapa"
-              className="bt-btn-secondary w-9 h-9 sm:w-auto sm:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
+              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
             >
               <Compass className="w-4 h-4 text-cyan-300" />
               <span className="hidden md:inline">Mapa</span>
@@ -294,7 +296,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               onClick={onToggleSound}
               aria-label={snap.options.soundEnabled ? 'Silenciar sonido' : 'Activar sonido'}
               title={snap.options.soundEnabled ? 'Silenciar sonido' : 'Activar sonido'}
-              className="bt-btn-secondary w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer"
+              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 rounded-lg flex items-center justify-center cursor-pointer"
             >
               {snap.options.soundEnabled ? (
                 <Volume2 className="w-4 h-4 text-teal-300" />
@@ -306,7 +308,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               onClick={onOpenPause}
               aria-label="Opciones y Pausa"
               title="Opciones y Pausa (Esc)"
-              className="bt-btn-secondary w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer"
+              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 rounded-lg flex items-center justify-center cursor-pointer"
             >
               <Pause className="w-4 h-4 text-slate-100" />
             </button>
@@ -448,7 +450,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <div
                 role="menu"
                 aria-label="Selector de herramientas"
-                className="bt-panel bt-animate-modal absolute bottom-full right-0 mb-2.5 w-[min(90vw,288px)] rounded-2xl p-2.5 z-30 shadow-2xl"
+                className="bt-panel bt-animate-modal absolute bottom-full right-0 mb-2.5 w-[min(92vw,312px)] rounded-2xl p-2.5 z-30 shadow-2xl"
               >
                 <div className="flex items-center justify-between px-1 pb-2 mb-2 border-b border-cyan-400/15">
                   <span className="text-[11px] font-extrabold uppercase tracking-wider text-teal-300 flex items-center gap-1.5">
@@ -470,14 +472,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                           if (slot.id === 'pulse') onPulse();
                           setToolMenuOpen(false);
                         }}
-                        className={`relative flex flex-col items-center justify-center rounded-xl p-2 min-h-[58px] border cursor-pointer transition-colors ${
+                        className={`relative flex flex-col items-center justify-center rounded-xl px-1 py-2 min-h-[58px] border cursor-pointer transition-colors ${
                           selected
                             ? 'bg-teal-500/25 border-teal-300 text-white shadow-[0_0_12px_rgba(45,212,191,0.28)]'
                             : 'bt-btn-secondary border-slate-700/70'
                         }`}
                       >
                         <ToolIcon action={slot.id} className="w-4 h-4" />
-                        <span className="text-[10px] font-bold mt-1 truncate max-w-full">
+                        <span className="text-[10px] font-bold mt-1 whitespace-nowrap">
                           {slot.label}
                         </span>
                         {qty !== null && (
