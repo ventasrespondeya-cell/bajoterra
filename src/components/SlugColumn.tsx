@@ -2,12 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { ELEMENT_CHART } from '../game/data';
 import type { SlugInstance } from '../game/types';
-import { SlugPortrait } from './SlugPortrait';
+import { SlugPortrait, type SlugPortraitMood } from './SlugPortrait';
 
 interface SlugColumnProps {
   party: SlugInstance[];
   activeIndex: number;
   onSelectSlug: (index: number) => void;
+  activeMood?: SlugPortraitMood;
   disabled?: boolean;
   disableKo?: boolean;
   showEnergy?: boolean;
@@ -23,6 +24,7 @@ export const SlugColumn: React.FC<SlugColumnProps> = ({
   party,
   activeIndex,
   onSelectSlug,
+  activeMood = 'happy',
   disabled = false,
   disableKo = false,
   showEnergy = false,
@@ -123,7 +125,7 @@ export const SlugColumn: React.FC<SlugColumnProps> = ({
                 <SlugPortrait
                   speciesId={s.id}
                   mega={s.mega}
-                  mood={isKo ? 'ko' : isActive ? 'happy' : 'idle'}
+                  mood={isKo ? 'ko' : isActive ? activeMood : 'idle'}
                   size={isActive ? 34 : 30}
                 />
                 <span

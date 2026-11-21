@@ -443,9 +443,163 @@
   }
 }
 
+@keyframes bt-slug-walk-stride {
+  0%, 100% {
+    transform: translate(0px, 0px) rotate(-2deg);
+  }
+  25% {
+    transform: translate(0.9px, -1.8px) scale(0.97, 1.04) rotate(3deg);
+  }
+  50% {
+    transform: translate(0px, 0.2px) scale(1.04, 0.96) rotate(0deg);
+  }
+  75% {
+    transform: translate(-0.8px, -1.7px) scale(0.97, 1.04) rotate(-3.5deg);
+  }
+}
+
+@keyframes bt-slug-hit-recoil {
+  0%, 100% {
+    transform: translateX(0px) rotate(0deg);
+  }
+  25% {
+    transform: translateX(-1.8px) rotate(8deg) scale(0.94, 1.05);
+  }
+  65% {
+    transform: translateX(1.1px) rotate(4deg);
+  }
+}
+
+@keyframes bt-slug-fire-launch {
+  0%, 100% {
+    transform: translateX(0px) scale(1, 1) rotate(0deg);
+  }
+  45% {
+    transform: translateX(2.4px) scale(1.12, 0.9) rotate(-9deg);
+  }
+}
+
+@keyframes bt-part-flame-crest {
+  0%, 100% {
+    transform: translateY(0px) scaleY(1) skewX(0deg);
+  }
+  33% {
+    transform: translateY(-0.6px) scaleY(1.09) skewX(-3deg);
+  }
+  66% {
+    transform: translateY(-0.3px) scaleY(0.94) skewX(3deg);
+  }
+}
+
+@keyframes bt-part-antennae-zap {
+  0%, 80%, 100% {
+    transform: rotate(0deg) scale(1);
+  }
+  84% {
+    transform: rotate(-5deg) scale(1.05);
+  }
+  89% {
+    transform: rotate(5deg) scale(0.98);
+  }
+  94% {
+    transform: rotate(-3deg) scale(1.04);
+  }
+}
+
+@keyframes bt-part-tail-wag {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  35% {
+    transform: rotate(-7deg);
+  }
+  70% {
+    transform: rotate(7deg);
+  }
+}
+
+@keyframes bt-part-spark-pulse {
+  0%, 72%, 100% {
+    opacity: 0.12;
+    transform: scale(0.75);
+  }
+  78% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+  86% {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  92% {
+    opacity: 0.95;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes bt-part-flame-burst {
+  0% {
+    opacity: 0.15;
+    transform: scale(0.24) translateY(3px) rotate(-14deg);
+    animation-timing-function: cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  }
+  10% {
+    opacity: 1;
+    transform: scale(1.85) translateY(-2px) rotate(12deg);
+    animation-timing-function: cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  }
+  26% {
+    opacity: 0.78;
+    transform: scale(1.55) translateY(-2.8px) rotate(-10deg);
+    animation-timing-function: cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  }
+  44% {
+    opacity: 1;
+    transform: scale(2.8) translateY(-4.2px) rotate(15deg);
+  }
+  72% {
+    opacity: 0.58;
+    transform: scale(2.8) translateY(-5.4px) rotate(-8deg);
+  }
+  88% {
+    opacity: 0.18;
+    transform: scale(2.6) translateY(-6px) rotate(18deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.45) translateY(-6.5px) rotate(22deg);
+  }
+}
+
+@keyframes bt-part-eye-saccade {
+  0%, 38%, 100% {
+    transform: translate(0px, 0px);
+  }
+  44%, 58% {
+    transform: translate(0.55px, -0.15px);
+  }
+  64%, 78% {
+    transform: translate(-0.45px, 0.1px);
+  }
+}
+
+@keyframes bt-part-heavy-breathe {
+  0%, 100% {
+    transform: translateY(0px) scaleY(1);
+  }
+  50% {
+    transform: translateY(0.55px) scaleY(0.96);
+  }
+}
+
 .bt-slug-pose-idle {
   transform-origin: 16px 26px;
   animation: bt-slug-idle-breathe 2.6s ease-in-out infinite;
+}
+
+.bt-slug-pose-walk {
+  transform-origin: 16px 26px;
+  animation: bt-slug-walk-stride 0.95s ease-in-out infinite;
 }
 
 .bt-slug-pose-happy,
@@ -478,10 +632,63 @@
   animation: bt-slug-attack-surge 0.85s ease-in-out infinite;
 }
 
+.bt-slug-pose-fire,
+.bt-slug-pose-flight {
+  transform-origin: 16px 26px;
+  animation: bt-slug-fire-launch 0.68s ease-in-out infinite;
+}
+
+.bt-slug-pose-hit {
+  transform-origin: 16px 26px;
+  animation: bt-slug-hit-recoil 0.55s ease-in-out infinite;
+}
+
 .bt-slug-blink-eyes {
   transform-box: fill-box;
   transform-origin: center;
   animation: bt-slug-blink 3.6s ease-in-out infinite;
+}
+
+.bt-part-eye-saccade {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bt-part-eye-saccade 5.2s ease-in-out infinite;
+}
+
+.bt-part-crest-flame {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: bt-part-flame-crest 1.15s ease-in-out infinite;
+}
+
+.bt-part-antennae-zap {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: bt-part-antennae-zap 1.9s ease-in-out infinite;
+}
+
+.bt-part-heavy-breathe {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: bt-part-heavy-breathe 3.2s ease-in-out infinite;
+}
+
+.bt-part-tail-wag {
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: bt-part-tail-wag 1.45s ease-in-out infinite;
+}
+
+.bt-part-spark-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bt-part-spark-pulse 1.7s ease-in-out infinite;
+}
+
+.bt-part-flame-burst {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bt-part-flame-burst 520ms cubic-bezier(0.18, 0.89, 0.32, 1.28) infinite;
 }
 
 .bt-slug-zzz {

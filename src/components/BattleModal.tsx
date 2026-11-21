@@ -358,25 +358,62 @@ export const BattleModal: React.FC<BattleModalProps> = ({
   const canAct = battle.turn === 'duel';
 
   const lastAllyEf = battle.effects.filter((ef) => ef.target === 'ally').slice(-1)[0];
+  const wonBattle = battle.turn === 'ended' && (battle.outcome === 'victory' || battle.outcome === 'captured');
+  const allyTransforming = battle.projectiles.some(
+    (p) =>
+      p.owner === 'ally' &&
+      p.speciesId === ally.id &&
+      p.mode !== 'capsule' &&
+      (p.phase === 'transforming' || p.phase === 'transformed')
+  );
+  const enemyTransforming = battle.projectiles.some(
+    (p) =>
+      p.owner === 'enemy' &&
+      p.speciesId === enemy.id &&
+      p.mode !== 'capsule' &&
+      (p.phase === 'transforming' || p.phase === 'transformed')
+  );
+
   const allyMood: SlugPortraitMood =
     ally.hp <= 0
       ? 'ko'
+      : wonBattle
+      ? 'victory'
       : battle.playerDuelist.hitFlash > 0
       ? 'hit'
+      : allyTransforming
+      ? 'transform'
+      : battle.playerDuelist.recoil > 0.04
+      ? 'fire'
+      : battle.playerDuelist.charging
+      ? 'charge'
       : lastAllyEf?.kind === 'heal' || battle.playerDuelist.guardTimer > 0
       ? 'happy'
-      : battle.playerDuelist.charging
-      ? 'attack'
       : 'idle';
 
   const enemyMood: SlugPortraitMood =
-    enemy.hp <= 0
+    enemy.hp <= 0 || wonBattle
       ? 'ko'
+      : battle.turn === 'ended' && battle.outcome === 'defeat'
+      ? 'victory'
       : battle.enemyDuelist.hitFlash > 0
       ? 'hit'
-      : enemy.telegraphing === 'heavy'
+      : enemyTransforming
+      ? 'transform'
+      : battle.enemyDuelist.recoil > 0.04
       ? 'attack'
+      : enemy.telegraphing === 'heavy'
+      ? 'charge'
       : 'idle';
+
+  const allyFlameBurst =
+    !state.options.reducedMotion &&
+    ally.id === 'infurnus' &&
+    (allyMood === 'transform' || allyMood === 'fire');
+  const enemyFlameBurst =
+    !state.options.reducedMotion &&
+    enemy.id === 'infurnus' &&
+    enemyMood === 'transform';
 
   const allyHpPct = Math.max(0, Math.min(100, (ally.hp / Math.max(1, ally.maxHp)) * 100));
   const allyEnPct = Math.max(0, Math.min(100, (ally.energy / Math.max(1, ally.maxEnergy)) * 100));
@@ -407,7 +444,28 @@ export const BattleModal: React.FC<BattleModalProps> = ({
         <div className="grid grid-cols-2 gap-1.5 sm:gap-2.5">
           {/* Ally Status */}
           <div className="bt-hud-panel rounded-xl px-2 py-1.5 sm:px-3 sm:py-2 border-teal-400/35 flex items-center gap-2">
-            <SlugPortrait speciesId={ally.id} mega={ally.mega} mood={allyMood} size={40} />
+            <div className="relative shrink-0 flex items-center justify-center">
+              <SlugPortrait
+                speciesId={ally.id}
+                mega={ally.mega}
+                mood={allyMood}
+                size={40}
+                animated={!state.options.reducedMotion}
+              />
+              {allyFlameBurst && (
+                <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-visible">
+                  <span className="bt-part-flame-burst absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-amber-300 shadow-[0_0_8px_#f97316]" />
+                  <span
+                    className="bt-part-flame-burst absolute top-1 -left-1 w-1.5 h-1.5 rounded-full bg-orange-400 shadow-[0_0_6px_#ef4444]"
+                    style={{ animationDelay: '120ms' }}
+                  />
+                  <span
+                    className="bt-part-flame-burst absolute top-1 -right-1 w-1.5 h-1.5 rounded-full bg-yellow-200 shadow-[0_0_6px_#fb923c]"
+                    style={{ animationDelay: '220ms' }}
+                  />
+                </div>
+              )}
+            </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-1">
                 <span className="text-xs sm:text-sm font-extrabold text-white truncate">
@@ -524,7 +582,29 @@ export const BattleModal: React.FC<BattleModalProps> = ({
                 )}
               </div>
             </div>
-            <SlugPortrait speciesId={enemy.id} mega={enemy.mega} mood={enemyMood} size={40} flipX />
+            <div className="relative shrink-0 flex items-center justify-center">
+              <SlugPortrait
+                speciesId={enemy.id}
+                mega={enemy.mega}
+                mood={enemyMood}
+                size={40}
+                flipX
+                animated={!state.options.reducedMotion}
+              />
+              {enemyFlameBurst && (
+                <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-visible">
+                  <span className="bt-part-flame-burst absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-amber-300 shadow-[0_0_8px_#f97316]" />
+                  <span
+                    className="bt-part-flame-burst absolute top-1 -left-1 w-1.5 h-1.5 rounded-full bg-orange-400 shadow-[0_0_6px_#ef4444]"
+                    style={{ animationDelay: '120ms' }}
+                  />
+                  <span
+                    className="bt-part-flame-burst absolute top-1 -right-1 w-1.5 h-1.5 rounded-full bg-yellow-200 shadow-[0_0_6px_#fb923c]"
+                    style={{ animationDelay: '220ms' }}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -601,6 +681,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
         <SlugColumn
           party={state.party}
           activeIndex={state.activePartyIndex}
+          activeMood={allyMood}
           onSelectSlug={(idx) => {
             combat.swapSlug(state, idx);
             onSync();

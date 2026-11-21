@@ -7,7 +7,11 @@ import {
 } from './combatArenas';
 import { CombatManager } from './combat';
 import { ELEMENT_CHART, getSpecies } from './data';
-import { getSlugDesignSheet } from './slugArtDirection';
+import {
+  getSlugDesignSheet,
+  sampleSlugAnimationFrame,
+  type SlugAnimationState,
+} from './slugArtDirection';
 import { getSlugCombatProfile, type SlugCombatProfile, type TransformSilhouette } from './slugCombatProfiles';
 import type {
   BattleState,
@@ -817,9 +821,20 @@ export class DuelArenaRenderer {
     ctx.fill();
     ctx.save();
     ctx.translate(10, 0);
-    const chamberPulse = pd.charging ? 0.56 + Math.sin(time * 24) * 0.08 * pd.charge : 0.55;
-    ctx.scale(chamberPulse, chamberPulse);
-    this.drawProtoformBody(ctx, speciesId, elColor, accentColor, time, pd.charging, mega);
+    const chamberAnimState: SlugAnimationState = pd.charging
+      ? 'charge'
+      : pd.recoil > 0.04
+      ? 'fire'
+      : battle.turn === 'ended' && (battle.outcome === 'victory' || battle.outcome === 'captured')
+      ? 'victory'
+      : pd.hitFlash > 0
+      ? 'hit'
+      : 'idle';
+    const chamberAnim = sampleSlugAnimationFrame(speciesId, chamberAnimState, time, false);
+    const chamberPulse = pd.charging ? 0.56 + Math.sin(time * 24) * 0.07 * pd.charge : 0.55;
+    ctx.rotate((chamberAnim.tiltDeg * Math.PI) / 180);
+    ctx.scale(chamberPulse * chamberAnim.scaleX, chamberPulse * chamberAnim.scaleY);
+    this.drawProtoformBody(ctx, speciesId, elColor, accentColor, time, pd.charging, mega, chamberAnimState);
     ctx.restore();
 
     // Charge energy arcs converging into blaster muzzle
@@ -963,18 +978,48 @@ export class DuelArenaRenderer {
       ctx.fill();
       ctx.restore();
     } else {
+      const enemyAnimState: SlugAnimationState = defeated
+        ? 'ko'
+        : ed.hitFlash > 0
+        ? 'hit'
+        : enemy.telegraphing === 'heavy'
+        ? 'charge'
+        : ed.recoil > 0.04
+        ? 'fire'
+        : 'idle';
+      const enemyAnim = sampleSlugAnimationFrame(enemy.id, enemyAnimState, time, false);
       ctx.save();
-      const squash = 1 + Math.sin(time * 6) * 0.04;
-      ctx.scale(-1.72 * squash, 1.72 / squash);
+      ctx.translate(enemyAnim.offsetX, enemyAnim.offsetY);
+      ctx.rotate((-enemyAnim.tiltDeg * Math.PI) / 180);
+      ctx.scale(-1.76 * enemyAnim.scaleX, 1.76 * enemyAnim.scaleY);
+      this.drawProtoformBody(
+        ctx,
+        enemy.id,
+        sp.color,
+        sp.accent,
+        time,
+        enemy.telegraphing === 'heavy',
+        enemy.mega,
+        enemyAnimState
+      );
       if (ed.hitFlash > 0) {
-        ctx.fillStyle = '#fecaca';
+        ctx.fillStyle = 'rgba(254, 202, 202, 0.55)';
         ctx.beginPath();
         ctx.ellipse(0, 0, 14, 10, 0, 0, Math.PI * 2);
         ctx.fill();
-      } else {
-        this.drawProtoformBody(ctx, enemy.id, sp.color, sp.accent, time, enemy.telegraphing === 'heavy', enemy.mega);
       }
       ctx.restore();
+
+      if (enemy.telegraphing === 'heavy' && highLighting) {
+        ctx.save();
+        ctx.strokeStyle = sp.accent;
+        ctx.lineWidth = 1.8;
+        const a = time * 12;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius + 7, a, a + 1.1);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     if (ed.guardTimer > 0 || (enemy.shieldTimer || 0) > 0) {
@@ -1083,7 +1128,7 @@ export class DuelArenaRenderer {
     if (p.phase === 'protoform') {
       const accelScale = 1 + Math.min(0.18, p.distanceTraveled / Math.max(60, p.transformDist) * 0.14);
       ctx.scale(accelScale, 1 / Math.sqrt(accelScale));
-      this.drawProtoformBody(ctx, p.speciesId, color, accent, time, p.perfectRelease, p.mega);
+      this.drawProtoformBody(ctx, p.speciesId, color, accent, time, p.perfectRelease, p.mega, 'flight');
     } else if (p.phase === 'transforming') {
       // Dramatic Kinetic Velocimorph Metamorphosis: stretch -> shockwave chrysalis -> creature unfold
       const prog = Math.max(0, Math.min(1, (p.distanceTraveled - p.transformDist) / 56));
@@ -1134,17 +1179,35 @@ export class DuelArenaRenderer {
       const pt = p.trail[i];
       const frac = (i + 1) / p.trail.length;
       ctx.save();
-      ctx.globalAlpha = frac * (p.phase === 'transformed' ? 0.54 : 0.28);
+      ctx.globalAlpha = frac * (p.phase === 'transformed' ? 0.62 : 0.34);
       ctx.fillStyle = p.perfectRelease && p.mode !== 'capsule' ? accent : color;
       ctx.strokeStyle = accent;
 
       if (trailStyle === 'sparks' && i > 0) {
         const prev = p.trail[i - 1];
-        ctx.lineWidth = 2;
+        const jag = (i % 2 === 0 ? 1 : -1) * 5.2;
+        ctx.lineWidth = 2.1;
         ctx.beginPath();
-        ctx.moveTo(prev.x, prev.y + ((i % 2 === 0 ? 1 : -1) * 4));
+        ctx.moveTo(prev.x, prev.y);
+        ctx.lineTo((prev.x + pt.x) * 0.5, (prev.y + pt.y) * 0.5 + jag);
         ctx.lineTo(pt.x, pt.y);
         ctx.stroke();
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, Math.max(1.5, pt.r * frac * 0.45), 0, Math.PI * 2);
+        ctx.fill();
+      } else if (trailStyle === 'embers') {
+        const r = Math.max(2.2, pt.r * frac * 0.95);
+        ctx.fillStyle = i % 2 === 0 ? color : accent;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y - (1 - frac) * 4, r, 0, Math.PI * 2);
+        ctx.fill();
+        if (i % 2 === 1) {
+          ctx.fillStyle = '#fef08a';
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y - (1 - frac) * 5, r * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        }
       } else if (trailStyle === 'bubbles') {
         ctx.lineWidth = 1.3;
         ctx.beginPath();
@@ -1158,8 +1221,17 @@ export class DuelArenaRenderer {
       } else if (trailStyle === 'snowflakes' || trailStyle === 'shards') {
         ctx.translate(pt.x, pt.y);
         ctx.rotate(time * 8 + i);
-        const s = Math.max(2.5, pt.r * frac * 0.85);
-        ctx.fillRect(-s, -s * 0.5, s * 2, s);
+        const s = Math.max(2.6, pt.r * frac * 0.9);
+        ctx.strokeStyle = '#e0f2fe';
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.moveTo(-s, 0);
+        ctx.lineTo(s, 0);
+        ctx.moveTo(0, -s);
+        ctx.lineTo(0, s);
+        ctx.stroke();
+        ctx.fillStyle = accent;
+        ctx.fillRect(-s * 0.45, -s * 0.45, s * 0.9, s * 0.9);
       } else {
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, Math.max(2, pt.r * frac), 0, Math.PI * 2);
@@ -1176,14 +1248,257 @@ export class DuelArenaRenderer {
     accent: string,
     time: number,
     energized: boolean,
-    mega = false
+    mega = false,
+    mood: SlugAnimationState = 'idle'
   ): void {
     const sheet = getSlugDesignSheet(speciesId);
     const rx = 11.5 * sheet.bodyProportions.widthScale;
     const ry = 7.4 * sheet.bodyProportions.heightScale;
-    const wiggle = Math.sin(time * 24) * 1.4;
+    const wiggle = Math.sin(time * (speciesId === 'tazerling' ? 28 : 22)) * 1.5;
+    const outline = energized ? '#ffffff' : mega ? '#fde047' : '#060c14';
 
-    // Expressive tail
+    // Priority Trio handcrafted anatomical silhouettes (Infurnus, Frostcrawler, Tazerling)
+    if (speciesId === 'infurnus' || speciesId === 'frostcrawler' || speciesId === 'tazerling') {
+      if (speciesId === 'infurnus') {
+        // Sweeping ember tail
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.moveTo(-8, 1);
+        ctx.quadraticCurveTo(-18, -3 + wiggle, -21, -7 + wiggle);
+        ctx.quadraticCurveTo(-17, 1 + wiggle * 0.4, -20, 4 + wiggle);
+        ctx.quadraticCurveTo(-13, 6, -7, 4);
+        ctx.closePath();
+        ctx.fill();
+
+        // Agile tapered body
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(11, 0);
+        ctx.quadraticCurveTo(8.5, -8.5, -1, -7.2);
+        ctx.quadraticCurveTo(-10, -5.0, -10.5, 2);
+        ctx.quadraticCurveTo(-8.5, 7.6, 5, 6.8);
+        ctx.quadraticCurveTo(10.8, 5.5, 11, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = mega ? 2.1 : 1.7;
+        ctx.stroke();
+
+        // Golden underbelly & rim specular
+        ctx.fillStyle = sheet.palette.belly;
+        ctx.beginPath();
+        ctx.ellipse(2, 3.6, 6.8, 2.7, 0.05, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = sheet.palette.highlight;
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.ellipse(-1, -4.4, 5.2, 1.8, -0.18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // Stubby grounded feet
+        ctx.fillStyle = sheet.palette.secondary;
+        ctx.beginPath();
+        ctx.ellipse(-4.5, 6.8, 2.6, 1.5, 0, 0, Math.PI * 2);
+        ctx.ellipse(5.5, 6.5, 2.7, 1.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 3-tongue flickering flame crest
+        const fTip = Math.sin(time * 20) * 1.4;
+        ctx.fillStyle = '#fb923c';
+        ctx.beginPath();
+        ctx.moveTo(-4, -6.5);
+        ctx.lineTo(-9, -15 + fTip);
+        ctx.lineTo(-2, -10.5);
+        ctx.lineTo(1.5, -16.5 - fTip * 0.6);
+        ctx.lineTo(4.5, -10.2);
+        ctx.lineTo(8.5, -13.8 + fTip * 0.5);
+        ctx.lineTo(6.5, -5.8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.moveTo(-1, -6.5);
+        ctx.lineTo(1.2, -12.8 - fTip * 0.4);
+        ctx.lineTo(4.2, -6.4);
+        ctx.closePath();
+        ctx.fill();
+      } else if (speciesId === 'frostcrawler') {
+        // Armored mace tail
+        ctx.fillStyle = '#7dd3fc';
+        ctx.beginPath();
+        ctx.moveTo(-11, 2);
+        ctx.lineTo(-19, 1 + wiggle * 0.35);
+        ctx.lineTo(-20, 5.5 + wiggle * 0.35);
+        ctx.lineTo(-10, 6);
+        ctx.closePath();
+        ctx.fill();
+
+        // Low, wide hexagonal beetle hull
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(13, 1.5);
+        ctx.lineTo(10, -5.5);
+        ctx.lineTo(1, -8);
+        ctx.lineTo(-9, -6.5);
+        ctx.lineTo(-13.5, 1);
+        ctx.lineTo(-10.5, 6.6);
+        ctx.lineTo(8.5, 6.8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = mega ? 2.1 : 1.75;
+        ctx.stroke();
+
+        // Dorsal frost plate & carapace rim
+        ctx.fillStyle = sheet.palette.secondary;
+        ctx.beginPath();
+        ctx.moveTo(7, -4.5);
+        ctx.lineTo(0, -7.2);
+        ctx.lineTo(-8, -5.4);
+        ctx.lineTo(-5, -1.5);
+        ctx.lineTo(4, -1.5);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = sheet.palette.belly;
+        ctx.beginPath();
+        ctx.ellipse(0, 4.2, 8.2, 2.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Triple glacial horns
+        ctx.fillStyle = '#e0f2fe';
+        ctx.beginPath();
+        ctx.moveTo(-4, -7);
+        ctx.lineTo(-7, -12.5);
+        ctx.lineTo(-1, -7.2);
+        ctx.lineTo(1.5, -15.5);
+        ctx.lineTo(4.8, -6.8);
+        ctx.lineTo(8.5, -11.5);
+        ctx.lineTo(7, -5.5);
+        ctx.closePath();
+        ctx.fill();
+
+        // Heavy clawed legs
+        ctx.fillStyle = '#1e40af';
+        ctx.fillRect(-7.5, 5.6, 3.8, 2.5);
+        ctx.fillRect(3.2, 5.6, 3.8, 2.5);
+      } else {
+        // Tazerling: forked crackling lightning tail
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath();
+        ctx.moveTo(-7, 2);
+        ctx.lineTo(-15, -2.5 + wiggle * 0.6);
+        ctx.lineTo(-12.5, 1.5);
+        ctx.lineTo(-18.5, 4.5 + wiggle * 0.6);
+        ctx.lineTo(-7.5, 5);
+        ctx.closePath();
+        ctx.fill();
+
+        // Lean forward sprinter body with puffed cheek sac
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 9.8, 6.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = mega ? 2.1 : 1.7;
+        ctx.stroke();
+
+        // Oversized electric cyan cheek capacitor & bright belly
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath();
+        ctx.arc(3.8, 2.2, 3.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = sheet.palette.belly;
+        ctx.beginPath();
+        ctx.ellipse(0.5, 4.0, 5.2, 2.0, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Stubby sprinter legs
+        ctx.fillStyle = sheet.palette.secondary;
+        ctx.beginPath();
+        ctx.ellipse(-4.0, 6.3, 2.3, 1.4, 0, 0, Math.PI * 2);
+        ctx.ellipse(4.4, 6.3, 2.3, 1.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Twin 3-bend zigzag speed antennae
+        const z = Math.sin(time * 28) * 1.1;
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2.0;
+        ctx.beginPath();
+        ctx.moveTo(2, -6.5);
+        ctx.lineTo(-2.5, -10.5);
+        ctx.lineTo(1.5, -12.5);
+        ctx.lineTo(-2.5, -16 + z);
+        ctx.moveTo(5.5, -5.8);
+        ctx.lineTo(2.5, -9.8);
+        ctx.lineTo(6, -11.6);
+        ctx.lineTo(3, -15 - z);
+        ctx.stroke();
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.arc(-2.5, -16 + z, 1.5, 0, Math.PI * 2);
+        ctx.arc(3, -15 - z, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Megamorph crown
+      if (mega) {
+        ctx.fillStyle = '#fde047';
+        ctx.beginPath();
+        ctx.moveTo(4, -7.5);
+        ctx.lineTo(11, -13);
+        ctx.lineTo(7, -5);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Expressive species eye + mood pupil + determined brow / reaction mouth
+      const eyeX = speciesId === 'frostcrawler' ? 5.6 : 4.5;
+      const eyeY = speciesId === 'frostcrawler' ? -1.4 : -1.8;
+      if (mood === 'hit') {
+        ctx.strokeStyle = '#060c14';
+        ctx.lineWidth = 1.7;
+        ctx.beginPath();
+        ctx.moveTo(eyeX - 2, eyeY - 2);
+        ctx.lineTo(eyeX + 2, eyeY + 2);
+        ctx.moveTo(eyeX + 2, eyeY - 2);
+        ctx.lineTo(eyeX - 2, eyeY + 2);
+        ctx.stroke();
+      } else if (mood === 'ko') {
+        ctx.strokeStyle = '#060c14';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(eyeX - 2.3, eyeY);
+        ctx.lineTo(eyeX + 2.3, eyeY);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = speciesId === 'frostcrawler' ? '#fde047' : '#ffffff';
+        ctx.beginPath();
+        ctx.ellipse(eyeX, eyeY, speciesId === 'tazerling' ? 3.1 : 2.7, speciesId === 'frostcrawler' ? 2.0 : 2.7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#060c14';
+        if (speciesId === 'frostcrawler') {
+          ctx.fillRect(eyeX + 0.2, eyeY - 1.4, 1.1, 2.8);
+        } else {
+          ctx.beginPath();
+          ctx.arc(eyeX + 0.7, eyeY, 1.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Fierce charging brow
+        if (energized || mood === 'charge' || mood === 'fire' || mood === 'flight') {
+          ctx.strokeStyle = '#060c14';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(eyeX - 2.5, eyeY - 3.6);
+          ctx.lineTo(eyeX + 2.5, eyeY - 2.0);
+          ctx.stroke();
+        }
+      }
+      return;
+    }
+
+    // Standard individualized hulls for the remaining 12 species
     ctx.fillStyle = accent;
     ctx.beginPath();
     ctx.moveTo(-rx + 2, 0);
@@ -1192,16 +1507,14 @@ export class DuelArenaRenderer {
     ctx.closePath();
     ctx.fill();
 
-    // Main Bajoterra slug body with -45deg dark outline & belly/rim contrast
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = energized ? '#ffffff' : mega ? '#fde047' : '#060c14';
+    ctx.strokeStyle = outline;
     ctx.lineWidth = mega ? 2.1 : 1.7;
     ctx.stroke();
 
-    // Rim specular highlight top-left (-45deg key light)
     ctx.fillStyle = sheet.palette.highlight;
     ctx.globalAlpha = 0.35;
     ctx.beginPath();
@@ -1209,21 +1522,10 @@ export class DuelArenaRenderer {
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    // Distinct anatomical features for ALL 15 species
     ctx.strokeStyle = accent;
     ctx.fillStyle = accent;
     ctx.lineWidth = 1.6;
     switch (speciesId) {
-      case 'infurnus':
-        ctx.beginPath();
-        ctx.moveTo(-2, -ry);
-        ctx.lineTo(-9, -ry - 8);
-        ctx.lineTo(1, -ry - 4);
-        ctx.lineTo(4, -ry - 9);
-        ctx.lineTo(6, -ry);
-        ctx.closePath();
-        ctx.fill();
-        break;
       case 'flaringo':
         ctx.beginPath();
         ctx.moveTo(0, -ry);
@@ -1256,18 +1558,6 @@ export class DuelArenaRenderer {
         ctx.closePath();
         ctx.fill();
         break;
-      case 'tazerling':
-        ctx.beginPath();
-        ctx.moveTo(2, -ry);
-        ctx.lineTo(-4, -ry - 6);
-        ctx.lineTo(0, -ry - 6);
-        ctx.lineTo(-5, -ry - 10);
-        ctx.stroke();
-        ctx.fillStyle = '#38bdf8';
-        ctx.beginPath();
-        ctx.arc(3, 3, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-        break;
       case 'voltrix':
         ctx.beginPath();
         ctx.moveTo(4, -ry);
@@ -1275,17 +1565,6 @@ export class DuelArenaRenderer {
         ctx.moveTo(0, -ry);
         ctx.lineTo(-4, -ry - 7);
         ctx.stroke();
-        break;
-      case 'frostcrawler':
-        // Triple cryo horns & dorsal plate ridge
-        ctx.beginPath();
-        ctx.moveTo(-6, -ry + 1);
-        ctx.lineTo(-5, -ry - 5);
-        ctx.lineTo(-1, -ry + 1);
-        ctx.moveTo(-1, -ry + 1);
-        ctx.lineTo(1, -ry - 8);
-        ctx.lineTo(5, -ry + 1);
-        ctx.fill();
         break;
       case 'glaciomita':
         ctx.beginPath();
@@ -1347,7 +1626,6 @@ export class DuelArenaRenderer {
         break;
     }
 
-    // Megamorph golden brow crest
     if (mega) {
       ctx.fillStyle = '#fde047';
       ctx.beginPath();
@@ -1358,7 +1636,6 @@ export class DuelArenaRenderer {
       ctx.fill();
     }
 
-    // Expressive species eye
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
     ctx.arc(rx * 0.42, -2, 2.7, 0, Math.PI * 2);
@@ -1395,26 +1672,39 @@ export class DuelArenaRenderer {
 
     switch (silhouette) {
       case 'phoenix_flame': {
-        // Infurnus: blazing swept phoenix wings + radiant core + flame tail
+        // Infurnus Velocimorph: layered phoenix flame wings, horned brow, fiery plume tail
+        const plume = Math.sin(time * 28) * 2.5;
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(25, 0);
-        ctx.lineTo(5, -6);
-        ctx.lineTo(-8, -19 + flap);
-        ctx.lineTo(-16, -7);
-        ctx.lineTo(-22, 0);
-        ctx.lineTo(-16, 7);
-        ctx.lineTo(-8, 19 - flap);
-        ctx.lineTo(5, 6);
+        ctx.moveTo(27, 0);
+        ctx.lineTo(7, -7);
+        ctx.lineTo(-6, -21 + flap);
+        ctx.lineTo(-14, -12 + flap * 0.5);
+        ctx.lineTo(-24, -7 + plume);
+        ctx.lineTo(-18, 0);
+        ctx.lineTo(-24, 7 - plume);
+        ctx.lineTo(-14, 12 - flap * 0.5);
+        ctx.lineTo(-6, 21 - flap);
+        ctx.lineTo(7, 7);
         ctx.closePath();
         ctx.fill();
         ctx.strokeStyle = '#fde047';
-        ctx.lineWidth = 2.1;
+        ctx.lineWidth = 2.2;
         ctx.stroke();
-        // Inner golden flame core
+
+        // Inner wing flame feathers & solar chest core
         ctx.fillStyle = accent;
         ctx.beginPath();
-        ctx.ellipse(2, 0, 9, 4.5, 0, 0, Math.PI * 2);
+        ctx.moveTo(14, 0);
+        ctx.lineTo(-3, -12 + flap * 0.5);
+        ctx.lineTo(-12, 0);
+        ctx.lineTo(-3, 12 - flap * 0.5);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.ellipse(5, 0, 7, 3.6, 0, 0, Math.PI * 2);
         ctx.fill();
         break;
       }
@@ -1458,22 +1748,33 @@ export class DuelArenaRenderer {
         break;
       }
       case 'volt_bolt': {
-        // Tazerling: crackling double-fork lightning phantom
+        // Tazerling Velocimorph: high-voltage plasma dart with capacitor cheek fins & forked lightning tail
+        const zap = Math.sin(time * 32) * 2.2;
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(26, 0);
-        ctx.lineTo(6, -12);
-        ctx.lineTo(10, -4);
-        ctx.lineTo(-20, -13);
-        ctx.lineTo(-11, 0);
-        ctx.lineTo(-20, 13);
-        ctx.lineTo(10, 4);
-        ctx.lineTo(6, 12);
+        ctx.moveTo(27, 0);
+        ctx.lineTo(8, -13);
+        ctx.lineTo(11, -5);
+        ctx.lineTo(-10, -15 + zap * 0.4);
+        ctx.lineTo(-13, -5);
+        ctx.lineTo(-24, -10 - zap);
+        ctx.lineTo(-14, 0);
+        ctx.lineTo(-24, 10 + zap);
+        ctx.lineTo(-13, 5);
+        ctx.lineTo(-10, 15 - zap * 0.4);
+        ctx.lineTo(11, 5);
+        ctx.lineTo(8, 13);
         ctx.closePath();
         ctx.fill();
         ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 2.2;
+        ctx.lineWidth = 2.3;
         ctx.stroke();
+
+        // Capacitor plasma core
+        ctx.fillStyle = '#e0f2fe';
+        ctx.beginPath();
+        ctx.ellipse(5, 0, 8, 3.5, 0, 0, Math.PI * 2);
+        ctx.fill();
         break;
       }
       case 'rail_viper': {
@@ -1498,28 +1799,39 @@ export class DuelArenaRenderer {
         break;
       }
       case 'cryo_drill': {
-        // Frostcrawler: heavy rotating spiral ice drill with armored prow
+        // Frostcrawler Velocimorph: heavy beetle carapace prow + rotating spiral ice drill + frost thrusters
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(27, 0);
-        ctx.lineTo(-2, -13);
-        ctx.lineTo(-18, -9);
-        ctx.lineTo(-18, 9);
-        ctx.lineTo(-2, 13);
+        ctx.moveTo(28, 0);
+        ctx.lineTo(3, -12);
+        ctx.lineTo(-11, -15);
+        ctx.lineTo(-19, -9);
+        ctx.lineTo(-19, 9);
+        ctx.lineTo(-11, 15);
+        ctx.lineTo(3, 12);
         ctx.closePath();
         ctx.fill();
         ctx.strokeStyle = '#e0f2fe';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2.2;
         ctx.stroke();
+
+        // Armored dorsal ice plate
+        ctx.fillStyle = '#1e40af';
+        ctx.beginPath();
+        ctx.ellipse(-6, 0, 8, 7.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
         // Rotating cryo spiral flutes
         ctx.strokeStyle = '#67e8f9';
-        ctx.lineWidth = 1.6;
-        const fluteShift = Math.sin(time * 22) * 3;
+        ctx.lineWidth = 1.9;
+        const fluteShift = Math.sin(time * 24) * 3;
         ctx.beginPath();
-        ctx.moveTo(14, -5 + fluteShift * 0.2);
-        ctx.lineTo(7, 6 + fluteShift * 0.2);
-        ctx.moveTo(4, -8 + fluteShift * 0.2);
-        ctx.lineTo(-4, 8 + fluteShift * 0.2);
+        ctx.moveTo(18, -4 + fluteShift * 0.25);
+        ctx.lineTo(12, 5 + fluteShift * 0.25);
+        ctx.moveTo(10, -7 + fluteShift * 0.25);
+        ctx.lineTo(3, 8 + fluteShift * 0.25);
+        ctx.moveTo(1, -9 + fluteShift * 0.25);
+        ctx.lineTo(-5, 9 + fluteShift * 0.25);
         ctx.stroke();
         break;
       }

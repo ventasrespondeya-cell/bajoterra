@@ -380,7 +380,7 @@ export class WorldRenderer {
 
     // 3. Roaming wild slugs, bosses, mercenaries, merchant
     const reduced = Boolean(state.options.reducedMotion);
-    const animFrame = Math.floor(timeSec * 3.5) & 1;
+    const animFrame = reduced ? 0 : (Math.floor(timeSec * 5) & 3);
 
     for (const ent of entities) {
       const ex = ent.x * TILE_PX - ox;
@@ -409,10 +409,15 @@ export class WorldRenderer {
 
         const spr = sprites.getSpeciesSlugSprite(ent.speciesId, false, 'walk', animFrame);
         ctx.save();
-        ctx.translate(ex + 14, ey + 14 + anim.offsetY);
+        ctx.translate(ex + 14 + anim.offsetX, ey + 14 + anim.offsetY);
+        ctx.rotate((anim.tiltDeg * Math.PI) / 180);
         ctx.scale((flipLeft ? -1 : 1) * anim.scaleX, anim.scaleY);
         ctx.drawImage(spr, -12, -12);
         ctx.restore();
+
+        if (!reduced) {
+          this.drawSpeciesWorldMicroVfx(ctx, ent.speciesId, ex + 14, ey + 14 + anim.offsetY, timeSec);
+        }
       } else if (ent.kind === 'boss' || ent.kind === 'mercenary' || ent.kind === 'merchant') {
         // Boss / Mercenary / Merchant articulated RPG pixel character
         if (ent.kind === 'boss') {
@@ -424,7 +429,7 @@ export class WorldRenderer {
         } else if (ent.kind === 'merchant') {
           lightSources.push({ sx: ex + 14, sy: ey + 14, r: 84, color: 'rgba(52, 211, 153, 0.68)' });
         }
-        const npcSpr = sprites.getNpcCharacterSprite(ent.kind, ent.bossId, animFrame);
+        const npcSpr = sprites.getNpcCharacterSprite(ent.kind, ent.bossId, animFrame & 1);
         ctx.drawImage(npcSpr, ex, ey - 1 + bob * 0.55);
       }
 
@@ -456,8 +461,11 @@ export class WorldRenderer {
 
         const sp = getSpecies(res.slug.id);
         const activity = res.visualActivity;
-        const isSleeping = activity === 'sleep' || (res.behavior === 'descansar' && activity !== 'eat' && activity !== 'look');
+        const isLooking = activity === 'look';
         const isEating = activity === 'eat';
+        const isSleeping =
+          activity === 'sleep' ||
+          (res.behavior === 'descansar' && !isEating && !isLooking && activity !== 'play' && activity !== 'social');
         const isPlaying = activity === 'play' || activity === 'social' || res.behavior === 'jugar';
         const isWalking = activity === 'walk' || res.behavior === 'pasear' || res.behavior === 'acercarse';
         const nearPlayer = Math.hypot(res.x - state.player.x, res.y - state.player.y) <= 2.1;
@@ -468,6 +476,8 @@ export class WorldRenderer {
           ? 'sleep'
           : isPlaying
           ? 'play'
+          : isLooking
+          ? 'react'
           : nearPlayer || res.reactionText
           ? 'happy'
           : isWalking
@@ -487,6 +497,8 @@ export class WorldRenderer {
           ? 'rest'
           : isPlaying
           ? 'play'
+          : isLooking
+          ? 'react'
           : nearPlayer || res.reactionText
           ? 'happy'
           : isWalking
@@ -497,25 +509,38 @@ export class WorldRenderer {
 
         ctx.save();
         ctx.translate(rsx + 14 + anim.offsetX, rsy + 14 + bob);
+        ctx.rotate((anim.tiltDeg * Math.PI) / 180);
         ctx.scale(faceDir * anim.scaleX, anim.scaleY);
         ctx.drawImage(spr, -12, -12);
         ctx.restore();
 
-        // Living micro-feedback per activity (sleep Zzz, food crumbs, social sparkles)
+        // Living micro-feedback per activity & priority species
         if (!reduced) {
           if (isSleeping) {
             const zy = (timeSec * 14 + res.x * 5) % 14;
             ctx.font = 'bold 9px sans-serif';
             ctx.fillStyle = `rgba(186, 230, 253, ${1 - zy / 14})`;
             ctx.fillText('Z', rsx + 22, rsy + 4 - zy);
-          } else if (isEating) {
-            ctx.fillStyle = '#fde047';
-            ctx.fillRect(rsx + 14 + faceDir * 7, rsy + 16 + ((animFrame) * 2), 2, 2);
-            ctx.fillStyle = '#fb923c';
-            ctx.fillRect(rsx + 14 + faceDir * 9, rsy + 18 - ((animFrame) * 2), 2, 2);
-          } else if (activity === 'social') {
-            ctx.fillStyle = '#f472b6';
-            ctx.fillRect(rsx + 13, rsy - 2 + Math.sin(timeSec * 8) * 2, 3, 3);
+          } else {
+            this.drawSpeciesWorldMicroVfx(
+              ctx,
+              res.slug.id,
+              rsx + 14 + anim.offsetX,
+              rsy + 14 + bob,
+              timeSec
+            );
+            if (isEating) {
+              ctx.fillStyle = '#fde047';
+              ctx.fillRect(rsx + 14 + faceDir * 7, rsy + 16 + (animFrame & 1) * 2, 2, 2);
+              ctx.fillStyle = '#fb923c';
+              ctx.fillRect(rsx + 14 + faceDir * 9, rsy + 18 - (animFrame & 1) * 2, 2, 2);
+            } else if (activity === 'social') {
+              ctx.fillStyle = '#f472b6';
+              ctx.fillRect(rsx + 13, rsy - 2 + Math.sin(timeSec * 8) * 2, 3, 3);
+            } else if (isLooking) {
+              ctx.fillStyle = '#fde047';
+              ctx.fillRect(rsx + 14 + faceDir * 8, rsy + 2, 2, 2);
+            }
           }
         }
 
@@ -537,6 +562,8 @@ export class WorldRenderer {
             ? `${res.slug.name} · Comiendo`
             : isPlaying
             ? `${res.slug.name} · Jugando`
+            : isLooking
+            ? `${res.slug.name} · Curiosa`
             : nearPlayer
             ? `${res.slug.name} · ♥`
             : res.slug.name);
@@ -578,10 +605,14 @@ export class WorldRenderer {
       ctx.fill();
       const compFace = state.player.facingX < 0 ? -1 : 1;
       ctx.save();
-      ctx.translate(csx + 12, csy + 12);
+      ctx.translate(csx + 12 + compAnim.offsetX, csy + 12);
+      ctx.rotate((compAnim.tiltDeg * Math.PI) / 180);
       ctx.scale(compFace * compAnim.scaleX, compAnim.scaleY);
       ctx.drawImage(sprites.getSpeciesSlugSprite(activeSlug.id, activeSlug.mega, 'walk', animFrame), -12, -12);
       ctx.restore();
+      if (!reduced) {
+        this.drawSpeciesWorldMicroVfx(ctx, activeSlug.id, csx + 12 + compAnim.offsetX, csy + 12, timeSec);
+      }
       if (activeSlug.mega) {
         lightSources.push({ sx: csx + 12, sy: csy + 12, r: 52, color: 'rgba(251, 191, 36, 0.55)' });
       } else if (sp.type === 'Luz' || sp.type === 'Fuego' || sp.type === 'Energia') {
@@ -934,5 +965,31 @@ export class WorldRenderer {
     g.arc(px, py, 5.5, 0, Math.PI * 2);
     g.fill();
     g.stroke();
+  }
+
+  private drawSpeciesWorldMicroVfx(
+    ctx: CanvasRenderingContext2D,
+    speciesId: string,
+    cx: number,
+    cy: number,
+    timeSec: number
+  ): void {
+    if (speciesId === 'infurnus') {
+      const lift = (timeSec * 18) % 9;
+      ctx.fillStyle = lift < 4.5 ? '#fde047' : '#fb923c';
+      ctx.fillRect(cx - 1 + Math.sin(timeSec * 9) * 2, cy - 11 - lift, 2, 2);
+    } else if (speciesId === 'frostcrawler') {
+      const glint = 0.45 + 0.4 * Math.sin(timeSec * 5 + cx * 0.1);
+      ctx.fillStyle = `rgba(186, 230, 253, ${glint.toFixed(2)})`;
+      ctx.fillRect(cx + 7, cy - 8, 2, 2);
+      ctx.fillRect(cx - 8, cy - 5, 1.8, 1.8);
+    } else if (speciesId === 'tazerling') {
+      if (Math.sin(timeSec * 14 + cy * 0.2) > 0.35) {
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(cx - 9, cy - 9, 2, 2);
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(cx + 8, cy - 10, 2, 2);
+      }
+    }
   }
 }

@@ -17,6 +17,7 @@ const canvasStub = () => ({
     moveTo: () => {},
     lineTo: () => {},
     quadraticCurveTo: () => {},
+    bezierCurveTo: () => {},
     arc: () => {},
     fill: () => {},
     stroke: () => {},
@@ -3079,6 +3080,133 @@ describe('Bajoterra 4.0 — FASE 10: Dirección Artística Principal, Anatomía 
 
       cm.closeBattle();
     }
+  });
+
+  test('F10.5 Cierre visual prioritario (Infurnus, Frostcrawler, Tazerling): 4 frames, canales multi-parte, siluetas y estados de combate/hogar', async () => {
+    const priorityIds = ['infurnus', 'frostcrawler', 'tazerling'] as const;
+    const allStates = [
+      'idle',
+      'walk',
+      'happy',
+      'play',
+      'eat',
+      'rest',
+      'sleep',
+      'react',
+      'charge',
+      'fire',
+      'flight',
+      'transform',
+      'attack',
+      'hit',
+      'ko',
+      'victory',
+    ] as const;
+
+    // 1. Coordinated multi-part sampler channels & distinct species cadences
+    for (const id of priorityIds) {
+      for (const st of allStates) {
+        const s = sampleSlugAnimationFrame(id, st, 0.37, false);
+        assert.equal(typeof s.eyeLookX, 'number');
+        assert.equal(typeof s.eyeLookY, 'number');
+        assert.equal(typeof s.crestTiltDeg, 'number');
+        assert.equal(typeof s.jawOpen, 'number');
+        assert.equal(typeof s.sparkAlpha, 'number');
+        assert.equal(typeof s.cheekPulse, 'number');
+        assert.equal(typeof s.auraScale, 'number');
+
+        const red = sampleSlugAnimationFrame(id, st, 0.37, true);
+        assert.equal(red.offsetX, 0);
+        assert.equal(red.crestBobPx, 0);
+        assert.equal(red.tailWagDeg, 0);
+        assert.equal(red.offsetY, st === 'sleep' || st === 'rest' ? 1.2 : 0);
+      }
+    }
+
+    // Distinct timing personality: Tazerling sparks sharply & moves faster than heavy Frostcrawler
+    const tazPlay = sampleSlugAnimationFrame('tazerling', 'charge', 0.18, false);
+    const frsIdle = sampleSlugAnimationFrame('frostcrawler', 'idle', 0.18, false);
+    assert.ok(tazPlay.sparkAlpha > frsIdle.sparkAlpha);
+    assert.ok(tazPlay.cheekPulse > frsIdle.cheekPulse);
+
+    // 2. 4-frame sprites across all living poses (including react) for priority trio
+    const poses = ['idle', 'rest', 'happy', 'walk', 'play', 'eat', 'react'] as const;
+    for (const id of priorityIds) {
+      for (const pose of poses) {
+        const f0 = sprites.getSpeciesSlugSprite(id, false, pose, 0);
+        const f1 = sprites.getSpeciesSlugSprite(id, false, pose, 1);
+        const f2 = sprites.getSpeciesSlugSprite(id, false, pose, 2);
+        const f3 = sprites.getSpeciesSlugSprite(id, false, pose, 3);
+        assert.equal(f0.width, 24);
+        assert.equal(f3.height, 24);
+        assert.notEqual(f0, f1);
+        assert.notEqual(f1, f2);
+        assert.notEqual(f2, f3);
+      }
+    }
+
+    // 3. SlugPortrait silhouette & sub-part integration checks
+    const portraitSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/SlugPortrait.tsx'), 'utf8');
+    assert.ok(portraitSrc.includes('silhouette?: boolean'));
+    assert.ok(portraitSrc.includes('bt-part-crest-flame'));
+    assert.ok(portraitSrc.includes('bt-part-heavy-breathe'));
+    assert.ok(portraitSrc.includes('bt-part-antennae-zap'));
+    assert.ok(portraitSrc.includes('bt-part-tail-wag'));
+
+    // 4. WorldRenderer Home 'look' -> 'react' & micro-VFX execution
+    gameEngine.startNewGame();
+    const inf = createSlugInstance('infurnus', 3);
+    const frs = createSlugInstance('frostcrawler', 3);
+    const taz = createSlugInstance('tazerling', 3);
+    gameEngine.state.storage.push(inf, frs, taz);
+    assert.equal(gameEngine.assignSlugToHome(inf.uid, 'habitat_thermal'), true);
+    assert.equal(gameEngine.assignSlugToHome(frs.uid, 'habitat_aquatic'), true);
+    assert.equal(gameEngine.assignSlugToHome(taz.uid, 'habitat_crystal'), true);
+
+    if (gameEngine.state.home?.residents[0]) {
+      gameEngine.state.home.residents[0].behavior = 'descansar';
+      gameEngine.state.home.residents[0].visualActivity = 'look';
+    }
+    const wr = new WorldRenderer();
+    const ctx = canvasStub().getContext() as unknown as CanvasRenderingContext2D;
+    wr.renderWorld(ctx, 640, 360, 1.25, gameEngine.state, gameEngine.chunks, gameEngine.entities, null);
+
+    // 5. DuelArenaRenderer preserves enemy anatomy on hitFlash, charging, telegraphing, victory
+    const cm = new CombatManager();
+    const dr = new DuelArenaRenderer();
+    for (const id of priorityIds) {
+      const state = createInitialGameState();
+      state.party[0] = createSlugInstance(id, 4);
+      const battle = cm.startBattle(state, { kind: 'wild', biome: 'Verdes', speciesId: id, level: 3 });
+
+      battle.playerDuelist.charging = true;
+      battle.playerDuelist.charge = 0.88;
+      battle.enemyDuelist.hitFlash = 0.2;
+      battle.enemy.telegraphing = 'heavy';
+      battle.enemyDuelist.telegraphProgress = 0.7;
+      dr.render(ctx, battle, state, cm, { ...state.options, lightingQuality: 'high' });
+
+      battle.playerDuelist.charging = false;
+      battle.playerDuelist.recoil = 0.2;
+      battle.turn = 'ended';
+      battle.outcome = 'victory';
+      dr.render(ctx, battle, state, cm, { ...state.options, lightingQuality: 'eco' });
+      cm.closeBattle();
+    }
+
+    // Verify BattleModal, SlugColumn & CSS flame-burst transformation wiring
+    const cssSrc = fs.readFileSync(path.join(process.cwd(), 'src/index.css'), 'utf8');
+    const battleModalSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/BattleModal.tsx'), 'utf8');
+    const slugColumnSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/SlugColumn.tsx'), 'utf8');
+    assert.ok(cssSrc.includes('@keyframes bt-part-flame-burst') && cssSrc.includes('.bt-part-flame-burst'));
+    assert.ok(portraitSrc.includes('bt-part-flame-burst'));
+    assert.ok(
+      battleModalSrc.includes('bt-part-flame-burst') &&
+        battleModalSrc.includes('allyTransforming') &&
+        battleModalSrc.includes("'transform'")
+    );
+    assert.ok(slugColumnSrc.includes('activeMood?: SlugPortraitMood'));
+    assert.ok(battleModalSrc.includes('activeMood={allyMood}'));
   });
 });
 

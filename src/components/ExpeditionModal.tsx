@@ -82,6 +82,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
   const [inspectedSlugUid, setInspectedSlugUid] = useState<string | null>(null);
   const [catalogMood, setCatalogMood] = useState<SlugPortraitMood>('happy');
   const [showArtGuide, setShowArtGuide] = useState<boolean>(false);
+  const [catalogSilhouette, setCatalogSilhouette] = useState<boolean>(false);
 
   const allSlugs = [...snap.party, ...snap.storage];
   const capturedCount = Object.keys(snap.capturedSpecies).length;
@@ -648,6 +649,8 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                               const moodPose: SlugPortraitMood =
                                 res.visualActivity === 'eat'
                                   ? 'eat'
+                                  : res.visualActivity === 'look'
+                                  ? 'react'
                                   : res.visualActivity === 'play' || res.visualActivity === 'social'
                                   ? 'play'
                                   : res.visualActivity === 'sleep' || res.behavior === 'descansar'
@@ -663,7 +666,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                                         speciesId={res.slug.id}
                                         mega={res.slug.mega}
                                         mood={moodPose}
-                                        size={36}
+                                        size={42}
                                       />
                                       <div className="min-w-0">
                                         <div className="font-extrabold text-white truncate">
@@ -790,9 +793,12 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                     [
                       { id: 'happy', label: 'Feliz' },
                       { id: 'idle', label: 'Tranquila' },
+                      { id: 'walk', label: 'Pasear' },
                       { id: 'play', label: 'Jugar' },
                       { id: 'eat', label: 'Comer' },
+                      { id: 'react', label: 'Reacción' },
                       { id: 'attack', label: 'Ataque' },
+                      { id: 'hit', label: 'Impacto' },
                       { id: 'sleep', label: 'Descanso' },
                     ] as Array<{ id: SlugPortraitMood; label: string }>
                   ).map((m) => (
@@ -808,13 +814,24 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                     </button>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowArtGuide((v) => !v)}
-                  className="bt-btn-secondary border-cyan-400/50 px-3 py-1.5 rounded-xl text-[11px] font-extrabold text-cyan-200 cursor-pointer whitespace-nowrap"
-                >
-                  {showArtGuide ? 'Ocultar Guía y Prototipos' : 'Guía Artística y Prototipos'}
-                </button>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCatalogSilhouette((v) => !v)}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-extrabold cursor-pointer whitespace-nowrap ${
+                      catalogSilhouette ? 'bt-btn-amber' : 'bt-btn-secondary'
+                    }`}
+                  >
+                    {catalogSilhouette ? 'Ver Color' : 'Silueta'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowArtGuide((v) => !v)}
+                    className="bt-btn-secondary border-cyan-400/50 px-3 py-1.5 rounded-xl text-[11px] font-extrabold text-cyan-200 cursor-pointer whitespace-nowrap"
+                  >
+                    {showArtGuide ? 'Ocultar Guía y Prototipos' : 'Guía Artística y Prototipos'}
+                  </button>
+                </div>
               </div>
 
               {showArtGuide && (
@@ -834,7 +851,12 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                       return (
                         <div key={pid} className="bt-card rounded-xl p-3 space-y-1.5 border-amber-400/35">
                           <div className="flex items-center gap-2.5">
-                            <SlugPortrait speciesId={pid} mood={catalogMood} size={44} />
+                            <SlugPortrait
+                              speciesId={pid}
+                              mood={catalogMood}
+                              size={58}
+                              silhouette={catalogSilhouette}
+                            />
                             <div className="min-w-0">
                               <div className="text-xs font-extrabold text-white">{psp.name}</div>
                               <div className="text-[10px] font-bold text-amber-300">
@@ -877,12 +899,13 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                           )}
                         </div>
                         <div className="flex items-center gap-2.5 mb-2">
-                          <div className="w-12 h-12 rounded-xl bt-inset flex items-center justify-center shrink-0">
+                          <div className="w-14 h-14 rounded-xl bt-inset flex items-center justify-center shrink-0">
                             {known ? (
                               <SlugPortrait
                                 speciesId={sp.id}
-                                size={42}
+                                size={48}
                                 mood={caught > 0 ? catalogMood : 'idle'}
+                                silhouette={catalogSilhouette}
                               />
                             ) : (
                               <span className="text-base font-extrabold text-slate-500">?</span>

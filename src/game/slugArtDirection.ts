@@ -597,6 +597,13 @@ export interface SlugAnimFrameSample {
   glowPulse: number;
   crestBobPx: number;
   tailWagDeg: number;
+  eyeLookX: number;
+  eyeLookY: number;
+  crestTiltDeg: number;
+  jawOpen: number;
+  sparkAlpha: number;
+  cheekPulse: number;
+  auraScale: number;
 }
 
 /**
@@ -617,149 +624,244 @@ export function sampleSlugAnimationFrame(
   const phase = (Math.abs(hash) % 100) * 0.0628;
   const t = timeSec + phase;
 
-  // Blink window (~150ms every ~3.4s)
-  const blinkCycle = t % 3.4;
+  // Species temperament cadence:
+  // - Infurnus: vibrant agile buoyant flame pulse
+  // - Frostcrawler: heavy armored glacial weight
+  // - Tazerling: rapid hyperactive electric darting
+  const isInfurnus = speciesId === 'infurnus';
+  const isFrostcrawler = speciesId === 'frostcrawler';
+  const isTazerling = speciesId === 'tazerling';
+
+  const blinkPeriod = isTazerling ? 2.8 : isFrostcrawler ? 4.2 : 3.4;
+  const blinkCycle = t % blinkPeriod;
   const blinkClosed =
     animState === 'sleep' ||
     animState === 'rest' ||
-    (animState !== 'ko' && animState !== 'hit' && blinkCycle > 3.22);
+    (animState !== 'ko' && animState !== 'hit' && blinkCycle > blinkPeriod - 0.16);
 
   if (reducedMotion) {
+    const isAttackPose = animState === 'attack' || animState === 'fire' || animState === 'flight';
+    const isChargePose = animState === 'charge' || animState === 'transform';
+    const isRestPose = animState === 'sleep' || animState === 'rest';
     return {
       offsetX: 0,
-      offsetY: animState === 'sleep' || animState === 'rest' ? 1.2 : 0,
-      scaleX: animState === 'attack' || animState === 'fire' ? 1.05 : 1,
-      scaleY: animState === 'rest' || animState === 'sleep' ? 0.94 : 1,
-      tiltDeg: animState === 'attack' ? -5 : 0,
+      offsetY: isRestPose ? 1.2 : 0,
+      scaleX: isAttackPose ? 1.05 : isRestPose ? 1.03 : 1,
+      scaleY: isRestPose ? 0.94 : 1,
+      tiltDeg: isAttackPose ? -5 : isChargePose ? -3 : 0,
       blinkClosed,
       glowPulse: 0.72,
       crestBobPx: 0,
       tailWagDeg: 0,
+      eyeLookX: 0,
+      eyeLookY: 0,
+      crestTiltDeg: 0,
+      jawOpen: animState === 'eat' || animState === 'happy' || isAttackPose ? 0.5 : 0,
+      sparkAlpha: isChargePose || isAttackPose ? 0.65 : 0.25,
+      cheekPulse: 0.6,
+      auraScale: 1,
     };
   }
 
-  const agilityMult = posture === 'agile_lean' ? 1.45 : posture === 'low_crawler' || posture === 'armored_stout' ? 0.72 : 1.0;
+  const agilityMult = isTazerling
+    ? 1.55
+    : isFrostcrawler
+    ? 0.68
+    : posture === 'agile_lean'
+    ? 1.45
+    : posture === 'low_crawler' || posture === 'armored_stout'
+    ? 0.72
+    : 1.0;
+
+  // Subtle organic glance drift (quick saccades for Tazerling, slow scan for Frostcrawler)
+  const lookFreq = isTazerling ? 2.9 : isFrostcrawler ? 0.85 : 1.45;
+  const baseLookX = Math.sin(t * lookFreq) * (isTazerling ? 0.72 : isFrostcrawler ? 0.35 : 0.5);
+  const baseLookY = Math.cos(t * lookFreq * 0.7) * (isTazerling ? 0.32 : 0.18);
+
+  // Intermittent spark flare for energetic species (especially Tazerling & Infurnus)
+  const sparkBurst = Math.max(0, Math.sin(t * (isTazerling ? 9.5 : 5.2)) * 0.65 + Math.cos(t * 14.3) * 0.35);
 
   switch (animState) {
     case 'walk': {
-      const s = Math.sin(t * 7.5 * agilityMult);
+      const s = Math.sin(t * 7.8 * agilityMult);
+      const lift = isFrostcrawler ? 1.2 : isTazerling ? 3.0 : 2.5;
       return {
-        offsetX: Math.sin(t * 3.8 * agilityMult) * 1.1,
-        offsetY: -Math.abs(s) * (posture === 'low_crawler' ? 1.4 : 2.6),
-        scaleX: 1 + s * 0.05,
-        scaleY: 1 - s * 0.05,
-        tiltDeg: s * (posture === 'low_crawler' ? 3 : 6),
+        offsetX: Math.sin(t * 3.9 * agilityMult) * (isFrostcrawler ? 0.7 : 1.35),
+        offsetY: -Math.abs(s) * lift,
+        scaleX: 1 + s * (isFrostcrawler ? 0.035 : 0.055),
+        scaleY: 1 - s * (isFrostcrawler ? 0.035 : 0.055),
+        tiltDeg: s * (isFrostcrawler ? 2.8 : isTazerling ? 7.5 : 5.8),
         blinkClosed,
-        glowPulse: 0.65 + Math.sin(t * 5) * 0.2,
-        crestBobPx: -Math.abs(s) * 1.1,
-        tailWagDeg: s * 14,
+        glowPulse: 0.68 + Math.sin(t * 5.5) * 0.22,
+        crestBobPx: -Math.abs(s) * (isInfurnus ? 1.45 : 1.05),
+        tailWagDeg: s * (isTazerling ? 19 : isFrostcrawler ? 8 : 15),
+        eyeLookX: 0.35 + baseLookX * 0.3,
+        eyeLookY: -0.1,
+        crestTiltDeg: -s * (isInfurnus ? 9 : isTazerling ? 11 : 3),
+        jawOpen: isTazerling ? 0.35 : 0.12,
+        sparkAlpha: Math.min(1, 0.3 + sparkBurst * (isTazerling ? 0.7 : 0.45)),
+        cheekPulse: 0.65 + Math.abs(s) * 0.3,
+        auraScale: 1 + Math.abs(s) * 0.04,
       };
     }
     case 'happy':
     case 'play':
     case 'victory': {
       const bounce = Math.abs(Math.sin(t * 6.8 * agilityMult));
+      const jumpScale = isFrostcrawler ? 2.1 : isTazerling ? 3.8 : 3.2;
       return {
-        offsetX: animState === 'play' ? Math.sin(t * 4.2) * 1.8 : 0,
-        offsetY: -bounce * 3.2,
-        scaleX: 1.04 - bounce * 0.06,
-        scaleY: 0.96 + bounce * 0.09,
-        tiltDeg: Math.sin(t * 6.8) * 7,
+        offsetX: animState === 'play' ? Math.sin(t * 4.4 * agilityMult) * (isFrostcrawler ? 1.0 : 2.1) : 0,
+        offsetY: -bounce * jumpScale,
+        scaleX: 1.04 - bounce * (isFrostcrawler ? 0.04 : 0.07),
+        scaleY: 0.96 + bounce * (isFrostcrawler ? 0.06 : 0.1),
+        tiltDeg: Math.sin(t * 6.8 * agilityMult) * (isFrostcrawler ? 4.5 : 8),
         blinkClosed: false,
-        glowPulse: 0.85 + Math.sin(t * 8) * 0.15,
-        crestBobPx: -bounce * 1.6,
-        tailWagDeg: Math.sin(t * 11) * 18,
+        glowPulse: 0.85 + Math.sin(t * 8.5) * 0.15,
+        crestBobPx: -bounce * (isInfurnus ? 1.9 : 1.5),
+        tailWagDeg: Math.sin(t * 11.5) * (isFrostcrawler ? 11 : 21),
+        eyeLookX: animState === 'play' ? Math.sin(t * 4.4) * 0.65 : 0,
+        eyeLookY: -0.25,
+        crestTiltDeg: Math.sin(t * 9.5) * (isFrostcrawler ? 4 : 12),
+        jawOpen: 0.65 + bounce * 0.35,
+        sparkAlpha: Math.min(1, 0.5 + sparkBurst * 0.5),
+        cheekPulse: 0.85 + bounce * 0.15,
+        auraScale: 1.05 + bounce * 0.08,
       };
     }
     case 'eat': {
-      const munch = Math.sin(t * 11.5);
+      const munch = Math.sin(t * (isFrostcrawler ? 8.5 : 11.8));
       return {
         offsetX: 0,
-        offsetY: Math.max(0, munch) * 1.4,
+        offsetY: Math.max(0, munch) * (isFrostcrawler ? 0.9 : 1.4),
         scaleX: 1 + munch * 0.06,
         scaleY: 1 - munch * 0.06,
-        tiltDeg: 5 + munch * 4,
+        tiltDeg: 4 + munch * 4,
         blinkClosed: munch > 0.35,
         glowPulse: 0.75 + Math.sin(t * 6) * 0.15,
-        crestBobPx: munch * 0.7,
+        crestBobPx: munch * 0.75,
         tailWagDeg: Math.sin(t * 8) * 12,
+        eyeLookX: 0.2,
+        eyeLookY: 0.35,
+        crestTiltDeg: munch * 5,
+        jawOpen: 0.35 + Math.max(0, munch) * 0.65,
+        sparkAlpha: 0.35,
+        cheekPulse: 0.6 + Math.max(0, munch) * 0.35,
+        auraScale: 1.02,
       };
     }
     case 'rest':
     case 'sleep': {
-      const breath = Math.sin(t * 1.9);
+      const breath = Math.sin(t * (isFrostcrawler ? 1.4 : 1.9));
       return {
         offsetX: 0,
         offsetY: 1.4 + breath * 0.4,
-        scaleX: 1.04 + breath * 0.03,
-        scaleY: 0.92 - breath * 0.03,
-        tiltDeg: 2,
+        scaleX: 1.04 + breath * 0.032,
+        scaleY: 0.92 - breath * 0.032,
+        tiltDeg: isFrostcrawler ? 1 : 2,
         blinkClosed: true,
-        glowPulse: 0.38 + breath * 0.12,
+        glowPulse: 0.36 + breath * 0.12,
         crestBobPx: breath * 0.4,
         tailWagDeg: breath * 3,
+        eyeLookX: 0,
+        eyeLookY: 0,
+        crestTiltDeg: breath * 2,
+        jawOpen: Math.max(0, breath * 0.18),
+        sparkAlpha: 0.1,
+        cheekPulse: 0.3 + breath * 0.1,
+        auraScale: 0.94,
       };
     }
     case 'react':
     case 'charge': {
-      const pulse = Math.sin(t * 14);
+      const pulse = Math.sin(t * (isTazerling ? 20 : 14));
       return {
-        offsetX: animState === 'charge' ? pulse * 0.9 : 0,
-        offsetY: -1.6 + pulse * 0.6,
-        scaleX: 0.96 + pulse * 0.05,
-        scaleY: 1.06 - pulse * 0.04,
-        tiltDeg: animState === 'charge' ? -6 : -3,
+        offsetX: animState === 'charge' ? pulse * (isTazerling ? 1.35 : 0.85) : 0,
+        offsetY: animState === 'react' ? -2.1 + pulse * 0.45 : -0.8 + pulse * 0.55,
+        scaleX: animState === 'charge' ? 0.95 + pulse * 0.05 : 0.97 + pulse * 0.03,
+        scaleY: animState === 'charge' ? 1.08 - pulse * 0.04 : 1.05,
+        tiltDeg: animState === 'charge' ? -7 : -3 + pulse * 2,
         blinkClosed: false,
-        glowPulse: 0.95,
-        crestBobPx: -1.4 + pulse * 0.5,
-        tailWagDeg: pulse * 16,
+        glowPulse: 0.95 + Math.abs(pulse) * 0.05,
+        crestBobPx: -1.6 + pulse * 0.65,
+        tailWagDeg: pulse * (isFrostcrawler ? 10 : 18),
+        eyeLookX: animState === 'react' ? Math.sin(t * 5) * 0.55 : 0.45,
+        eyeLookY: -0.25,
+        crestTiltDeg: pulse * (isTazerling ? 14 : 9),
+        jawOpen: animState === 'charge' ? 0.55 : 0.28,
+        sparkAlpha: animState === 'charge' ? 0.85 + Math.abs(pulse) * 0.15 : 0.72,
+        cheekPulse: 1,
+        auraScale: 1.08 + Math.abs(pulse) * 0.08,
       };
     }
     case 'fire':
     case 'flight':
     case 'transform':
     case 'attack': {
-      const surge = Math.sin(t * 16);
+      const surge = Math.sin(t * 17);
+      const isFlight = animState === 'fire' || animState === 'flight';
       return {
-        offsetX: 0.8,
-        offsetY: -1.2 + surge * 0.5,
-        scaleX: animState === 'transform' ? 1.14 : 1.06,
-        scaleY: animState === 'transform' ? 0.92 : 0.95,
-        tiltDeg: -8 + surge * 2,
+        offsetX: isFlight ? 1.4 : 0.8,
+        offsetY: -1.3 + surge * 0.5,
+        scaleX: animState === 'transform' ? 1.15 : isFlight ? 1.1 : 1.06,
+        scaleY: animState === 'transform' ? 0.9 : isFlight ? 0.93 : 0.95,
+        tiltDeg: (isFlight ? -10 : -8) + surge * 2.5,
         blinkClosed: false,
         glowPulse: 1,
-        crestBobPx: -1.5,
-        tailWagDeg: surge * 20,
+        crestBobPx: -1.8 + surge * 0.5,
+        tailWagDeg: surge * 22,
+        eyeLookX: 0.55,
+        eyeLookY: -0.15,
+        crestTiltDeg: -10 + surge * 8,
+        jawOpen: 0.88,
+        sparkAlpha: 1,
+        cheekPulse: 1,
+        auraScale: 1.14 + Math.abs(surge) * 0.06,
       };
     }
     case 'hit':
     case 'ko': {
+      const shudder = animState === 'hit' ? Math.sin(t * 28) : 0;
       return {
-        offsetX: animState === 'hit' ? Math.sin(t * 24) * 1.8 : 0,
-        offsetY: animState === 'ko' ? 2.2 : 0.6,
-        scaleX: animState === 'ko' ? 1.06 : 0.93,
-        scaleY: animState === 'ko' ? 0.88 : 1.05,
-        tiltDeg: animState === 'ko' ? 12 : 8,
+        offsetX: animState === 'hit' ? shudder * 1.9 : 0,
+        offsetY: animState === 'ko' ? 2.2 : 0.7,
+        scaleX: animState === 'ko' ? 1.06 : 0.92,
+        scaleY: animState === 'ko' ? 0.88 : 1.06,
+        tiltDeg: animState === 'ko' ? 14 : 9 + shudder * 3,
         blinkClosed: animState === 'ko',
-        glowPulse: animState === 'ko' ? 0.2 : 0.6,
-        crestBobPx: 0.6,
-        tailWagDeg: 0,
+        glowPulse: animState === 'ko' ? 0.2 : 0.65,
+        crestBobPx: 0.7,
+        tailWagDeg: shudder * 8,
+        eyeLookX: -0.35,
+        eyeLookY: 0.25,
+        crestTiltDeg: animState === 'ko' ? 14 : 10,
+        jawOpen: animState === 'hit' ? 0.7 : 0.15,
+        sparkAlpha: animState === 'hit' ? 0.55 : 0,
+        cheekPulse: animState === 'ko' ? 0.15 : 0.6,
+        auraScale: animState === 'ko' ? 0.85 : 0.96,
       };
     }
     case 'idle':
     default: {
       const breath = Math.sin(t * 2.8 * agilityMult);
       const hoverBoost = posture === 'hovering' ? -1.4 + Math.sin(t * 3.6) * 1.1 : 0;
+      const microJitterX = isTazerling && Math.sin(t * 7.3) > 0.88 ? Math.sin(t * 42) * 0.55 : 0;
       return {
-        offsetX: 0,
-        offsetY: hoverBoost + (posture === 'hovering' ? 0 : Math.max(0, -breath) * 0.5),
-        scaleX: 1 + breath * 0.028,
-        scaleY: 1 - breath * 0.028,
-        tiltDeg: Math.sin(t * 1.5) * 1.8,
+        offsetX: microJitterX,
+        offsetY: hoverBoost + (posture === 'hovering' ? 0 : Math.max(0, -breath) * (isFrostcrawler ? 0.35 : 0.65)),
+        scaleX: 1 + breath * (isFrostcrawler ? 0.036 : 0.028),
+        scaleY: 1 - breath * (isFrostcrawler ? 0.036 : 0.028),
+        tiltDeg: Math.sin(t * 1.6 * agilityMult) * (isFrostcrawler ? 1.0 : isTazerling ? 3.2 : 2.1),
         blinkClosed,
-        glowPulse: 0.65 + breath * 0.2,
-        crestBobPx: breath * 0.7,
-        tailWagDeg: Math.sin(t * 3.4) * 7,
+        glowPulse: 0.66 + breath * 0.2,
+        crestBobPx: breath * (isInfurnus ? 0.95 : 0.65),
+        tailWagDeg: Math.sin(t * 3.6 * agilityMult) * (isFrostcrawler ? 4.5 : isTazerling ? 12 : 8.5),
+        eyeLookX: baseLookX,
+        eyeLookY: baseLookY,
+        crestTiltDeg: Math.sin(t * 3.1 * agilityMult) * (isInfurnus ? 6.5 : isTazerling ? 8 : 2),
+        jawOpen: isTazerling ? 0.25 + Math.max(0, breath) * 0.15 : 0.08,
+        sparkAlpha: isTazerling ? Math.max(0, sparkBurst - 0.15) : isInfurnus ? 0.35 + Math.max(0, breath) * 0.25 : 0.2,
+        cheekPulse: 0.6 + breath * 0.22,
+        auraScale: 1 + breath * 0.03,
       };
     }
   }

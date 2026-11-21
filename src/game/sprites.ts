@@ -15,7 +15,7 @@ function px(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: num
   g.fillRect(x, y, w, h);
 }
 
-export type SlugSpritePose = 'idle' | 'rest' | 'happy' | 'walk' | 'play' | 'eat';
+export type SlugSpritePose = 'idle' | 'rest' | 'happy' | 'walk' | 'play' | 'eat' | 'react';
 
 class SpriteAtlas {
   private tileCache = new Map<string, HTMLCanvasElement>();
@@ -483,22 +483,26 @@ class SpriteAtlas {
     pose: SlugSpritePose = 'idle',
     frame = 0
   ): HTMLCanvasElement {
-    const f = frame & 1;
-    const key = `sp_slug_v2_${speciesId}_${mega ? 1 : 0}_${pose}_${f}`;
+    const f4 = frame & 3;
+    const f = f4 & 1;
+    const key = `sp_slug_v3_${speciesId}_${mega ? 1 : 0}_${pose}_${f4}`;
     const existing = this.charCache.get(key);
     if (existing) return existing;
 
     const sp = getSpecies(speciesId);
     const [c, g] = makeCanvas(24, 24);
+    const isMovingPose = pose === 'walk' || pose === 'play' || pose === 'happy';
     const yShift =
       pose === 'rest'
         ? 2
-        : pose === 'happy' || pose === 'play'
-        ? f === 1
+        : isMovingPose
+        ? f4 === 1
           ? -1
+          : f4 === 3
+          ? -2
           : 0
-        : pose === 'walk'
-        ? f === 1
+        : pose === 'react'
+        ? f4 === 1 || f4 === 2
           ? -1
           : 0
         : 0;
@@ -514,84 +518,117 @@ class SpriteAtlas {
     }
 
     // Helper: crisp dark silhouette border + -45deg rim highlight
-    const rim = 'rgba(255,255,255,0.42)';
+    const rim = 'rgba(255,255,255,0.44)';
     const outline = '#060c14';
+    const stepA = pose === 'walk' || pose === 'play' ? (f4 === 1 ? -1 : f4 === 3 ? 1 : 0) : 0;
+    const stepB = -stepA;
 
     switch (speciesId) {
-      // ---- PROTOTYPE 1: INFURNUS (Slender Flame Creature) ----
+      // ---- PROTOTYPE 1: INFURNUS (Slender Agile Flame Creature) ----
       case 'infurnus': {
-        // Outline + tall slender ember silhouette + flame tail
-        bob(7, 7, 10, 15, outline);
-        bob(8, 6, 8, 16, outline);
-        bob(4, 15, 4, 5, outline);
-        // Flame crest (flickers between frame 0 and 1)
-        bob(10 + f, 1, 2, 4, '#fde047');
-        bob(9, 3, 5, 4, '#f97316');
-        bob(8, 5, 2, 3, '#f97316');
-        bob(14, 5, 2, 3, '#fb923c');
+        // Tall slender outline + curled flame tail + athletic grounded feet
+        bob(7, 7, 10, 14, outline);
+        bob(8, 6, 8, 15, outline);
+        bob(3, 14, 5, 6, outline);
+        // Stubby grounded stride feet
+        bob(8 + stepA, 20, 3, 2, '#7f1d1d');
+        bob(13 + stepB, 20, 3, 2, '#7f1d1d');
+        // Multi-tongue asymmetrical flame crest (4-frame flicker)
+        const crestShift = f4 === 1 ? -1 : f4 === 3 ? 1 : 0;
+        bob(10 + crestShift, 1, 3, 4, '#fef08a');
+        bob(9, 3, 6, 4, '#f97316');
+        bob(7, 4 + f, 2, 3, '#fb923c'); // left ear-horn
+        bob(15, 4 + (1 - f), 2, 3, '#fb923c'); // right ear-horn
         // Body + shadow bottom-right + -45deg top-left highlight
-        bob(8, 7, 8, 14, sp.color);
-        bob(14, 10, 2, 10, '#991b1b');
-        bob(9, 8, 2, 4, '#fca5a5');
-        // Fiery belly plates
-        bob(10, 14, 4, 7, '#fde047');
-        bob(10, 17, 4, 1, '#f97316');
-        // Tail flame
-        bob(4, 16 - f, 4, 3, '#f97316');
-        bob(3, 15 + f, 2, 2, '#fde047');
+        bob(8, 7, 8, 13, sp.color);
+        bob(14, 9, 2, 11, '#991b1b');
+        bob(9, 8, 2, 4, '#fecaca');
+        // Fiery golden belly & scorch seams
+        bob(10, 14, 4, 6, '#fde047');
+        bob(10, 16, 4, 1, '#ea580c');
+        bob(10, 18, 4, 1, '#ea580c');
+        // Sweeping flame tail
+        bob(4, 16 - (f4 & 1), 4, 3, '#f97316');
+        bob(2, 14 + (f4 === 2 ? 1 : 0), 3, 2, '#fde047');
+        // Floating ember spark on active states
+        if (pose === 'happy' || pose === 'play' || pose === 'react' || f4 === 2) {
+          bob(16, 2 - (f4 & 1), 1, 1, '#fef08a');
+        }
         break;
       }
 
-      // ---- PROTOTYPE 2: FROSTCRAWLER (Wide Heavy Armored Crawler) ----
+      // ---- PROTOTYPE 2: FROSTCRAWLER (Wide Heavy Armored Beetle Crawler) ----
       case 'frostcrawler': {
-        // Heavy low hexagonal outline hugging ground
-        bob(4, 10, 16, 12, outline);
-        bob(6, 8, 12, 14, outline);
-        bob(2, 16, 4, 5, outline);
+        const heave = pose === 'rest' ? 0 : f4 === 2 ? 1 : 0;
+        // Wide low hexagonal outline hugging ground
+        bob(3, 10 + heave, 18, 11, outline);
+        bob(5, 8 + heave, 14, 13, outline);
+        bob(1, 16, 4, 5, outline);
+        // 4 chunky armored feet planted firmly
+        bob(5 + stepA, 20, 3, 2, '#164e63');
+        bob(10 + stepB, 20, 2, 2, '#164e63');
+        bob(13 + stepA, 20, 2, 2, '#164e63');
+        bob(16 + stepB, 20, 3, 2, '#164e63');
         // Three jagged crystal horns
-        bob(6, 5, 2, 4, '#bae6fd');
-        bob(11, 3, 2, 6, '#f0f9ff');
-        bob(16, 5, 2, 4, '#bae6fd');
-        // Wide armored cryo carapace
-        bob(5, 11, 14, 10, '#0891b2');
-        bob(7, 9, 10, 12, '#06b6d4');
-        // -45deg frosty specular top shell
-        bob(6, 10, 6, 2, '#e0f2fe');
-        bob(15, 13, 4, 7, '#164e63');
+        bob(5, 5 + heave, 2, 4, '#bae6fd');
+        bob(11, 2 + heave, 2, 7, '#f0f9ff');
+        bob(17, 5 + heave, 2, 4, '#bae6fd');
+        // Wide armored cryo carapace + segmented dorsal bevel
+        bob(4, 11 + heave, 16, 9, '#0891b2');
+        bob(6, 9 + heave, 12, 11, '#06b6d4');
+        // Heavy shoulder ice shields
+        bob(3, 14 + heave, 2, 4, '#67e8f9');
+        bob(19, 14 + heave, 2, 4, '#67e8f9');
+        // -45deg frosty specular top shell & right-side plate shadow
+        bob(6, 10 + heave, 6, 2, '#e0f2fe');
+        bob(15, 12 + heave, 5, 8, '#164e63');
         // Armored belly & lower mandible ridge
-        bob(8, 16, 8, 5, '#e0f2fe');
-        bob(6, 16, 2, 3, '#67e8f9');
-        bob(16, 16, 2, 3, '#67e8f9');
-        // Clubbed frost tail
-        bob(2, 17, 3, 3, '#38bdf8');
-        bob(1, 16, 2, 2, '#e0f2fe');
+        bob(8, 16, 8, 4, '#e0f2fe');
+        bob(8, 18, 8, 1, '#0e7490');
+        bob(6, 16, 2, 2, '#bae6fd');
+        bob(16, 16, 2, 2, '#bae6fd');
+        // Clubbed frost mace tail
+        bob(1, 17, 3, 3, '#38bdf8');
+        bob(1, 15, 2, 2, '#e0f2fe');
         break;
       }
 
       // ---- PROTOTYPE 3: TAZERLING (Agile Hyper Lightning Sprinter) ----
       case 'tazerling': {
+        const zapJitter = f4 === 1 ? -1 : f4 === 3 ? 1 : 0;
         // Lean silhouette + puff electric cheeks + forked tail
-        bob(7, 8, 10, 14, outline);
-        bob(6, 12, 12, 5, outline);
-        // Zigzag lightning antennae
-        bob(7, 4, 2, 4, '#fef08a');
-        bob(5 + f, 2, 2, 3, '#fde047');
-        bob(15, 4, 2, 4, '#fef08a');
-        bob(17 - f, 2, 2, 3, '#fde047');
-        // Lean bright yellow body
-        bob(8, 9, 8, 12, '#eab308');
-        bob(7, 13, 10, 4, '#eab308');
+        bob(7, 8, 10, 13, outline);
+        bob(5, 12, 14, 5, outline);
+        // Quick sprinter feet
+        bob(8 + stepA, 20, 3, 2, '#854d0e');
+        bob(13 + stepB, 20, 3, 2, '#854d0e');
+        // Twin dramatic zigzag lightning antennae (3 bends!)
+        bob(8, 5, 2, 3, '#fef08a');
+        bob(6 + f, 3, 3, 2, '#fde047');
+        bob(7 + zapJitter, 1, 2, 2, '#38bdf8');
+        bob(14, 5, 2, 3, '#fef08a');
+        bob(15 - f, 3, 3, 2, '#fde047');
+        bob(15 - zapJitter, 1, 2, 2, '#38bdf8');
+        // Lean bright yellow body + -45deg highlight
+        bob(8, 9, 8, 11, '#eab308');
+        bob(6, 13, 12, 4, '#eab308');
         bob(9, 10, 2, 3, '#fef9c3');
         bob(14, 12, 2, 8, '#a16207');
-        // Glowing blue conductive cheek sacs
-        bob(7, 14, 2, 2, '#38bdf8');
-        bob(15, 14, 2, 2, '#38bdf8');
+        // Swollen glowing blue conductive cheek sacs
+        bob(6, 14, 3, 2, f4 === 2 ? '#7dd3fc' : '#38bdf8');
+        bob(15, 14, 3, 2, f4 === 2 ? '#7dd3fc' : '#38bdf8');
+        bob(7, 14, 1, 1, '#ffffff');
+        bob(16, 14, 1, 1, '#ffffff');
         // Belly
-        bob(10, 15, 4, 6, '#fef9c3');
+        bob(10, 15, 4, 5, '#fef9c3');
         // Forked lightning tail
         bob(3, 15, 4, 2, '#fef08a');
-        bob(2, 13 + f, 2, 2, '#38bdf8');
-        bob(2, 17 - f, 2, 2, '#fde047');
+        bob(1, 13 + f, 3, 2, '#38bdf8');
+        bob(1, 17 - f, 3, 2, '#fde047');
+        // Intermittent spark crackle around antennae
+        if (pose === 'react' || pose === 'play' || f4 === 1 || f4 === 3) {
+          bob(11, 2, 2, 1, '#7dd3fc');
+        }
         break;
       }
 
@@ -750,8 +787,9 @@ class SpriteAtlas {
     const eyeY = isLow ? 13 : 11;
     const eyeLX = isLow ? 8 : 9;
     const eyeRX = isLow ? 14 : 13;
+    const lookShift = pose === 'react' ? (f4 === 1 ? -1 : f4 === 3 ? 1 : 0) : 0;
     const eyeDark =
-      speciesId === 'darkfurnus' || speciesId === 'umbrospect' || speciesId === 'piroclasto'
+      speciesId === 'darkfurnus' || speciesId === 'umbrospect' || speciesId === 'piroclasto' || speciesId === 'frostcrawler'
         ? '#fde047'
         : '#060c14';
 
@@ -765,14 +803,24 @@ class SpriteAtlas {
     } else if (pose === 'eat') {
       bob(eyeLX, eyeY, 2, 1, eyeDark);
       bob(eyeRX, eyeY, 2, 1, eyeDark);
-      bob(10, eyeY + 3, 4, 2, '#450a0a');
+      bob(10, eyeY + 3, 4, f === 1 ? 2 : 1, '#450a0a');
+    } else if (speciesId === 'frostcrawler') {
+      // Heavy brow & gleaming amber slit eyes
+      bob(eyeLX - 1, eyeY - 1, 3, 1, '#060c14');
+      bob(eyeRX, eyeY - 1, 3, 1, '#060c14');
+      bob(eyeLX, eyeY, 2, 1, '#fde047');
+      bob(eyeRX, eyeY, 2, 1, '#fde047');
     } else {
-      bob(eyeLX, eyeY, 2, 2, eyeDark);
-      bob(eyeRX, eyeY, 2, 2, eyeDark);
-      bob(eyeLX, eyeY, 1, 1, '#ffffff');
-      bob(eyeRX, eyeY, 1, 1, '#ffffff');
+      bob(eyeLX + lookShift, eyeY, 2, 2, eyeDark);
+      bob(eyeRX + lookShift, eyeY, 2, 2, eyeDark);
+      bob(eyeLX + lookShift, eyeY, 1, 1, '#ffffff');
+      bob(eyeRX + lookShift, eyeY, 1, 1, '#ffffff');
       if (speciesId === 'tazerling') {
-        bob(eyeLX + 1, eyeY + 1, 1, 1, '#ffffff');
+        bob(eyeLX + 1 + lookShift, eyeY + 1, 1, 1, '#38bdf8');
+        bob(eyeRX + 1 + lookShift, eyeY + 1, 1, 1, '#38bdf8');
+      }
+      if (speciesId === 'infurnus' && (pose === 'react' || pose === 'walk')) {
+        bob(11, eyeY + 3, 2, 1, '#450a0a');
       }
     }
 

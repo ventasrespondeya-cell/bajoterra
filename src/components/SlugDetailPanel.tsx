@@ -21,10 +21,15 @@ import { SlugPortrait, type SlugPortraitMood } from './SlugPortrait';
 const DETAIL_MOODS: Array<{ id: SlugPortraitMood; label: string }> = [
   { id: 'happy', label: 'Feliz' },
   { id: 'idle', label: 'Tranquila' },
+  { id: 'walk', label: 'Pasear' },
   { id: 'play', label: 'Jugar' },
   { id: 'eat', label: 'Comer' },
+  { id: 'react', label: 'Reacción' },
+  { id: 'charge', label: 'Cargar' },
   { id: 'attack', label: 'Ataque' },
+  { id: 'hit', label: 'Impacto' },
   { id: 'sleep', label: 'Descanso' },
+  { id: 'victory', label: 'Victoria' },
 ];
 
 interface SlugDetailPanelProps {
@@ -41,6 +46,7 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
   onClose,
 }) => {
   const [previewMood, setPreviewMood] = useState<SlugPortraitMood>(slug.hp <= 0 ? 'ko' : 'happy');
+  const [showSilhouette, setShowSilhouette] = useState(false);
   const sp = getSpecies(slug.id);
   const sheet = getSlugDesignSheet(slug.id);
   const bondTier = getBondTierInfo(slug.bond);
@@ -59,12 +65,13 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-cyan-400/20 pb-3.5">
           <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-20 h-20 rounded-2xl bt-inset border-teal-400/35 flex items-center justify-center shrink-0">
+            <div className="w-24 h-24 rounded-2xl bt-inset border-teal-400/35 flex items-center justify-center shrink-0">
               <SlugPortrait
                 speciesId={slug.id}
                 mega={slug.mega}
                 mood={effectiveMood}
-                size={68}
+                size={82}
+                silhouette={showSilhouette}
               />
             </div>
             <div className="min-w-0">
@@ -107,20 +114,29 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
             <span className="text-[11px] font-extrabold text-cyan-300 uppercase tracking-wider">
               Expresión y Personalidad · {sheet.storyChapter}
             </span>
-            <div className="flex flex-wrap gap-1">
-              {DETAIL_MOODS.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setPreviewMood(m.id)}
-                  className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer whitespace-nowrap transition-colors ${
-                    effectiveMood === m.id ? 'bt-btn-primary' : 'bt-btn-secondary'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowSilhouette((v) => !v)}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer whitespace-nowrap ${
+                showSilhouette ? 'bt-btn-amber' : 'bt-btn-secondary'
+              }`}
+            >
+              {showSilhouette ? 'Vista Color' : 'Silueta'}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {DETAIL_MOODS.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setPreviewMood(m.id)}
+                className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer whitespace-nowrap transition-colors ${
+                  effectiveMood === m.id ? 'bt-btn-primary' : 'bt-btn-secondary'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
           <div className="text-[11px] text-slate-300 leading-relaxed">
             <span className="text-slate-100 font-semibold">{sheet.temperament}</span> · Rasgos:{' '}

@@ -367,10 +367,10 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
                 <div
                   className="bt-cinematic-pop flex items-center justify-center"
                   style={{
-                    filter: `brightness(0) saturate(0) drop-shadow(0 0 18px ${elColor})`,
+                    filter: `drop-shadow(0 0 18px ${elColor})`,
                   }}
                 >
-                  <SlugPortrait speciesId={featured.speciesId} mood="happy" size={112} />
+                  <SlugPortrait speciesId={featured.speciesId} mood="happy" size={114} silhouette />
                 </div>
               ) : (
                 /* Stage 2: Full Revealed Slug */
