@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { getSpecies } from '../game/data';
 
 export type SlugPortraitMood = 'idle' | 'happy' | 'attack' | 'hit' | 'ko' | 'sleep';
@@ -24,12 +24,13 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
   flipX = false,
   className = '',
 }) => {
+  const reactId = useId();
   const sp = getSpecies(speciesId);
   const bodyColor = sp.color;
   const accentColor = sp.accent;
   const isShadow = speciesId === 'darkfurnus' || speciesId === 'umbrospect';
   const eyeColor = isShadow ? '#fde047' : '#061018';
-  const uid = `${speciesId}_${mega ? 'm' : 'n'}`;
+  const uid = `${speciesId}_${mega ? 'm' : 'n'}_${reactId.replace(/:/g, '')}`;
 
   return (
     <svg
@@ -43,7 +44,7 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
           mood === 'ko'
             ? 'grayscale(0.75) opacity(0.65)'
             : mega
-            ? `drop-shadow(0 0 5px rgba(251, 191, 36, 0.55))`
+            ? `drop-shadow(0 0 5px rgba(251, 191, 36, 0.6))`
             : `drop-shadow(0 2px 4px rgba(2, 6, 12, 0.55))`,
       }}
       role="img"
@@ -51,7 +52,7 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
     >
       <defs>
         <radialGradient id={`glow_${uid}`} cx="50%" cy="55%" r="50%">
-          <stop offset="0%" stopColor={mega ? '#fde047' : accentColor} stopOpacity="0.34" />
+          <stop offset="0%" stopColor={mega ? '#fde047' : accentColor} stopOpacity="0.38" />
           <stop offset="100%" stopColor={bodyColor} stopOpacity="0" />
         </radialGradient>
       </defs>
@@ -65,6 +66,16 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
       {/* Megamorph Golden Aura Ring */}
       {mega && (
         <g>
+          <circle
+            cx="16"
+            cy="16.5"
+            r="12.5"
+            fill="none"
+            stroke="#fbbf24"
+            strokeOpacity="0.45"
+            strokeWidth="0.9"
+            strokeDasharray="3 2"
+          />
           <path
             d="M11 4.5 L13.5 7 L16 3 L18.5 7 L21 4.5 L20 8.5 L12 8.5 Z"
             fill="#fbbf24"
@@ -112,6 +123,9 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
         <g stroke="#fef08a" strokeWidth="1.5" strokeLinecap="round" fill="none">
           <polyline points="12,10 10,6 12.5,5.5 11,3" />
           <polyline points="20,10 22,6 19.5,5.5 21,3" />
+          {speciesId === 'voltrix' && (
+            <path d="M9 15.5 L11 15.5 M21 15.5 L23 15.5" stroke="#60a5fa" strokeWidth="1.4" />
+          )}
         </g>
       )}
 
@@ -137,13 +151,28 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
         </g>
       )}
 
+      {speciesId === 'lariat' && (
+        <g fill="#d97706" stroke="#fde68a" strokeWidth="0.8">
+          <polygon points="13,10 11.5,5.5 15,9" />
+          <polygon points="19,10 20.5,5.5 17,9" />
+        </g>
+      )}
+
       {(speciesId === 'enigmo' || speciesId === 'aetherion') && (
-        <polygon
-          points="16,3 18.5,7.2 16,10 13.5,7.2"
-          fill={speciesId === 'aetherion' ? '#fef08a' : '#5eead4'}
-          stroke="#ffffff"
-          strokeWidth="0.8"
-        />
+        <g>
+          <polygon
+            points="16,3 18.5,7.2 16,10 13.5,7.2"
+            fill={speciesId === 'aetherion' ? '#fef08a' : '#5eead4'}
+            stroke="#ffffff"
+            strokeWidth="0.8"
+          />
+          {speciesId === 'aetherion' && (
+            <g fill="none" stroke="#99f6e4" strokeWidth="1" opacity="0.8">
+              <path d="M9.5 17 Q6.5 14 8.5 11.5" strokeLinecap="round" />
+              <path d="M22.5 17 Q25.5 14 23.5 11.5" strokeLinecap="round" />
+            </g>
+          )}
+        </g>
       )}
 
       {speciesId === 'doc' && (

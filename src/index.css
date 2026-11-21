@@ -2,11 +2,11 @@
 
 @layer base {
   :root {
-    --bt-obsidian: #060d14;
-    --bt-basalt: #0b1622;
+    --bt-obsidian: #050b12;
+    --bt-basalt: #0a1521;
     --bt-panel: #0e1c2b;
     --bt-card: #132537;
-    --bt-inset: #08121c;
+    --bt-inset: #07111b;
     --bt-cyan: #2dd4bf;
     --bt-sky: #38bdf8;
     --bt-amber: #fbbf24;
@@ -52,41 +52,75 @@
 
 /* Subterranean Ancient-Tech Panel Surfaces */
 .bt-panel {
-  background: linear-gradient(175deg, rgba(16, 33, 49, 0.96) 0%, rgba(9, 18, 28, 0.97) 100%);
-  border: 1px solid rgba(56, 189, 248, 0.28);
+  background: linear-gradient(172deg, rgba(16, 33, 49, 0.97) 0%, rgba(7, 16, 26, 0.98) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.3);
   box-shadow:
-    inset 0 1px 0 rgba(186, 230, 253, 0.14),
-    inset 0 -2px 0 rgba(2, 6, 12, 0.7),
-    0 20px 48px rgba(2, 6, 12, 0.78);
+    inset 0 1px 0 rgba(186, 230, 253, 0.16),
+    inset 0 -2px 0 rgba(2, 6, 12, 0.72),
+    0 22px 52px rgba(2, 6, 12, 0.82);
 }
 
 .bt-hud-panel {
-  background: linear-gradient(170deg, rgba(13, 27, 41, 0.9) 0%, rgba(7, 15, 24, 0.92) 100%);
+  background: linear-gradient(170deg, rgba(11, 24, 38, 0.88) 0%, rgba(6, 14, 23, 0.92) 100%);
   border: 1px solid rgba(94, 234, 212, 0.24);
   box-shadow:
     inset 0 1px 0 rgba(186, 230, 253, 0.12),
-    0 8px 24px rgba(2, 6, 12, 0.55);
-  backdrop-filter: blur(8px);
+    0 8px 24px rgba(2, 6, 12, 0.52);
+  backdrop-filter: blur(10px);
+}
+
+/* High-Tech Slug Case Canister Dock (Right Side) */
+.bt-slug-rack {
+  background: linear-gradient(180deg, rgba(9, 20, 32, 0.88) 0%, rgba(5, 12, 20, 0.93) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(186, 230, 253, 0.14),
+    inset -2px 0 8px rgba(45, 212, 191, 0.08),
+    0 12px 30px rgba(2, 6, 12, 0.65);
+  backdrop-filter: blur(10px);
+}
+
+.bt-slug-slot {
+  background: linear-gradient(160deg, rgba(16, 32, 48, 0.86) 0%, rgba(8, 17, 28, 0.94) 100%);
+  border: 1px solid rgba(100, 148, 178, 0.28);
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 160ms ease,
+    opacity 160ms ease,
+    box-shadow 180ms ease;
+}
+
+.bt-slug-slot:hover:not(:disabled) {
+  border-color: rgba(94, 234, 212, 0.62);
+}
+
+.bt-slug-slot-active {
+  background: linear-gradient(155deg, rgba(18, 56, 68, 0.96) 0%, rgba(9, 27, 42, 0.98) 100%);
+  border: 1px solid rgba(94, 234, 212, 0.92);
+  transform: translateX(-4px) scale(1.03);
+  box-shadow:
+    inset 0 1px 0 rgba(204, 251, 241, 0.28),
+    0 0 16px rgba(45, 212, 191, 0.32);
 }
 
 .bt-inset {
-  background: rgba(7, 15, 24, 0.88);
-  border: 1px solid rgba(100, 140, 168, 0.22);
-  box-shadow: inset 0 2px 6px rgba(2, 6, 12, 0.65);
+  background: rgba(6, 14, 23, 0.88);
+  border: 1px solid rgba(100, 140, 168, 0.24);
+  box-shadow: inset 0 2px 6px rgba(2, 6, 12, 0.68);
 }
 
 .bt-card {
-  background: linear-gradient(180deg, rgba(19, 37, 56, 0.82) 0%, rgba(12, 24, 37, 0.9) 100%);
-  border: 1px solid rgba(100, 148, 178, 0.24);
+  background: linear-gradient(180deg, rgba(19, 38, 57, 0.84) 0%, rgba(11, 23, 36, 0.92) 100%);
+  border: 1px solid rgba(100, 148, 178, 0.25);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .bt-btn-primary {
-  background: linear-gradient(180deg, #5eead4 0%, #22d3ee 58%, #0ea5e9 100%);
-  color: #05131c;
-  border: 1px solid rgba(207, 250, 254, 0.7);
+  background: linear-gradient(180deg, #5eead4 0%, #22d3ee 56%, #0ea5e9 100%);
+  color: #04131c;
+  border: 1px solid rgba(207, 250, 254, 0.72);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.58),
     0 4px 14px rgba(34, 211, 238, 0.28);
   transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
 }
@@ -94,8 +128,8 @@
 .bt-btn-primary:hover:not(:disabled) {
   filter: brightness(1.07);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    0 6px 20px rgba(45, 212, 191, 0.36);
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 6px 20px rgba(45, 212, 191, 0.38);
 }
 
 .bt-btn-primary:active:not(:disabled) {
@@ -105,9 +139,9 @@
 .bt-btn-amber {
   background: linear-gradient(180deg, #fde047 0%, #f59e0b 100%);
   color: #1c1104;
-  border: 1px solid rgba(254, 249, 195, 0.7);
+  border: 1px solid rgba(254, 249, 195, 0.72);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.58),
     0 4px 14px rgba(245, 158, 11, 0.28);
   transition: transform 140ms ease, filter 140ms ease;
 }
@@ -129,7 +163,7 @@
 }
 
 .bt-btn-secondary:hover:not(:disabled) {
-  border-color: rgba(56, 189, 248, 0.65);
+  border-color: rgba(56, 189, 248, 0.68);
   color: #ffffff;
 }
 
@@ -157,7 +191,7 @@
   background: rgba(94, 234, 212, 0.55);
 }
 
-/* Expressive micro-animations */
+/* Expressive micro-animations (compositor-only) */
 @keyframes bt-modal-in {
   from {
     opacity: 0;
@@ -176,6 +210,21 @@
   }
   50% {
     transform: translateY(-4px);
+  }
+}
+
+@keyframes bt-slug-swap {
+  0% {
+    transform: translateX(-4px) scale(0.94);
+    opacity: 0.72;
+  }
+  60% {
+    transform: translateX(-6px) scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-4px) scale(1.03);
+    opacity: 1;
   }
 }
 
@@ -208,6 +257,10 @@
 
 .bt-animate-slug {
   animation: bt-slug-float 2.4s ease-in-out infinite;
+}
+
+.bt-animate-slug-swap {
+  animation: bt-slug-swap 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .bt-animate-hit {

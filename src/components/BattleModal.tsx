@@ -1,21 +1,24 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ArrowDown,
-  ArrowUp,
   Backpack,
   Crosshair,
+  Heart,
+  MoreHorizontal,
   Shield,
   Sparkles,
   Swords,
+  Target,
+  X,
   Zap,
 } from 'lucide-react';
 import { ARENA_HEIGHT, ARENA_WIDTH } from '../game/combatArenas';
 import { CombatManager } from '../game/combat';
 import { DuelArenaRenderer } from '../game/combatRenderer';
-import { BIOME_INFO, ELEMENT_CHART, getElementMultiplier, getSpecies } from '../game/data';
+import { BIOME_INFO, getElementMultiplier, getSpecies } from '../game/data';
 import { getEffectiveMoveEnergyCost, getMoveMasteryInfo } from '../game/progression';
 import { getSlugCombatProfile } from '../game/slugCombatProfiles';
 import type { BattleState, BlasterShotMode, GameState } from '../game/types';
+import { SlugColumn } from './SlugColumn';
 import { SlugPortrait, type SlugPortraitMood } from './SlugPortrait';
 
 interface BattleModalProps {
@@ -25,13 +28,41 @@ interface BattleModalProps {
   onSync: () => void;
 }
 
+function isEditableEventTarget(target: EventTarget | null): boolean {
+  if (!target || typeof target !== 'object') return false;
+  const el = target as { tagName?: string; isContentEditable?: boolean };
+  const tag = el.tagName?.toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || Boolean(el.isContentEditable);
+}
+
+const MOVE_KEYS = new Set([
+  'w',
+  'a',
+  's',
+  'd',
+  'arrowup',
+  'arrowdown',
+  'arrowleft',
+  'arrowright',
+]);
+
 export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat, onSync }) => {
-  const [bagOpen, setBagOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [joyNub, setJoyNub] = useState({ x: 0, y: 0 });
+  const [aimNub, setAimNub] = useState({ x: 0, y: 0, active: false });
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<DuelArenaRenderer | null>(null);
-  const activePointerIdRef = useRef<number | null>(null);
-  const upHeldRef = useRef(false);
-  const downHeldRef = useRef(false);
+  const joyRef = useRef<HTMLDivElement | null>(null);
+  const aimPadRef = useRef<HTMLDivElement | null>(null);
+
+  const canvasPointerIdRef = useRef<number | null>(null);
+  const joyPointerIdRef = useRef<number | null>(null);
+  const aimPointerIdRef = useRef<number | null>(null);
+  const aimDraggedRef = useRef(false);
+
+  const heldMoveKeysRef = useRef<Set<string>>(new Set());
 
   const ally = state.party[state.activePartyIndex] || state.party[0];
   const allySpecies = getSpecies(ally.id);
@@ -40,9 +71,47 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
   const mult = getElementMultiplier(ally.type, enemy.type);
   const biomeInfo = BIOME_INFO[battle.biome] || BIOME_INFO.Verdes;
 
-  const updateVerticalHold = useCallback(() => {
-    const dir = upHeldRef.current && !downHeldRef.current ? -1 : downHeldRef.current && !upHeldRef.current ? 1 : 0;
-    combat.setVerticalInput(dir);
+  useEffect(() => {
+    const check = () => {
+      const coarse =
+        window.matchMedia('(pointer: coarse)').matches ||
+        window.innerWidth < 920 ||
+        navigator.maxTouchPoints > 0;
+      setIsTouchDevice(coarse);
+    };
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  const showTouch =
+    state.options.touchControls === 'on' ||
+    (state.options.touchControls === 'auto' && isTouchDevice);
+
+  const updateKeyboardMove = useCallback(() => {
+    const held = heldMoveKeysRef.current;
+    const up = held.has('w') || held.has('arrowup');
+    const down = held.has('s') || held.has('arrowdown');
+    const left = held.has('a') || held.has('arrowleft');
+    const right = held.has('d') || held.has('arrowright');
+    const dx = (right ? 1 : 0) - (left ? 1 : 0);
+    const dy = (down ? 1 : 0) - (up ? 1 : 0);
+    combat.setMoveInput(dx, dy);
+  }, [combat]);
+
+  const clearAllInputs = useCallback(() => {
+    heldMoveKeysRef.current.clear();
+    joyPointerIdRef.current = null;
+    aimPointerIdRef.current = null;
+    canvasPointerIdRef.current = null;
+    aimDraggedRef.current = false;
+    setJoyNub({ x: 0, y: 0 });
+    setAimNub({ x: 0, y: 0, active: false });
+    if (combat.battle?.playerDuelist.charging) {
+      combat.battle.playerDuelist.charging = false;
+      combat.battle.playerDuelist.charge = 0;
+    }
+    combat.setMoveInput(0, 0);
   }, [combat]);
 
   const toArenaCoords = useCallback((clientX: number, clientY: number) => {
@@ -70,8 +139,12 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
       const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
       lastTime = now;
 
-      if (combat.battle && combat.battle.turn === 'duel') {
-        combat.step(dt, state);
+      if (combat.battle) {
+        if (combat.battle.turn === 'duel') {
+          combat.step(dt, state);
+        } else {
+          combat.stepEndedVisuals(dt);
+        }
       }
 
       const canvas = canvasRef.current;
@@ -80,7 +153,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
         rendererRef.current.render(ctx, combat.battle, state, combat, state.options);
       }
 
-      if (now - lastUiSync >= 85) {
+      if (now - lastUiSync >= 80) {
         lastUiSync = now;
         onSync();
       }
@@ -98,29 +171,35 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
       if (!combat.battle || combat.battle.turn !== 'duel') return;
       if (combat.battle.selectedMode === mode && mode !== 'quick') {
         combat.fireBlasterShot(state, { charge: 0.78, modeOverride: mode });
+        setActionsOpen(false);
         onSync();
         return;
       }
       combat.setSelectedMode(state, mode);
+      setActionsOpen(false);
       onSync();
     },
     [combat, state, onSync]
   );
 
-  // Stable keyboard controls (WASD/Arrows dodge, 1-4 switch slug, Z/X skills, Shift/F shield, R pulse, Space charge/fire)
+  // Full 2D keyboard controls (WASD / Arrows move, 1-4 or Q/E switch, Z/X skills, F/Shift contextual, R pulse, Space charge/fire)
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (!combat.battle || combat.battle.turn !== 'duel') return;
+      if (!combat.battle || isEditableEventTarget(e.target)) return;
+      if (e.key === 'Escape' && actionsOpen) {
+        e.preventDefault();
+        setActionsOpen(false);
+        return;
+      }
+      if (combat.battle.turn !== 'duel') return;
       const key = e.key.toLowerCase();
 
-      if (key === 'w' || e.key === 'ArrowUp') {
+      if (MOVE_KEYS.has(key)) {
         e.preventDefault();
-        upHeldRef.current = true;
-        updateVerticalHold();
-      } else if (key === 's' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        downHeldRef.current = true;
-        updateVerticalHold();
+        if (!heldMoveKeysRef.current.has(key)) {
+          heldMoveKeysRef.current.add(key);
+          updateKeyboardMove();
+        }
       } else if (key === '1' || key === '2' || key === '3' || key === '4') {
         const idx = Number(key) - 1;
         if (state.party[idx]) {
@@ -128,29 +207,9 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
           onSync();
         }
       } else if (key === 'q') {
-        const len = state.party.length;
-        if (len > 1) {
-          for (let offset = 1; offset <= len; offset++) {
-            const idx = (state.activePartyIndex - offset + len) % len;
-            if (state.party[idx].hp > 0) {
-              combat.swapSlug(state, idx);
-              onSync();
-              break;
-            }
-          }
-        }
+        if (combat.cycleSlug(state, -1)) onSync();
       } else if (key === 'e') {
-        const len = state.party.length;
-        if (len > 1) {
-          for (let offset = 1; offset <= len; offset++) {
-            const idx = (state.activePartyIndex + offset) % len;
-            if (state.party[idx].hp > 0) {
-              combat.swapSlug(state, idx);
-              onSync();
-              break;
-            }
-          }
-        }
+        if (combat.cycleSlug(state, 1)) onSync();
       } else if (key === 'z') {
         selectOrFireMode(0);
       } else if (key === 'x') {
@@ -162,35 +221,36 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
         }
       } else if (key === 'f' || e.key === 'Shift') {
         e.preventDefault();
-        combat.activateGuard(state);
+        combat.triggerContextualAction(state);
         onSync();
-      } else if (e.key === ' ') {
+      } else if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
         if (!e.repeat) {
           combat.beginCharge(state);
         }
       }
     },
-    [combat, state, onSync, selectOrFireMode, updateVerticalHold]
+    [actionsOpen, combat, state, onSync, selectOrFireMode, updateKeyboardMove]
   );
 
   const handleKeyUp = useCallback(
     (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      if (key === 'w' || e.key === 'ArrowUp') {
-        upHeldRef.current = false;
-        updateVerticalHold();
-      } else if (key === 's' || e.key === 'ArrowDown') {
-        downHeldRef.current = false;
-        updateVerticalHold();
-      } else if (e.key === ' ') {
+      if (MOVE_KEYS.has(key)) {
+        if (heldMoveKeysRef.current.delete(key)) {
+          updateKeyboardMove();
+        }
+        return;
+      }
+      if (isEditableEventTarget(e.target)) return;
+      if (e.key === ' ' || e.code === 'Space') {
         if (combat.battle?.turn === 'duel' && combat.battle.playerDuelist.charging) {
           combat.releaseChargeAndFire(state);
           onSync();
         }
       }
     },
-    [combat, state, onSync, updateVerticalHold]
+    [combat, state, onSync, updateKeyboardMove]
   );
 
   useEffect(() => {
@@ -199,15 +259,96 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
-      combat.setVerticalInput(0);
+      combat.setMoveInput(0, 0);
     };
   }, [handleKeyDown, handleKeyUp, combat]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        clearAllInputs();
+      }
+    };
+    window.addEventListener('blur', clearAllInputs);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', clearAllInputs);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      clearAllInputs();
+    };
+  }, [clearAllInputs]);
+
+  useEffect(() => {
+    if (battle.turn !== 'duel') {
+      clearAllInputs();
+    }
+  }, [battle.turn, clearAllInputs]);
+
+  // Left-side Virtual Joystick handlers
+  const updateJoystick = (clientX: number, clientY: number) => {
+    const el = joyRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    let dx = clientX - (rect.left + rect.width / 2);
+    let dy = clientY - (rect.top + rect.height / 2);
+    const maxR = Math.max(28, rect.width * 0.34);
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+    setJoyNub({ x: dx, y: dy });
+    if (dist < 4) {
+      combat.setMoveInput(0, 0);
+    } else {
+      combat.setMoveInput(dx / maxR, dy / maxR);
+    }
+  };
+
+  const resetJoystick = () => {
+    joyPointerIdRef.current = null;
+    setJoyNub({ x: 0, y: 0 });
+    combat.setMoveInput(0, 0);
+  };
+
+  // Right-side Aim & Charge/Fire Pad handlers
+  const updateAimPad = (clientX: number, clientY: number, isInitial: boolean) => {
+    const el = aimPadRef.current;
+    if (!el || !combat.battle) return;
+    const rect = el.getBoundingClientRect();
+    let dx = clientX - (rect.left + rect.width / 2);
+    let dy = clientY - (rect.top + rect.height / 2);
+    const maxR = Math.max(28, rect.width * 0.36);
+    const dist = Math.hypot(dx, dy);
+
+    if (dist >= 10) {
+      aimDraggedRef.current = true;
+      combat.setAimAngle(Math.atan2(dy, dx));
+    } else if (isInitial && !aimDraggedRef.current) {
+      const ed = combat.battle.enemyDuelist;
+      combat.aimAtArenaPoint(ed.x, ed.y - 16);
+    }
+
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+    setAimNub({ x: dx, y: dy, active: true });
+  };
+
+  const releaseAimPad = (shouldFire: boolean) => {
+    aimPointerIdRef.current = null;
+    aimDraggedRef.current = false;
+    setAimNub({ x: 0, y: 0, active: false });
+    if (shouldFire && combat.battle?.turn === 'duel' && combat.battle.playerDuelist.charging) {
+      combat.releaseChargeAndFire(state);
+      onSync();
+    }
+  };
 
   const canAct = battle.turn === 'duel';
 
   const lastAllyEf = battle.effects.filter((ef) => ef.target === 'ally').slice(-1)[0];
-  const lastEnemyEf = battle.effects.filter((ef) => ef.target === 'enemy').slice(-1)[0];
-
   const allyMood: SlugPortraitMood =
     ally.hp <= 0
       ? 'ko'
@@ -231,130 +372,185 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
   const allyHpPct = Math.max(0, Math.min(100, (ally.hp / Math.max(1, ally.maxHp)) * 100));
   const allyEnPct = Math.max(0, Math.min(100, (ally.energy / Math.max(1, ally.maxEnergy)) * 100));
   const enemyHpPct = Math.max(0, Math.min(100, (enemy.hp / Math.max(1, enemy.maxHp)) * 100));
+  const pulsePct = Math.max(0, Math.min(100, battle.pulseCharge));
   const guardCd = battle.playerDuelist.guardCooldown;
-  const chargePct = Math.round(battle.playerDuelist.charge * 100);
-  const inSweetSpot = battle.playerDuelist.charge >= 0.62 && battle.playerDuelist.charge <= 0.88;
+  const chargeVal = battle.playerDuelist.charge;
+  const chargeTier = combat.getChargeTierInfo(state);
+  const contextual = combat.getContextualAction(state);
+  const totalBagItems =
+    state.inventory.berries +
+    state.inventory.core +
+    state.inventory.capsules +
+    state.inventory.masterCapsules;
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center p-1.5 sm:p-4 bg-[#03080e]/90 backdrop-blur-sm">
-      <div className="bt-panel bt-animate-modal w-full max-w-4xl rounded-2xl p-2.5 sm:p-4 max-h-[97dvh] overflow-y-auto bt-scroll">
-        {/* Header Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-400/20 pb-2 mb-2.5">
-          <div>
-            <h2 className="text-sm sm:text-lg font-extrabold text-white flex items-center gap-2 tracking-tight">
-              <Swords className="w-4 h-4 sm:w-5 sm:h-5 text-teal-300" />
-              Duelo de Blásteres · Bajoterra
-            </h2>
-            <p className="text-[11px] text-slate-300">
-              {battle.subtitle} · <span style={{ color: biomeInfo.accent }}>{biomeInfo.name}</span>
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="text-[11px] font-extrabold px-2.5 py-1 rounded-lg bt-inset">
-              <span style={{ color: mult > 1.2 ? '#4ade80' : mult < 0.9 ? '#f87171' : '#cbd5e1' }}>
-                {mult > 1.2 ? 'Ventaja ×1.75' : mult < 0.9 ? 'Desventaja ×0.65' : 'Afinidad ×1.0'}
-              </span>
-            </div>
-            {battle.pulseWindowActive && canAct && (
-              <button
-                onClick={() => {
-                  combat.fireBlasterShot(state, { charge: 0.8, modeOverride: 'pulse' });
-                  onSync();
-                }}
-                className="bt-btn-primary px-3 py-1.5 rounded-lg font-extrabold text-xs cursor-pointer flex items-center gap-1"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                Pulso [R]
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Dualist Status Strip */}
-        <div className="grid grid-cols-2 gap-2 mb-2.5">
-          {/* Player Slug Status */}
-          <div className="bt-card rounded-xl p-2 sm:p-2.5 border-teal-400/35 flex items-center gap-2.5">
-            <SlugPortrait speciesId={ally.id} mega={ally.mega} mood={allyMood} size={46} />
+    <div
+      className="fixed inset-0 z-30 flex flex-col bg-[#040910] select-none overflow-hidden"
+      style={{
+        paddingTop: 'max(0.35rem, env(safe-area-inset-top))',
+        paddingBottom: 'max(0.4rem, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(0.4rem, env(safe-area-inset-left))',
+        paddingRight: 'max(0.4rem, env(safe-area-inset-right))',
+      }}
+    >
+      {/* ZONE 1: TOP STATUS HEADER (Compact, uncluttered, zero arena overlap) */}
+      <header className="w-full max-w-5xl mx-auto shrink-0 flex flex-col gap-1 pb-1.5">
+        <div className="grid grid-cols-2 gap-1.5 sm:gap-2.5">
+          {/* Ally Status */}
+          <div className="bt-hud-panel rounded-xl px-2 py-1.5 sm:px-3 sm:py-2 border-teal-400/35 flex items-center gap-2">
+            <SlugPortrait speciesId={ally.id} mega={ally.mega} mood={allyMood} size={40} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-1">
                 <span className="text-xs sm:text-sm font-extrabold text-white truncate">
                   {ally.name} {ally.mega ? '★' : ''}
                 </span>
-                <span className="text-[10px] font-bold text-slate-300 shrink-0">Nv.{ally.level}</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span
+                    className="text-[9px] sm:text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-[#060d14]/80"
+                    style={{ color: mult > 1.2 ? '#4ade80' : mult < 0.9 ? '#f87171' : '#94a3b8' }}
+                  >
+                    {mult > 1.2 ? '×1.75' : mult < 0.9 ? '×0.65' : '×1.0'}
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-300 tabular-nums">Nv.{ally.level}</span>
+                </div>
               </div>
-              <div className="h-2 bg-[#060d14] rounded-full overflow-hidden mt-1 mb-1">
+
+              <div className="h-2 bg-[#050b12] rounded-full overflow-hidden mt-1">
                 <div
                   className="h-full bg-gradient-to-r from-emerald-500 to-teal-300 transition-all duration-100"
                   style={{ width: `${allyHpPct}%` }}
                 />
               </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-300 tabular-nums">
-                <span>PS {ally.hp}/{ally.maxHp}</span>
-                <span className="text-cyan-300 font-bold">
-                  EN {Math.floor(ally.energy)}/{ally.maxEnergy}
+
+              <div className="flex items-center justify-between gap-1.5 mt-1">
+                <div className="flex-1 h-1.5 bg-[#050b12] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-cyan-500 to-sky-300 transition-all duration-100"
+                    style={{ width: `${allyEnPct}%` }}
+                  />
+                </div>
+                <span className="text-[10px] text-slate-200 tabular-nums font-bold shrink-0">
+                  {ally.hp}/{ally.maxHp} · <span className="text-cyan-300">{Math.floor(ally.energy)}EN</span>
                 </span>
               </div>
-              <div className="h-1.5 bg-[#060d14] rounded-full overflow-hidden mt-0.5">
-                <div
-                  className="h-full bg-gradient-to-r from-cyan-500 to-sky-300 transition-all duration-100"
-                  style={{ width: `${allyEnPct}%` }}
-                />
-              </div>
+
+              {(battle.allyStatus.shieldTimer > 0 ||
+                battle.playerDuelist.guardTimer > 0 ||
+                battle.allyStatus.burnTimer > 0 ||
+                battle.allyStatus.chillTimer > 0 ||
+                battle.allyStatus.stunTimer > 0) && (
+                <div className="flex items-center gap-1.5 text-[10px] mt-0.5 font-bold">
+                  {(battle.allyStatus.shieldTimer > 0 || battle.playerDuelist.guardTimer > 0) && (
+                    <span className="text-sky-300">🛡 Escudo</span>
+                  )}
+                  {battle.allyStatus.burnTimer > 0 && <span className="text-orange-300">🔥</span>}
+                  {battle.allyStatus.chillTimer > 0 && <span className="text-cyan-200">❄️</span>}
+                  {battle.allyStatus.stunTimer > 0 && <span className="text-yellow-300">⚡</span>}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Enemy Status */}
           <div
-            className={`bt-card rounded-xl p-2 sm:p-2.5 flex items-center gap-2.5 ${
+            className={`bt-hud-panel rounded-xl px-2 py-1.5 sm:px-3 sm:py-2 flex items-center gap-2 ${
               enemy.telegraphing === 'heavy' ? 'border-amber-400' : 'border-rose-400/40'
             }`}
           >
             <div className="min-w-0 flex-1 text-right">
               <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] font-bold text-slate-300 shrink-0">Nv.{enemy.level}</span>
+                <span className="text-[10px] font-bold text-slate-300 tabular-nums shrink-0">
+                  Nv.{enemy.level}
+                </span>
                 <span className="text-xs sm:text-sm font-extrabold text-white truncate">
                   {enemy.name} {enemy.isBoss ? '· JEFE' : ''}
                 </span>
               </div>
-              <div className="h-2 bg-[#060d14] rounded-full overflow-hidden mt-1 mb-1">
+
+              <div className="h-2 bg-[#050b12] rounded-full overflow-hidden mt-1">
                 <div
                   className="h-full bg-gradient-to-r from-rose-500 to-orange-400 transition-all duration-100 ml-auto"
                   style={{ width: `${enemyHpPct}%` }}
                 />
               </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-300 tabular-nums">
-                <span className="text-amber-200 truncate">
+
+              <div className="flex items-center justify-between gap-1.5 mt-1 text-[10px] tabular-nums">
+                <span className="text-amber-200 truncate font-bold">
                   {(enemy.burnTimer || 0) > 0 && '🔥 '}
                   {(enemy.chillTimer || 0) > 0 && '❄️ '}
                   {(enemy.stunTimer || 0) > 0 && '⚡ '}
                   {(enemy.shieldTimer || 0) > 0 && '🛡 '}
                   {enemy.telegraphing === 'heavy' ? '⚠ CARGANDO' : enemy.type}
                 </span>
-                <span>PS {enemy.hp}/{enemy.maxHp}</span>
+                <span className="text-slate-200 font-bold shrink-0">
+                  {enemy.hp}/{enemy.maxHp}
+                </span>
               </div>
-              <div className="text-[10px] text-teal-300 font-bold mt-0.5">
-                Pulso: {Math.round(battle.pulseCharge)}%
+
+              {/* Pulse Meter / Ready Trigger */}
+              <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                {battle.pulseWindowActive && canAct ? (
+                  <button
+                    onClick={() => {
+                      combat.fireBlasterShot(state, { charge: 0.82, modeOverride: 'pulse' });
+                      onSync();
+                    }}
+                    className="bt-btn-primary px-2 py-0.5 rounded text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Zap className="w-3 h-3" />
+                    ¡Pulso listo! [R]
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5 w-full">
+                    <span className="text-[9px] text-teal-300 font-bold shrink-0">
+                      Pulso {Math.round(pulsePct)}%
+                    </span>
+                    <div className="flex-1 h-1 bg-[#050b12] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-teal-500 to-cyan-300 transition-all duration-150"
+                        style={{ width: `${pulsePct}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-            <SlugPortrait speciesId={enemy.id} mega={enemy.mega} mood={enemyMood} size={46} flipX />
+            <SlugPortrait speciesId={enemy.id} mega={enemy.mega} mood={enemyMood} size={40} flipX />
           </div>
         </div>
 
-        {/* Interactive 2D Blaster Duel Arena Canvas */}
-        <div className="relative rounded-xl border border-cyan-400/35 overflow-hidden bg-[#050a12] mb-2.5 select-none">
+        {/* Single-line Biome & Live Combat Feed Strip (outside canvas) */}
+        <div className="flex items-center justify-between gap-2 px-2.5 py-1 rounded-lg bg-[#08121d]/90 border border-cyan-400/15 text-[11px]">
+          <div className="flex items-center gap-1.5 shrink-0 font-bold">
+            <Swords className="w-3.5 h-3.5 text-teal-300" />
+            <span style={{ color: biomeInfo.accent }}>{biomeInfo.name}</span>
+          </div>
+          <span className="text-slate-200 font-semibold truncate text-right">
+            {battle.playerDuelist.charging
+              ? `${chargeTier.label} (${Math.round(chargeVal * 100)}%)`
+              : battle.log[0] || `${allySpecies.name} · ${allyProfile.roleLabel}`}
+          </span>
+        </div>
+      </header>
+
+      {/* ZONE 2: CENTER ARENA + RIGHT-SIDE VERTICAL SLUG COLUMN (Protagonist, zero obstruction) */}
+      <main className="flex-1 min-h-0 w-full max-w-6xl mx-auto flex items-center justify-center gap-2 py-0.5">
+        <div className="flex-1 min-w-0 h-full flex items-center justify-center">
           <canvas
             ref={canvasRef}
             width={ARENA_WIDTH}
             height={ARENA_HEIGHT}
-            className="w-full h-auto block cursor-crosshair touch-none"
+            style={{ aspectRatio: '920 / 480' }}
+            className="max-w-full max-h-full w-auto h-auto block rounded-xl border border-cyan-400/35 bg-[#050a12] shadow-[0_0_32px_rgba(6,18,30,0.9)] cursor-crosshair touch-none"
             onContextMenu={(e) => {
               e.preventDefault();
-              combat.activateGuard(state);
+              if (!canAct) return;
+              combat.triggerContextualAction(state);
               onSync();
             }}
             onPointerDown={(e) => {
               if (!canAct || e.button === 2) return;
-              activePointerIdRef.current = e.pointerId;
+              canvasPointerIdRef.current = e.pointerId;
               e.currentTarget.setPointerCapture?.(e.pointerId);
               const pt = toArenaCoords(e.clientX, e.clientY);
               combat.aimAtArenaPoint(pt.x, pt.y);
@@ -362,13 +558,13 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
             }}
             onPointerMove={(e) => {
               if (!canAct) return;
+              if (e.pointerType !== 'mouse' && canvasPointerIdRef.current !== e.pointerId) return;
               const pt = toArenaCoords(e.clientX, e.clientY);
               combat.aimAtArenaPoint(pt.x, pt.y);
             }}
             onPointerUp={(e) => {
-              if (activePointerIdRef.current === e.pointerId) {
-                activePointerIdRef.current = null;
-              }
+              if (canvasPointerIdRef.current !== e.pointerId) return;
+              canvasPointerIdRef.current = null;
               if (canAct && combat.battle?.playerDuelist.charging) {
                 const pt = toArenaCoords(e.clientX, e.clientY);
                 combat.aimAtArenaPoint(pt.x, pt.y);
@@ -376,146 +572,59 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
                 onSync();
               }
             }}
-            onPointerCancel={() => {
-              activePointerIdRef.current = null;
+            onPointerCancel={(e) => {
+              if (canvasPointerIdRef.current !== e.pointerId) return;
+              canvasPointerIdRef.current = null;
               if (combat.battle?.playerDuelist.charging) {
                 combat.releaseChargeAndFire(state);
                 onSync();
               }
             }}
+            onLostPointerCapture={(e) => {
+              if (canvasPointerIdRef.current === e.pointerId) {
+                canvasPointerIdRef.current = null;
+              }
+            }}
           />
-
-          {/* Bottom-left live charge gauge overlay (minimal, never obstructs lanes) */}
-          {canAct && (
-            <div className="pointer-events-none absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between gap-2 text-[11px]">
-              <div className="bg-[#06101b]/85 border border-cyan-400/30 rounded-lg px-2.5 py-1 flex items-center gap-2">
-                <Crosshair className="w-3.5 h-3.5 text-teal-300" />
-                <span className="text-slate-200 font-bold">
-                  {allySpecies.name} · {allyProfile.roleLabel}
-                </span>
-                {battle.playerDuelist.charging && (
-                  <span className={`font-extrabold ${inSweetSpot ? 'text-amber-300' : 'text-teal-300'}`}>
-                    Carga {chargePct}% {inSweetSpot ? '★ Zona Maestra' : ''}
-                  </span>
-                )}
-              </div>
-              <div className="hidden sm:block bg-[#06101b]/85 border border-white/10 rounded-lg px-2.5 py-1 text-slate-300">
-                Apunta y mantén clic / Espacio para lanzar · W/S esquivar · Clic derecho Escudo
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Ended Outcome Banner OR Live Blaster Controls */}
-        {battle.turn === 'ended' ? (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bt-card border-teal-400/50 rounded-xl p-3.5">
-            <div>
-              <div className="text-sm font-extrabold text-teal-100">{battle.rewardText}</div>
-              {battle.log[1] && <div className="text-xs text-slate-300 mt-0.5">{battle.log[1]}</div>}
-            </div>
-            <button
-              onClick={() => {
-                combat.closeBattle();
-                onSync();
-              }}
-              className="bt-btn-primary px-6 py-2.5 rounded-xl font-extrabold text-sm cursor-pointer min-h-[44px]"
-            >
-              Continuar Exploración
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {/* Bandolier Chambers (1-4) + Mobile Dodge Pad */}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 flex-1">
-                {state.party.map((s, idx) => {
-                  const isActive = idx === state.activePartyIndex;
-                  const sHpPct = Math.max(0, Math.min(100, (s.hp / Math.max(1, s.maxHp)) * 100));
-                  return (
-                    <button
-                      key={s.uid}
-                      disabled={!canAct || s.hp <= 0}
-                      onClick={() => {
-                        combat.swapSlug(state, idx);
-                        onSync();
-                      }}
-                      className={`p-1.5 rounded-xl border text-left transition-all flex items-center gap-2 min-h-[48px] cursor-pointer disabled:opacity-40 ${
-                        isActive
-                          ? 'bg-teal-950/60 border-teal-300 shadow-[0_0_12px_rgba(45,212,191,0.25)]'
-                          : 'bt-btn-secondary border-slate-700/80'
-                      }`}
-                    >
-                      <SlugPortrait speciesId={s.id} mega={s.mega} mood={s.hp <= 0 ? 'ko' : 'idle'} size={30} />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-extrabold text-white truncate">
-                          [{idx + 1}] {s.name}
-                        </div>
-                        <div className="h-1.5 bg-[#050b12] rounded-full overflow-hidden mt-0.5">
-                          <div className="h-full bg-emerald-400" style={{ width: `${sHpPct}%` }} />
-                        </div>
-                        <div className="text-[9px] text-cyan-300 tabular-nums mt-0.5">
-                          EN {Math.floor(s.energy)}/{s.maxEnergy}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+        {/* Shared Right-Side Vertical Slug Case */}
+        <SlugColumn
+          party={state.party}
+          activeIndex={state.activePartyIndex}
+          onSelectSlug={(idx) => {
+            combat.swapSlug(state, idx);
+            onSync();
+          }}
+          disabled={!canAct}
+          disableKo
+          showEnergy
+          compact={showTouch}
+          className="max-h-full overflow-y-auto bt-scroll"
+        />
+      </main>
 
-              {/* Touch-friendly vertical dodge controls */}
-              <div className="flex sm:flex-col gap-1">
-                <button
-                  onPointerDown={() => combat.setVerticalInput(-1)}
-                  onPointerUp={() => combat.setVerticalInput(0)}
-                  onPointerLeave={() => combat.setVerticalInput(0)}
-                  onClick={() => combat.moveDuelistStep(-30)}
-                  className="bt-btn-secondary px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 min-h-[34px] cursor-pointer"
-                  aria-label="Mover bláster arriba"
-                >
-                  <ArrowUp className="w-3.5 h-3.5 text-cyan-300" />
-                  Subir
-                </button>
-                <button
-                  onPointerDown={() => combat.setVerticalInput(1)}
-                  onPointerUp={() => combat.setVerticalInput(0)}
-                  onPointerLeave={() => combat.setVerticalInput(0)}
-                  onClick={() => combat.moveDuelistStep(30)}
-                  className="bt-btn-secondary px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 min-h-[34px] cursor-pointer"
-                  aria-label="Mover bláster abajo"
-                >
-                  <ArrowDown className="w-3.5 h-3.5 text-cyan-300" />
-                  Bajar
-                </button>
-              </div>
-            </div>
-
-            {/* Shot Mode & Tactical Actions */}
-            <div className="grid grid-cols-2 lg:grid-cols-6 gap-2">
+      {/* ZONE 3: BOTTOM CONTROLS DOCK */}
+      <footer className="relative w-full max-w-5xl mx-auto shrink-0 pt-1.5">
+        {/* Compact Expandable Secondary Actions Menu (opens upward above dock, never permanent clutter) */}
+        {actionsOpen && canAct && (
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-[min(94vw,460px)] bt-panel rounded-2xl p-3 z-40 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-cyan-400/20 pb-2 mb-2.5">
+              <span className="text-xs font-extrabold text-white flex items-center gap-1.5">
+                <Backpack className="w-4 h-4 text-amber-300" />
+                Menú Táctico · {ally.name}
+              </span>
               <button
-                disabled={!canAct}
-                onPointerDown={() => {
-                  combat.setSelectedMode(state, 'quick');
-                  combat.beginCharge(state);
-                }}
-                onPointerUp={() => {
-                  if (combat.battle?.playerDuelist.charging) {
-                    combat.releaseChargeAndFire(state);
-                    onSync();
-                  }
-                }}
-                className={`p-2.5 rounded-xl border text-left cursor-pointer min-h-[54px] ${
-                  battle.selectedMode === 'quick'
-                    ? 'bg-cyan-950/60 border-cyan-300'
-                    : 'bt-btn-secondary border-cyan-400/35'
-                }`}
+                onClick={() => setActionsOpen(false)}
+                aria-label="Cerrar menú táctico"
+                className="w-8 h-8 rounded-lg bt-btn-secondary flex items-center justify-center cursor-pointer"
               >
-                <div className="text-xs font-extrabold text-white flex items-center gap-1">
-                  <Crosshair className="w-3.5 h-3.5 text-cyan-300" />
-                  Disparo Rápido
-                </div>
-                <div className="text-[10px] text-slate-300 mt-0.5">0 EN · +2 EN al golpear</div>
+                <X className="w-4 h-4" />
               </button>
+            </div>
 
+            {/* Special Moves + Guard + Pulse */}
+            <div className="grid grid-cols-2 gap-1.5 mb-2">
               {allySpecies.specialMoves.map((mv, i) => {
                 const idx = i as 0 | 1;
                 const cd = combat.getMoveCooldown(ally, mv.id);
@@ -523,16 +632,16 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
                 const masteryInfo = getMoveMasteryInfo(masteryPts);
                 const effectiveCost = getEffectiveMoveEnergyCost(mv.energyCost, masteryPts);
                 const selected = battle.selectedMode === idx;
-                const locked = !canAct || cd > 0 || ally.energy < effectiveCost;
+                const locked = cd > 0 || ally.energy < effectiveCost;
                 return (
                   <button
                     key={mv.id}
                     disabled={locked}
                     onClick={() => selectOrFireMode(idx)}
-                    className={`p-2.5 rounded-xl border text-left cursor-pointer disabled:opacity-40 min-h-[54px] ${
+                    className={`p-2 rounded-xl border text-left cursor-pointer disabled:opacity-40 min-h-[48px] ${
                       selected
-                        ? 'bg-indigo-950/70 border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.25)]'
-                        : 'bt-btn-secondary border-indigo-400/40'
+                        ? 'bg-indigo-950/75 border-amber-300'
+                        : 'bt-btn-secondary border-indigo-400/35'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1 text-xs font-extrabold text-white">
@@ -540,124 +649,325 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
                         <Sparkles className="w-3 h-3 text-amber-300 shrink-0" />
                         [{idx === 0 ? 'Z' : 'X'}] {mv.name}
                       </span>
-                      <span className="text-[10px] text-teal-300 shrink-0 tabular-nums">
+                      <span className="text-[10px] text-teal-300 tabular-nums shrink-0">
                         {cd > 0 ? `${cd.toFixed(1)}s` : `${effectiveCost}EN`}
                       </span>
                     </div>
-                    <div className="text-[10px] text-slate-300 mt-0.5 truncate">
-                      {selected ? 'Cargado: dispara en arena o clic aquí' : mv.description}
+                    <div className="text-[10px] text-slate-300 truncate mt-0.5">
+                      {mv.description}
                       {masteryInfo.rank > 0 ? ` · ${masteryInfo.label}` : ''}
                     </div>
                   </button>
                 );
               })}
+            </div>
 
+            {/* Bag + Shield + Retreat */}
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
               <button
-                disabled={!canAct || guardCd > 0}
+                disabled={guardCd > 0}
                 onClick={() => {
                   combat.activateGuard(state);
+                  setActionsOpen(false);
                   onSync();
                 }}
-                className="bt-btn-secondary p-2.5 rounded-xl border-sky-400/40 text-left cursor-pointer disabled:opacity-40 min-h-[54px]"
+                className="bt-btn-secondary p-2 rounded-xl border-sky-400/40 text-center disabled:opacity-40 cursor-pointer min-h-[46px]"
               >
-                <div className="flex items-center justify-between text-xs font-extrabold text-white">
-                  <span className="flex items-center gap-1">
-                    <Shield className="w-3.5 h-3.5 text-sky-300" />
-                    Escudo [F]
-                  </span>
-                  {guardCd > 0 && <span className="text-[10px] text-sky-300">{guardCd.toFixed(1)}s</span>}
-                </div>
-                <div className="text-[10px] text-slate-300 mt-0.5">Bloquea impacto · +2 EN</div>
+                <div className="text-[11px] font-extrabold text-sky-200">Escudo [F]</div>
+                <div className="text-[9px] text-slate-300">{guardCd > 0 ? `${guardCd.toFixed(1)}s` : '+2 EN'}</div>
               </button>
 
               <button
-                disabled={!canAct}
-                onClick={() => setBagOpen((v) => !v)}
-                className="bt-btn-secondary p-2.5 rounded-xl border-amber-400/40 text-left cursor-pointer min-h-[54px]"
+                disabled={state.inventory.berries <= 0}
+                onClick={() => {
+                  combat.useItem(state, 'berries');
+                  setActionsOpen(false);
+                  onSync();
+                }}
+                className="bt-btn-secondary p-2 rounded-xl border-emerald-500/40 text-center disabled:opacity-40 cursor-pointer min-h-[46px]"
               >
-                <div className="text-xs font-extrabold text-amber-200 flex items-center gap-1">
-                  <Backpack className="w-3.5 h-3.5 text-amber-300" />
-                  Mochila y Captura
-                </div>
-                <div className="text-[10px] text-slate-300 mt-0.5">
-                  Cilindros {state.inventory.capsules + state.inventory.masterCapsules} · Bayas {state.inventory.berries}
-                </div>
+                <div className="text-[11px] font-bold text-white">Baya ({state.inventory.berries})</div>
+                <div className="text-[9px] text-emerald-300">+34 PS</div>
               </button>
 
               <button
-                disabled={!canAct || battle.kind === 'boss'}
+                disabled={state.inventory.core <= 0}
+                onClick={() => {
+                  combat.useItem(state, 'core');
+                  setActionsOpen(false);
+                  onSync();
+                }}
+                className="bt-btn-secondary p-2 rounded-xl border-cyan-500/40 text-center disabled:opacity-40 cursor-pointer min-h-[46px]"
+              >
+                <div className="text-[11px] font-bold text-white">Núcleo ({state.inventory.core})</div>
+                <div className="text-[9px] text-cyan-300">+8 EN</div>
+              </button>
+
+              <button
+                disabled={state.inventory.capsules <= 0 || battle.kind !== 'wild'}
+                onClick={() => {
+                  combat.useItem(state, 'capsules');
+                  setActionsOpen(false);
+                  onSync();
+                }}
+                className="bt-btn-secondary p-2 rounded-xl border-indigo-400/40 text-center disabled:opacity-40 cursor-pointer min-h-[46px]"
+              >
+                <div className="text-[11px] font-bold text-white">Cilindro ({state.inventory.capsules})</div>
+                <div className="text-[9px] text-indigo-300">Capturar</div>
+              </button>
+
+              <button
+                disabled={state.inventory.masterCapsules <= 0 || battle.kind !== 'wild'}
+                onClick={() => {
+                  combat.useItem(state, 'masterCapsules');
+                  setActionsOpen(false);
+                  onSync();
+                }}
+                className="bt-btn-secondary p-2 rounded-xl border-purple-400/50 text-center disabled:opacity-40 cursor-pointer min-h-[46px]"
+              >
+                <div className="text-[11px] font-bold text-white">Maestro ({state.inventory.masterCapsules})</div>
+                <div className="text-[9px] text-purple-300">Alta tasa</div>
+              </button>
+
+              <button
+                disabled={battle.kind === 'boss'}
                 onClick={() => {
                   combat.attemptRun(state);
+                  setActionsOpen(false);
                   onSync();
                 }}
-                className="p-2.5 rounded-xl bg-[#261419] border border-rose-500/45 hover:border-rose-400 text-xs font-bold text-rose-200 disabled:opacity-40 cursor-pointer min-h-[54px]"
+                className="p-2 rounded-xl bg-[#261419] border border-rose-500/45 hover:border-rose-400 text-[11px] font-bold text-rose-200 disabled:opacity-40 cursor-pointer min-h-[46px]"
               >
                 Retirarse
               </button>
             </div>
+          </div>
+        )}
 
-            {/* Expandable Bag / Capture Drawer */}
-            {bagOpen && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                <button
-                  disabled={!canAct || state.inventory.berries <= 0}
-                  onClick={() => {
-                    combat.useItem(state, 'berries');
-                    setBagOpen(false);
-                    onSync();
-                  }}
-                  className="bt-btn-secondary p-2.5 rounded-xl border-emerald-500/40 text-left disabled:opacity-40 cursor-pointer"
-                >
-                  <div className="text-xs font-bold text-white">Baya ({state.inventory.berries})</div>
-                  <div className="text-[10px] text-slate-300">+34 PS al aliado</div>
-                </button>
-                <button
-                  disabled={!canAct || state.inventory.core <= 0}
-                  onClick={() => {
-                    combat.useItem(state, 'core');
-                    setBagOpen(false);
-                    onSync();
-                  }}
-                  className="bt-btn-secondary p-2.5 rounded-xl border-cyan-500/40 text-left disabled:opacity-40 cursor-pointer"
-                >
-                  <div className="text-xs font-bold text-white">Núcleo ({state.inventory.core})</div>
-                  <div className="text-[10px] text-slate-300">+8 Energía al instante</div>
-                </button>
-                <button
-                  disabled={!canAct || state.inventory.capsules <= 0 || battle.kind !== 'wild'}
-                  onClick={() => {
-                    combat.useItem(state, 'capsules');
-                    setBagOpen(false);
-                    onSync();
-                  }}
-                  className="bt-btn-secondary p-2.5 rounded-xl border-indigo-400/40 text-left disabled:opacity-40 cursor-pointer"
-                >
-                  <div className="text-xs font-bold text-white">Cilindro ({state.inventory.capsules})</div>
-                  <div className="text-[10px] text-slate-300">Lanza cápsula física</div>
-                </button>
-                <button
-                  disabled={!canAct || state.inventory.masterCapsules <= 0 || battle.kind !== 'wild'}
-                  onClick={() => {
-                    combat.useItem(state, 'masterCapsules');
-                    setBagOpen(false);
-                    onSync();
-                  }}
-                  className="bt-btn-secondary p-2.5 rounded-xl border-purple-400/50 text-left disabled:opacity-40 cursor-pointer"
-                >
-                  <div className="text-xs font-bold text-white">Maestro ({state.inventory.masterCapsules})</div>
-                  <div className="text-[10px] text-slate-300">Alta tasa de captura</div>
-                </button>
+        {battle.turn === 'ended' ? (
+          <div className="bt-panel rounded-xl px-3.5 py-2.5 flex flex-col sm:flex-row items-center justify-between gap-2.5 border-teal-400/50">
+            <div className="text-center sm:text-left">
+              <div className="text-xs sm:text-sm font-extrabold text-teal-100">{battle.rewardText}</div>
+              {battle.log[1] && <div className="text-[11px] text-slate-300 mt-0.5">{battle.log[1]}</div>}
+            </div>
+            <button
+              onClick={() => {
+                combat.closeBattle();
+                onSync();
+              }}
+              className="bt-btn-primary px-6 py-2.5 rounded-xl font-extrabold text-sm cursor-pointer min-h-[44px] shrink-0"
+            >
+              Continuar Exploración
+            </button>
+          </div>
+        ) : showTouch ? (
+          /* MOBILE / TOUCH 3-PART DOCK: Left Joystick | Center Slug Strip + Contextual + Menu | Right Aim/Fire Pad */
+          <div className="flex items-end justify-between gap-2 px-0.5">
+            {/* Left: Free 2D Virtual Joystick */}
+            <div
+              ref={joyRef}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                joyPointerIdRef.current = e.pointerId;
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+                updateJoystick(e.clientX, e.clientY);
+              }}
+              onPointerMove={(e) => {
+                if (joyPointerIdRef.current !== e.pointerId) return;
+                updateJoystick(e.clientX, e.clientY);
+              }}
+              onPointerUp={(e) => {
+                if (joyPointerIdRef.current === e.pointerId) resetJoystick();
+              }}
+              onPointerCancel={(e) => {
+                if (joyPointerIdRef.current === e.pointerId) resetJoystick();
+              }}
+              onLostPointerCapture={(e) => {
+                if (joyPointerIdRef.current === e.pointerId) resetJoystick();
+              }}
+              aria-label="Joystick de movimiento"
+              className="relative w-[104px] h-[104px] sm:w-[116px] sm:h-[116px] shrink-0 rounded-full border-2 border-teal-300/45 bg-[#08131ee6] touch-none shadow-lg"
+            >
+              <div className="absolute inset-3 rounded-full border border-white/10 pointer-events-none" />
+              <div
+                className="absolute w-10 h-10 rounded-full bg-gradient-to-b from-teal-300 to-cyan-500 border-2 border-white/90 left-1/2 top-1/2 -ml-5 -mt-5 shadow-md pointer-events-none"
+                style={{ transform: `translate(${joyNub.x}px, ${joyNub.y}px)` }}
+              />
+              <span className="absolute bottom-1 inset-x-0 text-center text-[9px] font-bold text-teal-200/75 pointer-events-none">
+                MOVER
+              </span>
+            </div>
+
+            {/* Center: Single Contextual Action + Secondary Menu (Slugs are on the right column) */}
+            <div className="flex-1 min-w-0 flex items-center justify-center gap-2 pb-1">
+              <button
+                disabled={!canAct || contextual.disabled}
+                onClick={() => {
+                  combat.triggerContextualAction(state);
+                  onSync();
+                }}
+                className={`min-h-[48px] px-3.5 rounded-2xl border text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-45 ${
+                  contextual.kind === 'capture'
+                    ? 'bt-btn-amber'
+                    : contextual.kind === 'heal'
+                    ? 'bg-emerald-600/85 border-emerald-300 text-white'
+                    : 'bt-btn-secondary border-sky-400/50 text-sky-100'
+                }`}
+              >
+                {contextual.kind === 'capture' ? (
+                  <Target className="w-4 h-4 shrink-0" />
+                ) : contextual.kind === 'heal' ? (
+                  <Heart className="w-4 h-4 shrink-0" />
+                ) : contextual.kind === 'energy' ? (
+                  <Zap className="w-4 h-4 shrink-0" />
+                ) : (
+                  <Shield className="w-4 h-4 shrink-0" />
+                )}
+                <span className="truncate">{contextual.shortLabel}</span>
+              </button>
+
+              <button
+                onClick={() => setActionsOpen((v) => !v)}
+                aria-label="Abrir menú de acciones"
+                className={`min-h-[48px] px-3 rounded-2xl border text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
+                  actionsOpen ? 'bt-btn-primary' : 'bt-btn-secondary border-amber-400/45 text-amber-100'
+                }`}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+                <span className="text-[11px] tabular-nums">{totalBagItems}</span>
+              </button>
+            </div>
+
+            {/* Right: Drag-to-Aim + Hold-to-Charge + Release-to-Fire Pad */}
+            <div
+              ref={aimPadRef}
+              onPointerDown={(e) => {
+                if (!canAct) return;
+                e.preventDefault();
+                aimPointerIdRef.current = e.pointerId;
+                aimDraggedRef.current = false;
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+                updateAimPad(e.clientX, e.clientY, true);
+                combat.beginCharge(state);
+              }}
+              onPointerMove={(e) => {
+                if (aimPointerIdRef.current !== e.pointerId || !canAct) return;
+                updateAimPad(e.clientX, e.clientY, false);
+              }}
+              onPointerUp={(e) => {
+                if (aimPointerIdRef.current === e.pointerId) releaseAimPad(true);
+              }}
+              onPointerCancel={(e) => {
+                if (aimPointerIdRef.current === e.pointerId) releaseAimPad(true);
+              }}
+              onLostPointerCapture={(e) => {
+                if (aimPointerIdRef.current === e.pointerId) releaseAimPad(false);
+              }}
+              aria-label="Zona de apuntado y disparo"
+              className="relative w-[104px] h-[104px] sm:w-[116px] sm:h-[116px] shrink-0 rounded-full border-2 bg-[#08131ee6] touch-none shadow-lg flex items-center justify-center"
+              style={{
+                borderColor: battle.playerDuelist.charging ? chargeTier.color : 'rgba(56, 189, 248, 0.5)',
+                boxShadow: battle.playerDuelist.charging
+                  ? `0 0 18px ${chargeTier.color}55`
+                  : undefined,
+              }}
+            >
+              {/* Charge progress ring */}
+              {battle.playerDuelist.charging && (
+                <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 100 100">
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="44"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.12)"
+                    strokeWidth="5"
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="44"
+                    fill="none"
+                    stroke={chargeTier.color}
+                    strokeWidth="5"
+                    strokeDasharray={276.46}
+                    strokeDashoffset={276.46 * (1 - chargeVal)}
+                    strokeLinecap="round"
+                  />
+                </svg>
+              )}
+
+              <div
+                className="w-11 h-11 rounded-full flex items-center justify-center border-2 border-white/85 shadow-md pointer-events-none"
+                style={{
+                  transform: `translate(${aimNub.x}px, ${aimNub.y}px)`,
+                  background: battle.playerDuelist.charging
+                    ? chargeTier.color
+                    : 'linear-gradient(180deg, #fde047 0%, #f59e0b 100%)',
+                }}
+              >
+                <Crosshair className="w-5 h-5 text-[#06101b]" />
               </div>
-            )}
 
-            {/* Concise Live Duel Feed */}
-            <div className="bt-inset rounded-xl px-3 py-2 text-xs text-slate-200 flex items-center justify-between gap-2">
-              <span className="truncate font-semibold">{battle.log[0]}</span>
-              {battle.log[1] && <span className="text-[11px] text-slate-400 hidden md:inline truncate">{battle.log[1]}</span>}
+              <span className="absolute bottom-1 inset-x-0 text-center text-[9px] font-extrabold text-amber-200/90 pointer-events-none truncate px-2">
+                {battle.playerDuelist.charging ? chargeTier.label : 'DISPARAR'}
+              </span>
+            </div>
+          </div>
+        ) : (
+          /* DESKTOP / PC COMPACT DOCK: Controls Hint | Contextual Action + Menu (Slugs are on the right column) */
+          <div className="bt-hud-panel rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-[11px] sm:text-xs text-slate-300 font-medium">
+              <strong className="text-teal-200">WASD / Flechas</strong> mover ·{' '}
+              <strong className="text-teal-200">Ratón</strong> apuntar ·{' '}
+              <strong className="text-teal-200">Clic / Espacio</strong> cargar y disparar ·{' '}
+              <strong className="text-teal-200">Q / E</strong> cambiar babosa ·{' '}
+              <strong className="text-teal-200">F</strong> acción
+            </div>
+
+            {/* Contextual Primary Action + Secondary Menu */}
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                disabled={!canAct || contextual.disabled}
+                onClick={() => {
+                  combat.triggerContextualAction(state);
+                  onSync();
+                }}
+                className={`min-h-[44px] px-3.5 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-45 ${
+                  contextual.kind === 'capture'
+                    ? 'bt-btn-amber'
+                    : contextual.kind === 'heal'
+                    ? 'bg-emerald-600/85 border-emerald-300 text-white'
+                    : 'bt-btn-secondary border-sky-400/50 text-sky-100'
+                }`}
+              >
+                {contextual.kind === 'capture' ? (
+                  <Target className="w-4 h-4" />
+                ) : contextual.kind === 'heal' ? (
+                  <Heart className="w-4 h-4" />
+                ) : contextual.kind === 'energy' ? (
+                  <Zap className="w-4 h-4" />
+                ) : (
+                  <Shield className="w-4 h-4" />
+                )}
+                <span>
+                  {contextual.label} [{contextual.keyHint}]
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActionsOpen((v) => !v)}
+                className={`min-h-[44px] px-3.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                  actionsOpen ? 'bt-btn-primary' : 'bt-btn-secondary border-amber-400/45 text-amber-100'
+                }`}
+              >
+                <Backpack className="w-4 h-4 text-amber-300" />
+                <span>Acciones</span>
+              </button>
             </div>
           </div>
         )}
-      </div>
+      </footer>
     </div>
   );
 };

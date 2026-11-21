@@ -130,6 +130,11 @@ class SoundEngine {
 
   startDuelMusic(): void {
     if (this.duelMusicTimer || typeof window === 'undefined') return;
+    const hasAudio = Boolean(
+      window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    );
+    if (!hasAudio) return;
     const bassNotes = [110, 110, 130.81, 146.83, 110, 110, 164.81, 146.83];
     this.duelStep = 0;
     this.duelMusicTimer = setInterval(() => {

@@ -554,6 +554,31 @@ export interface GameState {
 
 export type UIScreen = 'TITLE' | 'PLAYING' | 'PAUSED' | 'EXPEDITION' | 'FULL_MAP';
 
+export type ExplorationActionKind =
+  | 'talk'
+  | 'combat'
+  | 'open_door'
+  | 'close_door'
+  | 'open_chest'
+  | 'recharge'
+  | 'altar'
+  | 'mine'
+  | 'extract'
+  | 'gather'
+  | 'place'
+  | 'pickup_furniture'
+  | 'interact_slug'
+  | 'berry'
+  | 'pulse'
+  | 'none';
+
+export interface ExplorationContextualAction {
+  kind: ExplorationActionKind;
+  label: string;
+  detail: string;
+  canAct: boolean;
+}
+
 export interface HudSnapshot {
   screen: UIScreen;
   player: PlayerState;
@@ -563,6 +588,7 @@ export interface HudSnapshot {
   activePartyIndex: number;
   inventory: Inventory;
   selectedHotbar: number;
+  contextualAction: ExplorationContextualAction;
   discoveries: BiomeId[];
   discoveredPOIs: DiscoveredPOI[];
   clearedChallenges: string[];

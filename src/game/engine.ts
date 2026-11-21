@@ -1,4 +1,5 @@
 import { sound } from './audio';
+import { cinematicEvents } from './cinematicEvents';
 import { CombatManager } from './combat';
 import {
   BIOME_INFO,
@@ -55,10 +56,12 @@ import {
 import {
   TileType,
   type BiomeId,
+  type ExplorationContextualAction,
   type FurnitureKind,
   type GameOptions,
   type GameState,
   type HabitatId,
+  type HotbarSlot,
   type HudSnapshot,
   type InventoryKey,
   type QuestDef,
@@ -178,6 +181,7 @@ export class BajoterraEngine {
       activePartyIndex: this.state.activePartyIndex,
       inventory: { ...this.state.inventory },
       selectedHotbar: this.state.selectedHotbar,
+      contextualAction: this.getContextualExplorationAction(),
       discoveries: [...this.state.discoveries],
       discoveredPOIs: (this.state.discoveredPOIs || []).map((p) => ({ ...p })),
       clearedChallenges: [...(this.state.clearedChallenges || [])],
@@ -490,6 +494,11 @@ export class BajoterraEngine {
   }
 
   public handleKeyDown(e: KeyboardEvent): void {
+    const target = e.target as { tagName?: string; isContentEditable?: boolean } | null;
+    const tag = target?.tagName?.toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
+      return;
+    }
     const key = e.key.toLowerCase();
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
       e.preventDefault();
@@ -760,6 +769,15 @@ export class BajoterraEngine {
     if (!this.state.discoveries.includes(b)) {
       this.state.discoveries.push(b);
       sound.playVictory();
+      cinematicEvents.emit({
+        type: 'biome_discovered',
+        title: BIOME_INFO[b].name,
+        subtitle: BIOME_INFO[b].subtitle,
+        biome: b,
+        audioCue: 'discovery_wonder',
+        skippable: true,
+        priority: 'highlight',
+      });
       this.notify(`¡Nuevo bioma descubierto: ${BIOME_INFO[b].name}!`);
       this.emitHud(true);
     }
@@ -817,6 +835,15 @@ export class BajoterraEngine {
             y: meta.centerY,
           });
           sound.playPickup();
+          cinematicEvents.emit({
+            type: 'poi_discovered',
+            title: meta.name,
+            biome: meta.biome,
+            poiKind: meta.kind,
+            audioCue: 'discovery_wonder',
+            skippable: true,
+            priority: 'ambient',
+          });
           this.awardPlayerXp(10);
           this.notify(`¡Lugar descubierto: ${meta.name}!`);
           this.emitHud(true);
@@ -917,7 +944,13 @@ export class BajoterraEngine {
     this.emitHud(true);
   }
 
-  public performPrimaryAction(): void {
+  private resolvePrimaryInteraction(): {
+    slot: HotbarSlot;
+    target: { x: number; y: number };
+    tile: TileType;
+    contextual: ExplorationContextualAction;
+    execute: () => void;
+  } {
     const slot = HOTBAR_SLOTS[this.state.selectedHotbar] || HOTBAR_SLOTS[0];
     const target = this.getTargetTile();
     const tile = this.chunks.getTile(target.x, target.y);
@@ -928,73 +961,235 @@ export class BajoterraEngine {
     );
     if (nearbyEntity) {
       if (nearbyEntity.kind === 'merchant') {
-        this.tradeWithMerchant();
-        return;
+        return {
+          slot,
+          target,
+          tile,
+          contextual: {
+            kind: 'talk',
+            label: 'Hablar',
+            detail: nearbyEntity.name,
+            canAct: true,
+          },
+          execute: () => this.tradeWithMerchant(),
+        };
       }
-      this.engageEntity(nearbyEntity);
-      return;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: {
+          kind: 'combat',
+          label: 'Enfrentar',
+          detail: nearbyEntity.name,
+          canAct: true,
+        },
+        execute: () => this.engageEntity(nearbyEntity),
+      };
     }
 
     // Interactive world objects regardless of tool
     if (tile === TileType.DOOR_CLOSED) {
-      this.chunks.setTile(target.x, target.y, TileType.DOOR_OPEN);
-      this.invalidateRoomCache();
-      sound.playPlace();
-      this.renderer.addFloatingText(target.x, target.y, 'Puerta abierta', '#fde047');
-      return;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: { kind: 'open_door', label: 'Abrir', detail: 'Puerta', canAct: true },
+        execute: () => {
+          this.chunks.setTile(target.x, target.y, TileType.DOOR_OPEN);
+          this.invalidateRoomCache();
+          sound.playPlace();
+          this.renderer.addFloatingText(target.x, target.y, 'Puerta abierta', '#fde047');
+          this.emitHud(true);
+        },
+      };
     }
     if (tile === TileType.DOOR_OPEN && slot.id === 'mine') {
-      this.chunks.setTile(target.x, target.y, TileType.DOOR_CLOSED);
-      this.invalidateRoomCache();
-      sound.playPlace();
-      this.renderer.addFloatingText(target.x, target.y, 'Puerta cerrada', '#cbd5e1');
-      return;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: { kind: 'close_door', label: 'Cerrar', detail: 'Puerta', canAct: true },
+        execute: () => {
+          this.chunks.setTile(target.x, target.y, TileType.DOOR_CLOSED);
+          this.invalidateRoomCache();
+          sound.playPlace();
+          this.renderer.addFloatingText(target.x, target.y, 'Puerta cerrada', '#cbd5e1');
+          this.emitHud(true);
+        },
+      };
     }
     if (tile === TileType.CHEST_CLOSED) {
-      this.openChest(target.x, target.y);
-      return;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: { kind: 'open_chest', label: 'Abrir', detail: 'Cofre', canAct: true },
+        execute: () => this.openChest(target.x, target.y),
+      };
     }
     if (tile === TileType.RECHARGE_STATION) {
-      this.rechargeTeam();
-      return;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: { kind: 'recharge', label: 'Recargar', detail: 'Estación', canAct: true },
+        execute: () => this.rechargeTeam(),
+      };
     }
     if (tile === TileType.ALTAR) {
-      this.interactWithAltar(target.x, target.y);
-      return;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: {
+          kind: 'altar',
+          label: 'Ofrecer',
+          detail: 'Altar',
+          canAct: this.state.inventory.crystal >= 1,
+        },
+        execute: () => this.interactWithAltar(target.x, target.y),
+      };
     }
 
     if (slot.id === 'pulse') {
-      this.triggerExplorationPulse();
-      return;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: {
+          kind: 'pulse',
+          label: 'Pulso',
+          detail: this.pulseCooldown > 0 ? `${Math.ceil(this.pulseCooldown)}s` : 'Escáner',
+          canAct: this.pulseCooldown <= 0,
+        },
+        execute: () => this.triggerExplorationPulse(),
+      };
     }
 
     if (slot.id === 'berry') {
-      this.useQuickBerry();
-      return;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: {
+          kind: 'berry',
+          label: 'Curar',
+          detail: `Baya (${this.state.inventory.berries})`,
+          canAct: this.state.inventory.berries > 0,
+        },
+        execute: () => this.useQuickBerry(),
+      };
     }
 
     // Building tools
     if (slot.id === 'torch' || slot.id === 'wall' || slot.id === 'floor' || slot.id === 'door' || slot.id === 'station') {
-      this.placeStructure(slot.id, target.x, target.y, tile);
-      return;
+      const keyMap: Record<'torch' | 'wall' | 'floor' | 'door' | 'station', InventoryKey> = {
+        torch: 'torches',
+        wall: 'walls',
+        floor: 'floors',
+        door: 'doors',
+        station: 'stations',
+      };
+      const qty = this.state.inventory[keyMap[slot.id]];
+      const validSurface =
+        slot.id === 'floor'
+          ? tile === TileType.FLOOR || tile === TileType.WATER || tile === TileType.ICE_FLOOR
+          : !isTileSolid(tile) && tile !== TileType.TORCH && tile !== TileType.LAVA;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: {
+          kind: 'place',
+          label: 'Colocar',
+          detail: `${slot.label} (${qty})`,
+          canAct: qty > 0 && validSurface,
+        },
+        execute: () => this.placeStructure(slot.id as 'torch' | 'wall' | 'floor' | 'door' | 'station', target.x, target.y, tile),
+      };
     }
 
     // Pick up home furniture or interact with nearby home slug if target tile isn't mineable
     if (this.state.home?.furniture.some((f) => f.x === target.x && f.y === target.y)) {
-      this.pickupFurnitureAt(target.x, target.y);
-      return;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: { kind: 'pickup_furniture', label: 'Recoger', detail: 'Mueble', canAct: true },
+        execute: () => {
+          this.pickupFurnitureAt(target.x, target.y);
+        },
+      };
     }
 
     if (!this.isMineableTile(tile)) {
       const nearHome = findNearbyHomeSlug(this.state, 2.1);
       if (nearHome) {
-        this.petHomeSlug(nearHome.slug.uid);
-        return;
+        return {
+          slot,
+          target,
+          tile,
+          contextual: {
+            kind: 'interact_slug',
+            label: 'Interactuar',
+            detail: nearHome.slug.name,
+            canAct: true,
+          },
+          execute: () => {
+            this.petHomeSlug(nearHome.slug.uid);
+          },
+        };
       }
     }
 
-    // Mining & Harvesting (Pico)
-    this.mineTile(target.x, target.y, tile);
+    if (this.isMineableTile(tile)) {
+      const isGather =
+        tile === TileType.MUSHROOM || tile === TileType.KELP || tile === TileType.NEON_MUSHROOM;
+      const isExtract =
+        tile === TileType.ORE ||
+        tile === TileType.ENERGY_CRYSTAL ||
+        tile === TileType.SHADOW_CRYSTAL ||
+        tile === TileType.MAGMA_COAL ||
+        tile === TileType.THERMAL_COPPER ||
+        tile === TileType.ICE_CRYSTAL ||
+        tile === TileType.BLUE_QUARTZ ||
+        tile === TileType.DARK_IRON ||
+        tile === TileType.EVO_STONE_VEIN;
+      return {
+        slot,
+        target,
+        tile,
+        contextual: {
+          kind: isGather ? 'gather' : isExtract ? 'extract' : 'mine',
+          label: isGather ? 'Recoger' : isExtract ? 'Extraer' : 'Minar',
+          detail: isGather ? 'Recurso' : isExtract ? 'Veta' : 'Bloque',
+          canAct: true,
+        },
+        execute: () => this.mineTile(target.x, target.y, tile),
+      };
+    }
+
+    return {
+      slot,
+      target,
+      tile,
+      contextual: {
+        kind: 'none',
+        label: 'Minar',
+        detail: 'Sin objetivo',
+        canAct: false,
+      },
+      execute: () => this.mineTile(target.x, target.y, tile),
+    };
+  }
+
+  public getContextualExplorationAction(): ExplorationContextualAction {
+    return this.resolvePrimaryInteraction().contextual;
+  }
+
+  public performPrimaryAction(): void {
+    this.resolvePrimaryInteraction().execute();
   }
 
   private isMineableTile(tile: TileType): boolean {
@@ -1528,6 +1723,16 @@ export class BajoterraEngine {
       this.state.worldSeed
     );
 
+    cinematicEvents.emit({
+      type: ent.kind === 'boss' || ent.kind === 'mercenary' ? 'encounter_intro' : 'combat_intro',
+      title: ent.name,
+      biome: currentBiome,
+      speciesId: spId,
+      audioCue: ent.kind === 'boss' ? 'boss_ominous' : 'duel_tension',
+      skippable: true,
+      priority: ent.kind === 'boss' ? 'dramatic' : 'highlight',
+    });
+
     this.combat.startBattle(this.state, {
       kind: ent.kind === 'boss' ? 'boss' : ent.kind === 'mercenary' ? 'mercenary' : 'wild',
       speciesId: spId,
@@ -1541,6 +1746,17 @@ export class BajoterraEngine {
       },
       onEnd: (endedBattle) => {
         const outcome = endedBattle?.outcome;
+        if (outcome === 'captured') {
+          cinematicEvents.emit({
+            type: 'slug_captured',
+            title: endedBattle?.enemy.name || 'Babosa capturada',
+            biome: currentBiome,
+            speciesId: endedBattle?.enemy.id,
+            audioCue: 'capture_chime',
+            skippable: true,
+            priority: 'dramatic',
+          });
+        }
         if (outcome === 'victory' || outcome === 'captured') {
           this.entities = this.entities.filter((x) => x.uid !== ent.uid);
           if (ent.challengeId) {
@@ -1605,6 +1821,15 @@ export class BajoterraEngine {
     const res = evolveSlugToMegamorphHelper(this.state, slugUid);
     if (res.ok) {
       sound.playVictory();
+      const evolved = findSlugByUidAnywhere(this.state, slugUid);
+      cinematicEvents.emit({
+        type: 'megamorph_awakened',
+        title: evolved?.name || 'Megamorph',
+        speciesId: evolved?.id,
+        audioCue: 'victory_fanfare',
+        skippable: true,
+        priority: 'dramatic',
+      });
       this.renderer.spawnBurst(
         Math.floor(this.state.player.x + 0.5),
         Math.floor(this.state.player.y + 0.5),

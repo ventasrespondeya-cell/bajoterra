@@ -220,6 +220,7 @@ const {
   BOSS_DEFINITIONS,
   CHUNK_SIZE,
   CRAFT_RECIPES,
+  HOTBAR_SLOTS,
   QUEST_LIST,
   RARITY_WEIGHTS,
   SPAWN_X,
@@ -231,6 +232,7 @@ const {
   getSpecies,
   pickWeightedSpeciesByBiome,
 } = await import('../src/game/data.ts');
+const { cinematicEvents } = await import('../src/game/cinematicEvents.ts');
 const { gameEngine } = await import('../src/game/engine.ts');
 const {
   canHomeSlugWalk,
@@ -2185,7 +2187,359 @@ describe('Bajoterra 4.0 — FASE 7: Renacimiento Total del Combate (Blásteres, 
     }
     cm.closeBattle();
   });
+
+  test('F7.5 Movimiento 2D libre, apuntado simultáneo, acción contextual, 15 especies y 4 arenas', () => {
+    const state = createInitialGameState();
+    const megaInf = createSlugInstance('infurnus', 5);
+    megaInf.mega = true;
+    state.party = [
+      megaInf,
+      createSlugInstance('tazerling', 5),
+      createSlugInstance('doc', 5),
+    ];
+    state.inventory.capsules = 2;
+    state.inventory.berries = 2;
+    state.inventory.core = 2;
+
+    const cm = new CombatManager();
+    const renderer = new DuelArenaRenderer();
+    const ctx = document.createElement('canvas').getContext('2d')!;
+
+    for (const biome of ['Verdes', 'Magma', 'Heladas', 'Sombrias'] as const) {
+      state.inventory.capsules = 2;
+      cm.startBattle(state, { kind: 'wild', speciesId: 'aquabeak', level: 3, biome });
+      const pd = cm.battle!.playerDuelist;
+      const startX = pd.x;
+      const startY = pd.y;
+
+      // Normalized diagonal movement + simultaneous aim & charge
+      cm.setMoveInput(1, -1);
+      cm.aimAtArenaPoint(720, 180);
+      cm.beginCharge(state);
+      for (let i = 0; i < 12; i++) cm.step(0.03, state);
+
+      assert.ok(pd.x > startX);
+      assert.ok(pd.y < startY);
+      assert.equal(pd.charging, true);
+
+      // Charge tier escalation & trajectory preview
+      const tier = cm.getChargeTierInfo(state);
+      assert.ok(['quick', 'move0', 'move1', 'pulse'].includes(tier.tier));
+      const preview = cm.computeTrajectoryPreview(state);
+      assert.ok(preview.points.length >= 4);
+
+      const shot = cm.releaseChargeAndFire(state);
+      assert.ok(shot);
+
+      // Stop movement cleanly
+      cm.setMoveInput(0, 0);
+      cm.step(0.02, state);
+      assert.equal(pd.vx, 0);
+      assert.equal(pd.vy, 0);
+
+      // Contextual capture trigger when wild enemy weakened
+      cm.battle!.projectiles = [];
+      cm.battle!.enemy.telegraphing = null;
+      cm.battle!.enemy.hp = Math.floor(cm.battle!.enemy.maxHp * 0.4);
+      const ctxInfo = cm.getContextualAction(state);
+      assert.equal(ctxInfo.kind, 'capture');
+      assert.equal(cm.triggerContextualAction(state), true);
+
+      // Cycle slug cleanly
+      const prevIdx = state.activePartyIndex;
+      assert.equal(cm.cycleSlug(state, 1), true);
+      assert.notEqual(state.activePartyIndex, prevIdx);
+
+      // Render arena in both lighting qualities + ended banner
+      state.options.lightingQuality = 'high';
+      renderer.render(ctx, cm.battle!, state, cm, state.options);
+      cm.battle!.turn = 'ended';
+      cm.battle!.outcome = 'victory';
+      cm.stepEndedVisuals(0.03);
+      state.options.lightingQuality = 'eco';
+      renderer.render(ctx, cm.battle!, state, cm, state.options);
+      cm.closeBattle();
+    }
+
+    // All 15 species fire & render cleanly across protoform -> transforming -> transformed
+    for (const sp of SPECIES_LIST) {
+      const slug = createSlugInstance(sp.id, 6);
+      slug.mega = sp.id === 'aetherion';
+      state.party[0] = slug;
+      state.activePartyIndex = 0;
+      cm.startBattle(state, { kind: 'wild', speciesId: sp.id, level: 4, biome: sp.habitat });
+      cm.battle!.obstacles = [];
+      const p = cm.fireBlasterShot(state, { charge: 0.78, angle: -0.05 });
+      assert.ok(p, `Disparo falló para ${sp.id}`);
+      for (let i = 0; i < 16 && cm.battle?.turn === 'duel'; i++) {
+        cm.step(0.025, state);
+        if (cm.battle) renderer.render(ctx, cm.battle, state, cm, state.options);
+      }
+      cm.closeBattle();
+    }
+  });
 });
+
+describe('Bajoterra 4.0 — FASE 8: Rediseño HUD, Acciones Contextuales y Preparación Cinematográfica', () => {
+  test('F8.1 Acción contextual unificada con performPrimaryAction y sin duplicar lógica', () => {
+    gameEngine.startNewGame();
+    gameEngine.setHotbar(0); // Pico
+    const px = Math.floor(gameEngine.state.player.x + 0.5);
+    const py = Math.floor(gameEngine.state.player.y + 0.5);
+    gameEngine.state.player.facingX = 1;
+    gameEngine.state.player.facingY = 0;
+    const tx = px + 1;
+    const ty = py;
+
+    // Clear entities nearby for deterministic tile tests
+    const savedEntities = gameEngine.entities;
+    gameEngine.entities = [];
+
+    // 1. Closed door -> Abrir -> performPrimaryAction opens it
+    gameEngine.chunks.setTile(tx, ty, TileType.DOOR_CLOSED);
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'open_door');
+    assert.equal(gameEngine.getContextualExplorationAction().label, 'Abrir');
+    gameEngine.performPrimaryAction();
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.DOOR_OPEN);
+
+    // 2. Closed chest -> Abrir -> opens chest & rewards items
+    const chestsBefore = gameEngine.state.stats.chestsOpened;
+    gameEngine.chunks.setTile(tx, ty, TileType.CHEST_CLOSED);
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'open_chest');
+    gameEngine.performPrimaryAction();
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.CHEST_OPEN);
+    assert.equal(gameEngine.state.stats.chestsOpened, chestsBefore + 1);
+
+    // 3. Mineable crystal -> Extraer -> mines tile to FLOOR
+    gameEngine.chunks.setTile(tx, ty, TileType.ENERGY_CRYSTAL);
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'extract');
+    assert.equal(gameEngine.getContextualExplorationAction().label, 'Extraer');
+    gameEngine.performPrimaryAction();
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.FLOOR);
+
+    // 4. Select torch tool -> Colocar -> places torch cleanly
+    const torchIdx = HOTBAR_SLOTS.findIndex((s) => s.id === 'torch');
+    gameEngine.setHotbar(torchIdx);
+    const torchCtx = gameEngine.getSnapshot().contextualAction;
+    assert.equal(torchCtx.kind, 'place');
+    assert.equal(torchCtx.label, 'Colocar');
+    assert.equal(torchCtx.canAct, true);
+    gameEngine.performPrimaryAction();
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.TORCH);
+
+    // 5. Empty floor with Pico -> canAct = false
+    gameEngine.setHotbar(0);
+    gameEngine.chunks.setTile(tx, ty, TileType.FLOOR);
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'none');
+    assert.equal(gameEngine.getContextualExplorationAction().canAct, false);
+
+    // 6. Nearby merchant -> Hablar
+    gameEngine.entities = savedEntities;
+    const merchant = gameEngine.entities.find((e) => e.kind === 'merchant');
+    if (merchant) {
+      gameEngine.state.player.x = merchant.x - 1;
+      gameEngine.state.player.y = merchant.y;
+      assert.equal(gameEngine.getContextualExplorationAction().kind, 'talk');
+      assert.equal(gameEngine.getContextualExplorationAction().label, 'Hablar');
+    }
+  });
+
+  test('F8.2 Bus ligero de eventos cinematográficos (Etapa E) y cambio de babosa sin pérdida de datos', () => {
+    cinematicEvents.clear();
+    const received: string[] = [];
+    const unsubGood = cinematicEvents.subscribe((ev) => {
+      received.push(ev.type);
+    });
+    const unsubBroken = cinematicEvents.subscribe(() => {
+      throw new Error('Listener defectuoso simulado');
+    });
+
+    try {
+      gameEngine.startNewGame();
+      const partyUids = gameEngine.state.party.map((s) => s.uid);
+      if (partyUids.length > 1) {
+        gameEngine.setActivePartyIndex(1);
+        assert.equal(gameEngine.state.activePartyIndex, 1);
+      }
+      assert.deepEqual(
+        gameEngine.state.party.map((s) => s.uid),
+        partyUids
+      );
+
+      // Emitir eventos de descubrimiento y Megamorph sin bloquear
+      for (let i = 0; i < 20; i++) {
+        cinematicEvents.emit({
+          type: i % 2 === 0 ? 'biome_discovered' : 'poi_discovered',
+          title: `Evento ${i}`,
+          audioCue: 'discovery_wonder',
+          skippable: true,
+          priority: 'ambient',
+        });
+      }
+      assert.equal(received.length, 20);
+      assert.ok(cinematicEvents.getRecentEvents().length <= 16);
+    } finally {
+      unsubGood();
+      unsubBroken();
+      cinematicEvents.clear();
+    }
+  });
+
+  test('F8.3 Movimiento libre 2D en combate (WASD/Flechas), diagonal normalizada, apuntar+cargar+disparar y parada limpia', () => {
+    const state = createInitialGameState();
+    const cm = new CombatManager();
+    cm.startBattle(state, { kind: 'wild', speciesId: 'infurnus', level: 4, biome: 'Verdes' });
+    cm.battle!.obstacles = []; // Isolate arena bounds & free movement
+    const pd = cm.battle!.playerDuelist;
+    pd.x = 220;
+    pd.y = 250;
+
+    // 1. Horizontal & vertical individual directions
+    const startX = pd.x;
+    const startY = pd.y;
+    cm.setMoveInput(1, 0); // D / ArrowRight
+    cm.step(0.04, state);
+    assert.ok(pd.x > startX, 'Debe moverse a la derecha con D/ArrowRight');
+    assert.equal(pd.y, startY);
+
+    const afterRightX = pd.x;
+    cm.setMoveInput(-1, 0); // A / ArrowLeft
+    cm.step(0.04, state);
+    assert.ok(pd.x < afterRightX, 'Debe moverse a la izquierda con A/ArrowLeft');
+
+    cm.setMoveInput(0, -1); // W / ArrowUp
+    cm.step(0.04, state);
+    assert.ok(pd.y < startY, 'Debe moverse hacia arriba con W/ArrowUp');
+
+    const afterUpY = pd.y;
+    cm.setMoveInput(0, 1); // S / ArrowDown
+    cm.step(0.04, state);
+    assert.ok(pd.y > afterUpY, 'Debe moverse hacia abajo con S/ArrowDown');
+
+    // 2. Diagonal normalization: diagonal speed must equal straight speed (no √2 boost)
+    cm.setMoveInput(1, 0);
+    cm.step(0.04, state);
+    const straightSpeed = Math.hypot(pd.vx, pd.vy);
+
+    cm.setMoveInput(1, -1); // W + D diagonal
+    cm.step(0.04, state);
+    const diagInput = cm.getMoveInput();
+    assert.ok(Math.abs(Math.hypot(diagInput.x, diagInput.y) - 1) < 1e-6);
+    const diagSpeed = Math.hypot(pd.vx, pd.vy);
+    assert.ok(
+      Math.abs(diagSpeed - straightSpeed) < 0.01,
+      `Velocidad diagonal (${diagSpeed}) debe igualar a recta (${straightSpeed})`
+    );
+
+    // 3. Smooth direction switch + moving while aiming & charging & firing
+    const beforeComboX = pd.x;
+    const beforeComboY = pd.y;
+    cm.setMoveInput(-1, 1); // A + S diagonal
+    cm.aimAtArenaPoint(780, 180);
+    cm.beginCharge(state);
+    assert.equal(pd.charging, true);
+    cm.step(0.04, state);
+    cm.step(0.04, state);
+    assert.ok(pd.x < beforeComboX && pd.y > beforeComboY, 'Debe moverse libremente mientras apunta y carga');
+    assert.ok(pd.charge > 0.16, 'La carga debe avanzar mientras se mueve');
+    const shot = cm.releaseChargeAndFire(state);
+    assert.ok(shot, 'Debe disparar correctamente sin bloquear el movimiento');
+
+    // 4. Releasing keys stops movement immediately
+    cm.setMoveInput(0, 0);
+    cm.step(0.04, state);
+    assert.equal(pd.vx, 0);
+    assert.equal(pd.vy, 0);
+
+    // 5. Closing battle clears active movement input
+    cm.setMoveInput(1, 1);
+    cm.closeBattle();
+    assert.deepEqual(cm.getMoveInput(), { x: 0, y: 0 });
+
+    // 6. BattleModal keyboard contract: WASD + Arrows, editable target guard, blur & visibility cleanup
+    const bmSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/BattleModal.tsx'), 'utf8');
+    for (const key of ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', "'w'", "'a'", "'s'", "'d'"]) {
+      assert.ok(bmSrc.includes(key), `Falta soporte de tecla ${key} en BattleModal`);
+    }
+    assert.ok(bmSrc.includes('isEditableEventTarget'));
+    assert.ok(bmSrc.includes('visibilitychange'));
+    assert.ok(bmSrc.includes("battle.turn !== 'duel'"));
+  });
+
+  test('F8.4 Selector compacto de herramientas en GameHUD, todas las herramientas y protección de campos de texto', () => {
+    gameEngine.startNewGame();
+    const savedEntities = gameEngine.entities;
+    gameEngine.entities = [];
+    const px = Math.floor(gameEngine.state.player.x + 0.5);
+    const py = Math.floor(gameEngine.state.player.y + 0.5);
+    gameEngine.state.player.facingX = 1;
+    gameEngine.state.player.facingY = 0;
+    const tx = px + 1;
+    const ty = py;
+
+    // Verify all 8 tools work seamlessly when selected
+    assert.equal(HOTBAR_SLOTS.length, 8);
+    gameEngine.state.inventory.walls = 3;
+    gameEngine.state.inventory.floors = 3;
+    gameEngine.state.inventory.doors = 2;
+    gameEngine.state.inventory.stations = 1;
+    gameEngine.state.inventory.berries = 2;
+    gameEngine.state.player.hp = 60;
+
+    // Wall -> Place
+    gameEngine.chunks.setTile(tx, ty, TileType.FLOOR);
+    gameEngine.setHotbar(HOTBAR_SLOTS.findIndex((s) => s.id === 'wall'));
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'place');
+    gameEngine.performPrimaryAction();
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.WALL);
+
+    // Mine back down with Pico
+    gameEngine.setHotbar(HOTBAR_SLOTS.findIndex((s) => s.id === 'mine'));
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'mine');
+    gameEngine.performPrimaryAction();
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.FLOOR);
+
+    // Door -> Place -> Open
+    gameEngine.setHotbar(HOTBAR_SLOTS.findIndex((s) => s.id === 'door'));
+    gameEngine.performPrimaryAction();
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.DOOR_CLOSED);
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'open_door');
+    gameEngine.performPrimaryAction();
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.DOOR_OPEN);
+
+    // Station -> Place -> Recharge contextual
+    gameEngine.chunks.setTile(tx, ty, TileType.FLOOR);
+    gameEngine.setHotbar(HOTBAR_SLOTS.findIndex((s) => s.id === 'station'));
+    gameEngine.performPrimaryAction();
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.RECHARGE_STATION);
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'recharge');
+
+    // Berry tool -> Curar
+    gameEngine.chunks.setTile(tx, ty, TileType.FLOOR);
+    gameEngine.setHotbar(HOTBAR_SLOTS.findIndex((s) => s.id === 'berry'));
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'berry');
+    gameEngine.performPrimaryAction();
+    assert.ok(gameEngine.state.player.hp > 60);
+
+    // Pulse tool -> Pulso
+    gameEngine.setHotbar(HOTBAR_SLOTS.findIndex((s) => s.id === 'pulse'));
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'pulse');
+
+    gameEngine.entities = savedEntities;
+
+    // UI contract: single tool selector popover, no permanent numbered 1-8 hotbar buttons
+    const hudSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/GameHUD.tsx'), 'utf8');
+    assert.ok(hudSrc.includes('toolMenuOpen'));
+    assert.ok(hudSrc.includes('role="menu"'));
+    assert.ok(hudSrc.includes('setToolMenuOpen(false)'));
+    assert.ok(!hudSrc.includes('{idx + 1}'), 'No deben existir etiquetas numeradas 1-8 permanentes en el HUD');
+
+    // engine.ts ignores text input elements on keydown
+    const engineSrc = fs.readFileSync(path.join(process.cwd(), 'src/game/engine.ts'), 'utf8');
+    assert.ok(engineSrc.includes("tag === 'INPUT'") && engineSrc.includes("tag === 'TEXTAREA'"));
+  });
+});
+
 
 
 

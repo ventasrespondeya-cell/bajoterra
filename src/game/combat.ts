@@ -48,6 +48,13 @@ export interface ContextualActionInfo {
   disabled: boolean;
 }
 
+export interface ChargeTierInfo {
+  tier: 'quick' | 'move0' | 'move1' | 'pulse';
+  label: string;
+  color: string;
+  sweetSpot: boolean;
+}
+
 export class CombatManager {
   public battle: BattleState | null = null;
   public allyCooldowns: Record<string, number> = {}; // `${uid}_${moveId}` -> seconds remaining
@@ -290,6 +297,10 @@ export class CombatManager {
       this.moveInputX = Math.max(-1, Math.min(1, dx));
       this.moveInputY = Math.max(-1, Math.min(1, dy));
     }
+  }
+
+  public getMoveInput(): { x: number; y: number } {
+    return { x: this.moveInputX, y: this.moveInputY };
   }
 
   public setVerticalInput(dir: -1 | 0 | 1): void {
@@ -605,7 +616,13 @@ export class CombatManager {
 
     const incomingDanger =
       b.enemy.telegraphing === 'heavy' ||
-      b.projectiles.some((p) => p.owner === 'enemy' && p.alive && p.x < b.playerDuelist.x + 260);
+      b.projectiles.some(
+        (p) =>
+          p.owner === 'enemy' &&
+          p.alive &&
+          p.x < b.playerDuelist.x + 260 &&
+          p.x > b.playerDuelist.x - 40
+      );
     const guardReady = b.playerDuelist.guardCooldown <= 0;
 
     if (incomingDanger && guardReady) {
@@ -656,6 +673,49 @@ export class CombatManager {
     if (ctx.kind === 'heal') return this.useItem(state, 'berries');
     if (ctx.kind === 'energy') return this.useItem(state, 'core');
     return false;
+  }
+
+  public getChargeTierInfo(state: GameState): ChargeTierInfo {
+    const b = this.battle;
+    const ally = state.party[state.activePartyIndex];
+    if (!b || !ally) {
+      return { tier: 'quick', label: 'Rápido', color: '#38bdf8', sweetSpot: false };
+    }
+    const sp = getSpecies(ally.id);
+    const charge = b.playerDuelist.charge;
+    const sweetSpot = charge >= 0.62 && charge <= 0.88;
+    const effectiveMode = this.resolveEffectiveShotMode(state, charge);
+
+    if (effectiveMode === 'pulse') {
+      return { tier: 'pulse', label: '¡Pulso Maestro!', color: '#5eead4', sweetSpot };
+    }
+    if (effectiveMode === 1) {
+      return { tier: 'move1', label: sp.specialMoves[1].name, color: '#fde047', sweetSpot };
+    }
+    if (effectiveMode === 0) {
+      return { tier: 'move0', label: sp.specialMoves[0].name, color: '#facc15', sweetSpot };
+    }
+    return {
+      tier: 'quick',
+      label: sweetSpot ? '★ Tiro Maestro' : 'Disparo Rápido',
+      color: sweetSpot ? '#fde047' : '#38bdf8',
+      sweetSpot,
+    };
+  }
+
+  private resolveEffectiveShotMode(state: GameState, charge: number): BlasterShotMode {
+    const b = this.battle;
+    const ally = state.party[state.activePartyIndex];
+    if (!b || !ally) return 'quick';
+    if (b.selectedMode !== 'quick') return b.selectedMode;
+    if (charge >= 0.78) {
+      if (b.pulseWindowActive) return 'pulse';
+      if (this.canUseMove(ally, 1)) return 1;
+      if (this.canUseMove(ally, 0)) return 0;
+    } else if (charge >= 0.42 && this.canUseMove(ally, 0)) {
+      return 0;
+    }
+    return 'quick';
   }
 
   public activateGuard(state: GameState): boolean {
@@ -842,6 +902,10 @@ export class CombatManager {
     const chance = this.battle.kind === 'mercenary' ? 0.55 : 0.8 + (ally?.spd || 10) * 0.012;
     if (Math.random() < chance) {
       sound.stopDuelMusic();
+      this.moveInputX = 0;
+      this.moveInputY = 0;
+      this.battle.playerDuelist.vx = 0;
+      this.battle.playerDuelist.vy = 0;
       this.battle.turn = 'ended';
       this.battle.outcome = 'escaped';
       this.battle.rewardText = 'Lograste retirarte del duelo con seguridad.';
@@ -867,19 +931,20 @@ export class CombatManager {
     const pd = this.battle.playerDuelist;
     const charge = pd.charging ? Math.max(0.18, pd.charge) : 0.65;
     const angle = pd.aimAngle;
+    const previewMode = pd.charging ? this.resolveEffectiveShotMode(state, charge) : this.battle.selectedMode;
 
     const speed =
       (profile.baseLaunchSpeed + (profile.maxLaunchSpeed - profile.baseLaunchSpeed) * charge) *
       (ally.mega ? 1.12 : 1) *
-      (this.battle.selectedMode === 'pulse' ? 1.16 : 1);
+      (previewMode === 'pulse' ? 1.16 : 1);
 
     let x = pd.x + Math.cos(angle) * 34;
     let y = pd.y + Math.sin(angle) * 34;
     let vx = Math.cos(angle) * speed;
     let vy = Math.sin(angle) * speed;
-    const gScale = this.battle.selectedMode === 'pulse' ? 0.08 : profile.gravityScale;
+    const gScale = previewMode === 'pulse' ? 0.08 : profile.gravityScale;
     const tDist =
-      this.battle.selectedMode === 'pulse'
+      previewMode === 'pulse'
         ? 52
         : Math.max(68, profile.transformDist * (1.12 - charge * 0.3));
 
@@ -907,6 +972,20 @@ export class CombatManager {
       points.push({ x, y });
     }
     return { points, transformPoint };
+  }
+
+  public stepEndedVisuals(dtRaw: number): void {
+    if (!this.battle || this.battle.turn !== 'ended') return;
+    const dt = Math.min(0.05, Math.max(0.001, dtRaw));
+    const b = this.battle;
+    b.elapsedSec += dt;
+    if (b.cameraShake > 0) b.cameraShake = Math.max(0, b.cameraShake - dt * 26);
+    for (let i = b.shockwaves.length - 1; i >= 0; i--) {
+      const sw = b.shockwaves[i];
+      sw.radius += (sw.maxRadius - sw.radius) * Math.min(1, dt * 11) + 45 * dt;
+      sw.alpha -= dt * 2.1;
+      if (sw.alpha <= 0.02) b.shockwaves.splice(i, 1);
+    }
   }
 
   public step(dtRaw: number, state: GameState): void {
@@ -1488,6 +1567,10 @@ export class CombatManager {
       }
       this.awardExperience(state, ally, 18 + enemy.level * 4, 5);
       this.pushShockwave(ed.x, ed.y, 88, '#4ade80', 'capture', '¡CAPTURADA!');
+      this.moveInputX = 0;
+      this.moveInputY = 0;
+      b.playerDuelist.vx = 0;
+      b.playerDuelist.vy = 0;
       b.turn = 'ended';
       b.outcome = 'captured';
       b.rewardText = addedToParty
@@ -1662,6 +1745,10 @@ export class CombatManager {
           s.hp = Math.max(5, Math.round(s.maxHp * 0.35));
           s.energy = s.maxEnergy;
         });
+        this.moveInputX = 0;
+        this.moveInputY = 0;
+        b.playerDuelist.vx = 0;
+        b.playerDuelist.vy = 0;
         b.turn = 'ended';
         b.outcome = 'defeat';
         b.rewardText = 'Tu equipo se retiró al refugio para recuperarse.';
@@ -1747,6 +1834,10 @@ export class CombatManager {
       rewardText += ` ${levelMsgs.join(' ')}`;
     }
 
+    this.moveInputX = 0;
+    this.moveInputY = 0;
+    this.battle.playerDuelist.vx = 0;
+    this.battle.playerDuelist.vy = 0;
     this.battle.turn = 'ended';
     this.battle.outcome = 'victory';
     this.battle.rewardText = rewardText;
