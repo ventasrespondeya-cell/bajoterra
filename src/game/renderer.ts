@@ -1,4 +1,5 @@
 import { BIOME_INFO, BOSS_DEFINITIONS, FURNITURE_DEFS, HABITAT_DEFS, TILE_PX, WORLD_H, WORLD_W, getSpecies } from './data';
+import { sampleSlugAnimationFrame, type SlugAnimationState } from './slugArtDirection';
 import { sprites, type SlugSpritePose } from './sprites';
 import { TileType, type BiomeId, type GameState, type RoamingEntity } from './types';
 import { ChunkManager, getBiomeAt } from './world';
@@ -263,16 +264,21 @@ export class WorldRenderer {
 
         // Animated shimmer on crystals, water, lava, torches, recharge stations
         if (tile === TileType.LAVA) {
-          const pulse = 0.16 + Math.sin(timeSec * 4 + tx + ty) * 0.08;
+          const pulse = 0.18 + Math.sin(timeSec * 4 + tx + ty) * 0.1;
           ctx.fillStyle = `rgba(253, 224, 71, ${pulse})`;
           ctx.fillRect(sx + 4, sy + 6, 12, 6);
+          const bubbleY = sy + 18 - ((timeSec * 12 + tx * 5 + ty * 7) % 10);
+          ctx.fillStyle = 'rgba(254, 240, 138, 0.52)';
+          ctx.fillRect(sx + 8 + ((tx * 3) % 8), bubbleY, 3, 3);
           if ((tx + ty) % 3 === 0) {
             lightSources.push({ sx: sx + 14, sy: sy + 14, r: 78, color: 'rgba(251, 146, 60, 0.6)' });
           }
         } else if (tile === TileType.WATER) {
-          const shimmer = 0.12 + Math.sin(timeSec * 3 + tx * 0.8) * 0.07;
+          const shimmer = 0.14 + Math.sin(timeSec * 3 + tx * 0.8) * 0.08;
           ctx.fillStyle = `rgba(186, 230, 253, ${shimmer})`;
-          ctx.fillRect(sx + 5, sy + 8 + Math.sin(timeSec * 2 + ty) * 2, 10, 2);
+          ctx.fillRect(sx + 4, sy + 7 + Math.sin(timeSec * 2.2 + ty) * 2, 11, 2);
+          ctx.fillStyle = `rgba(125, 211, 252, ${shimmer * 0.85})`;
+          ctx.fillRect(sx + 11, sy + 16 + Math.cos(timeSec * 2.4 + tx) * 2, 9, 2);
         } else if (tile === TileType.TORCH) {
           const flick = 6 + Math.sin(timeSec * 14 + tx * 3) * 2.5;
           lightSources.push({ sx: sx + 14, sy: sy + 10, r: 112 + flick, color: 'rgba(253, 186, 116, 0.88)' });
@@ -287,6 +293,13 @@ export class WorldRenderer {
             ctx.fillStyle = 'rgba(255,255,255,0.72)';
             ctx.fillRect(sx + 11, sy + 5, 3, 3);
           }
+          if (tile === TileType.ALTAR) {
+            ctx.strokeStyle = `rgba(94, 234, 212, ${0.28 + Math.sin(timeSec * 4) * 0.14})`;
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.arc(sx + 14, sy + 14, 11 + Math.sin(timeSec * 3) * 1.5, 0, Math.PI * 2);
+            ctx.stroke();
+          }
         } else if (tile === TileType.SHADOW_CRYSTAL) {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 78, color: 'rgba(192, 132, 252, 0.62)' });
         } else if (tile === TileType.EVO_STONE_VEIN) {
@@ -297,6 +310,9 @@ export class WorldRenderer {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 46, color: 'rgba(249, 115, 22, 0.44)' });
         } else if (tile === TileType.RECHARGE_STATION) {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 116, color: 'rgba(56, 189, 248, 0.82)' });
+          const scanAlpha = 0.35 + Math.sin(timeSec * 6 + tx) * 0.2;
+          ctx.fillStyle = `rgba(125, 211, 252, ${scanAlpha})`;
+          ctx.fillRect(sx + 7, sy + 9 + Math.round((Math.sin(timeSec * 4) + 1) * 4), 14, 2);
         } else if (tile === TileType.MUSHROOM) {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 52, color: 'rgba(52, 211, 153, 0.42)' });
         } else if (
@@ -363,6 +379,9 @@ export class WorldRenderer {
     }
 
     // 3. Roaming wild slugs, bosses, mercenaries, merchant
+    const reduced = Boolean(state.options.reducedMotion);
+    const animFrame = Math.floor(timeSec * 3.5) & 1;
+
     for (const ent of entities) {
       const ex = ent.x * TILE_PX - ox;
       const ey = ent.y * TILE_PX - oy;
@@ -371,12 +390,14 @@ export class WorldRenderer {
       // Ground contact shadow
       ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
       ctx.beginPath();
-      ctx.ellipse(ex + 14, ey + 23, 9, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(ex + 14, ey + 23, ent.kind === 'boss' ? 11 : 9, 4, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      const bob = Math.sin(timeSec * 4.2 + ent.x) * 2.2;
+      const bob = reduced ? 0 : Math.sin(timeSec * 4.2 + ent.x) * 2.2;
       if (ent.kind === 'wild' && ent.speciesId) {
         const sp = getSpecies(ent.speciesId);
+        const anim = sampleSlugAnimationFrame(ent.speciesId, 'walk', timeSec, reduced);
+        const flipLeft = Math.cos(ent.dir) < 0;
         // Subtle elemental shimmer ring
         ctx.strokeStyle = sp.accent;
         ctx.globalAlpha = 0.35 + Math.sin(timeSec * 3.5 + ent.y) * 0.15;
@@ -386,10 +407,14 @@ export class WorldRenderer {
         ctx.stroke();
         ctx.globalAlpha = 1;
 
-        const spr = sprites.getSpeciesSlugSprite(ent.speciesId, false, 'idle');
-        ctx.drawImage(spr, ex + 2, ey + 2 + bob);
-      } else {
-        // Boss / Mercenary / Merchant aura
+        const spr = sprites.getSpeciesSlugSprite(ent.speciesId, false, 'walk', animFrame);
+        ctx.save();
+        ctx.translate(ex + 14, ey + 14 + anim.offsetY);
+        ctx.scale((flipLeft ? -1 : 1) * anim.scaleX, anim.scaleY);
+        ctx.drawImage(spr, -12, -12);
+        ctx.restore();
+      } else if (ent.kind === 'boss' || ent.kind === 'mercenary' || ent.kind === 'merchant') {
+        // Boss / Mercenary / Merchant articulated RPG pixel character
         if (ent.kind === 'boss') {
           ctx.strokeStyle = 'rgba(248, 113, 113, 0.72)';
           ctx.lineWidth = 1.8;
@@ -397,11 +422,10 @@ export class WorldRenderer {
           ctx.ellipse(ex + 14, ey + 22, 12, 5.5, 0, 0, Math.PI * 2);
           ctx.stroke();
         } else if (ent.kind === 'merchant') {
-          lightSources.push({ sx: ex + 14, sy: ey + 14, r: 78, color: 'rgba(52, 211, 153, 0.65)' });
+          lightSources.push({ sx: ex + 14, sy: ey + 14, r: 84, color: 'rgba(52, 211, 153, 0.68)' });
         }
-        ctx.font = ent.kind === 'boss' ? '22px sans-serif' : '18px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(ent.icon, ex + 14, ey + 19 + bob);
+        const npcSpr = sprites.getNpcCharacterSprite(ent.kind, ent.bossId, animFrame);
+        ctx.drawImage(npcSpr, ex, ey - 1 + bob * 0.55);
       }
 
       if (ent.kind === 'boss' || ent.kind === 'mercenary' || ent.kind === 'merchant') {
@@ -431,21 +455,69 @@ export class WorldRenderer {
         if (rsx < -40 || rsy < -40 || rsx > vw + 40 || rsy > vh + 40) continue;
 
         const sp = getSpecies(res.slug.id);
-        const isResting = res.behavior === 'descansar';
-        const isPlaying = res.behavior === 'jugar';
+        const activity = res.visualActivity;
+        const isSleeping = activity === 'sleep' || (res.behavior === 'descansar' && activity !== 'eat' && activity !== 'look');
+        const isEating = activity === 'eat';
+        const isPlaying = activity === 'play' || activity === 'social' || res.behavior === 'jugar';
+        const isWalking = activity === 'walk' || res.behavior === 'pasear' || res.behavior === 'acercarse';
         const nearPlayer = Math.hypot(res.x - state.player.x, res.y - state.player.y) <= 2.1;
-        const bobAmp = isResting ? 0.7 : isPlaying ? 4.4 : 2.3;
-        const bobSpd = isResting ? 2 : isPlaying ? 9.5 : 4.5;
-        const bob = Math.sin(timeSec * bobSpd + res.x * 2) * bobAmp;
+
+        const animKind: SlugAnimationState = isEating
+          ? 'eat'
+          : isSleeping
+          ? 'sleep'
+          : isPlaying
+          ? 'play'
+          : nearPlayer || res.reactionText
+          ? 'happy'
+          : isWalking
+          ? 'walk'
+          : 'idle';
+        const anim = sampleSlugAnimationFrame(res.slug.id, animKind, timeSec, reduced);
+        const bob = anim.offsetY;
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.36)';
         ctx.beginPath();
         ctx.ellipse(rsx + 14, rsy + 23, 8, 3.5, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        const pose: SlugSpritePose = isResting ? 'rest' : isPlaying || nearPlayer || res.reactionText ? 'happy' : 'idle';
-        const spr = sprites.getSpeciesSlugSprite(res.slug.id, res.slug.mega, pose);
-        ctx.drawImage(spr, rsx + 2, rsy + 2 + bob);
+        const pose: SlugSpritePose = isEating
+          ? 'eat'
+          : isSleeping
+          ? 'rest'
+          : isPlaying
+          ? 'play'
+          : nearPlayer || res.reactionText
+          ? 'happy'
+          : isWalking
+          ? 'walk'
+          : 'idle';
+        const spr = sprites.getSpeciesSlugSprite(res.slug.id, res.slug.mega, pose, animFrame);
+        const faceDir = (res.facingX ?? 1) < 0 ? -1 : 1;
+
+        ctx.save();
+        ctx.translate(rsx + 14 + anim.offsetX, rsy + 14 + bob);
+        ctx.scale(faceDir * anim.scaleX, anim.scaleY);
+        ctx.drawImage(spr, -12, -12);
+        ctx.restore();
+
+        // Living micro-feedback per activity (sleep Zzz, food crumbs, social sparkles)
+        if (!reduced) {
+          if (isSleeping) {
+            const zy = (timeSec * 14 + res.x * 5) % 14;
+            ctx.font = 'bold 9px sans-serif';
+            ctx.fillStyle = `rgba(186, 230, 253, ${1 - zy / 14})`;
+            ctx.fillText('Z', rsx + 22, rsy + 4 - zy);
+          } else if (isEating) {
+            ctx.fillStyle = '#fde047';
+            ctx.fillRect(rsx + 14 + faceDir * 7, rsy + 16 + ((animFrame) * 2), 2, 2);
+            ctx.fillStyle = '#fb923c';
+            ctx.fillRect(rsx + 14 + faceDir * 9, rsy + 18 - ((animFrame) * 2), 2, 2);
+          } else if (activity === 'social') {
+            ctx.fillStyle = '#f472b6';
+            ctx.fillRect(rsx + 13, rsy - 2 + Math.sin(timeSec * 8) * 2, 3, 3);
+          }
+        }
 
         if (nearPlayer) {
           ctx.strokeStyle = 'rgba(94, 234, 212, 0.85)';
@@ -459,8 +531,12 @@ export class WorldRenderer {
           res.reactionText ||
           (res.mood === 'hambrienta'
             ? `${res.slug.name} · Hambre`
-            : res.mood === 'cansada' || isResting
+            : isSleeping || res.mood === 'cansada'
             ? `${res.slug.name} · Zzz`
+            : isEating
+            ? `${res.slug.name} · Comiendo`
+            : isPlaying
+            ? `${res.slug.name} · Jugando`
             : nearPlayer
             ? `${res.slug.name} · ♥`
             : res.slug.name);
@@ -474,7 +550,7 @@ export class WorldRenderer {
           ? '#fef08a'
           : res.mood === 'hambrienta'
           ? '#fdba74'
-          : res.mood === 'cansada'
+          : isSleeping || res.mood === 'cansada'
           ? '#bae6fd'
           : '#a7f3d0';
         ctx.fillText(badge, rsx + 14, rsy - 4 + bob);
@@ -485,17 +561,27 @@ export class WorldRenderer {
       }
     }
 
+    // 3.8 Ambient subterranean biome critters (lightweight life in every biome)
+    const curBiome = getBiomeAt(Math.round(state.player.x), Math.round(state.player.y), state.worldSeed);
+    this.renderAmbientCritters(ctx, vw, vh, curBiome, timeSec, state.options.lightingQuality, reduced);
+
     // 4. Companion Slug following player
     const activeSlug = state.party[state.activePartyIndex] || state.party[0];
     if (activeSlug) {
       const sp = getSpecies(activeSlug.id);
+      const compAnim = sampleSlugAnimationFrame(activeSlug.id, 'walk', timeSec, reduced);
       const csx = this.companionX - ox;
-      const csy = this.companionY - oy + Math.sin(timeSec * 5.2) * 2.5;
+      const csy = this.companionY - oy + compAnim.offsetY;
       ctx.fillStyle = 'rgba(0,0,0,0.34)';
       ctx.beginPath();
-      ctx.ellipse(csx + 12, csy + 21, 7, 3, 0, 0, Math.PI * 2);
+      ctx.ellipse(csx + 12, csy + 21 - compAnim.offsetY, 7, 3, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.drawImage(sprites.getSpeciesSlugSprite(activeSlug.id, activeSlug.mega, 'idle'), csx, csy);
+      const compFace = state.player.facingX < 0 ? -1 : 1;
+      ctx.save();
+      ctx.translate(csx + 12, csy + 12);
+      ctx.scale(compFace * compAnim.scaleX, compAnim.scaleY);
+      ctx.drawImage(sprites.getSpeciesSlugSprite(activeSlug.id, activeSlug.mega, 'walk', animFrame), -12, -12);
+      ctx.restore();
       if (activeSlug.mega) {
         lightSources.push({ sx: csx + 12, sy: csy + 12, r: 52, color: 'rgba(251, 191, 36, 0.55)' });
       } else if (sp.type === 'Luz' || sp.type === 'Fuego' || sp.type === 'Energia') {
@@ -631,6 +717,50 @@ export class WorldRenderer {
       ctx.beginPath();
       ctx.arc(l.sx, l.sy, l.r * 0.65, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  private renderAmbientCritters(
+    ctx: CanvasRenderingContext2D,
+    vw: number,
+    vh: number,
+    biome: BiomeId,
+    timeSec: number,
+    quality: 'high' | 'eco',
+    reducedMotion: boolean
+  ): void {
+    const count = reducedMotion ? 2 : quality === 'eco' ? 4 : 8;
+    const wing = reducedMotion ? 1.5 : 1 + Math.abs(Math.sin(timeSec * 14)) * 2.2;
+    ctx.save();
+    for (let i = 0; i < count; i++) {
+      const speedX = biome === 'Heladas' ? 14 : 20 + (i % 3) * 6;
+      const fx = ((i * 137 + timeSec * speedX * (i % 2 === 0 ? 1 : -0.7)) % Math.max(120, vw) + Math.max(120, vw)) % Math.max(120, vw);
+      const fy = ((i * 97 + Math.sin(timeSec * 1.8 + i * 1.3) * 28) % Math.max(120, vh) + Math.max(120, vh)) % Math.max(120, vh);
+      if (biome === 'Verdes') {
+        // Bioluminescent spore fireflies
+        ctx.fillStyle = i % 2 === 0 ? '#6ee7b7' : '#fde047';
+        ctx.globalAlpha = 0.45 + Math.sin(timeSec * 5 + i) * 0.25;
+        ctx.fillRect(fx, fy, 2.5, 2.5);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillRect(fx - wing * 0.5, fy - 1, wing, 1);
+      } else if (biome === 'Magma') {
+        // Magma ember wisps
+        ctx.fillStyle = i % 2 === 0 ? '#fb923c' : '#fef08a';
+        ctx.globalAlpha = 0.5;
+        ctx.fillRect(fx, fy - ((timeSec * 24 + i * 11) % 36), 2.5, 3);
+      } else if (biome === 'Heladas') {
+        // Floating prism ice sprites
+        ctx.fillStyle = '#bae6fd';
+        ctx.globalAlpha = 0.48;
+        ctx.fillRect(fx, fy, 2, 2);
+        ctx.fillRect(fx + 2, fy + 2, 2, 2);
+      } else {
+        // Abyssal shadow moths
+        ctx.fillStyle = i % 2 === 0 ? '#c084fc' : '#f472b6';
+        ctx.globalAlpha = 0.45;
+        ctx.fillRect(fx - wing, fy, wing * 2 + 1, 2);
+      }
     }
     ctx.restore();
   }

@@ -15,7 +15,7 @@ function px(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: num
   g.fillRect(x, y, w, h);
 }
 
-export type SlugSpritePose = 'idle' | 'rest' | 'happy';
+export type SlugSpritePose = 'idle' | 'rest' | 'happy' | 'walk' | 'play' | 'eat';
 
 class SpriteAtlas {
   private tileCache = new Map<string, HTMLCanvasElement>();
@@ -463,9 +463,7 @@ class SpriteAtlas {
     if (mega) {
       p(2, 2, 8, 8, 'rgba(250, 204, 21, 0.28)');
     }
-    // Crisp outline shadow
     p(3, 4, 6, 6, 'rgba(6, 12, 20, 0.72)');
-    // Body
     p(3, 4, 5, 5, color);
     p(4, 3, 3, 1, color);
     p(4, 5, 3, 3, accent);
@@ -482,152 +480,377 @@ class SpriteAtlas {
   public getSpeciesSlugSprite(
     speciesId: string,
     mega: boolean,
-    pose: SlugSpritePose = 'idle'
+    pose: SlugSpritePose = 'idle',
+    frame = 0
   ): HTMLCanvasElement {
-    const key = `sp_slug_${speciesId}_${mega ? 1 : 0}_${pose}`;
+    const f = frame & 1;
+    const key = `sp_slug_v2_${speciesId}_${mega ? 1 : 0}_${pose}_${f}`;
     const existing = this.charCache.get(key);
     if (existing) return existing;
 
     const sp = getSpecies(speciesId);
     const [c, g] = makeCanvas(24, 24);
-    const S = 2;
-    const yOff = pose === 'rest' ? 1 : 0;
-    const p = (gx: number, gy: number, gw: number, gh: number, col: string) =>
-      px(g, gx * S, (gy + yOff) * S, gw * S, gh * S, col);
+    const yShift =
+      pose === 'rest'
+        ? 2
+        : pose === 'happy' || pose === 'play'
+        ? f === 1
+          ? -1
+          : 0
+        : pose === 'walk'
+        ? f === 1
+          ? -1
+          : 0
+        : 0;
+    const bob = (gx: number, gy: number, gw: number, gh: number, col: string) =>
+      px(g, gx, gy + yShift, gw, gh, col);
 
+    // Late-game Megamorph Aura & Crown (strictly when mega === true)
     if (mega) {
-      // Megamorph golden-crystal aura & crown sparkles
-      p(1, 2, 10, 8, 'rgba(251, 191, 36, 0.24)');
-      p(4, 0, 1, 1, '#fde047');
-      p(7, 0, 1, 1, '#fde047');
-      p(5, 1, 2, 1, '#fef08a');
+      bob(3, 5, 18, 15, 'rgba(251, 191, 36, 0.22)');
+      bob(8, 1, 2, 2, '#fde047');
+      bob(11, 0, 2, 3, '#fef08a');
+      bob(14, 1, 2, 2, '#fde047');
     }
 
-    // Dark pixel rim for high contrast on all floors
-    p(3, 3, 6, 7, '#060c14');
-    p(2, 5, 8, 5, '#060c14');
+    // Helper: crisp dark silhouette border + -45deg rim highlight
+    const rim = 'rgba(255,255,255,0.42)';
+    const outline = '#060c14';
 
-    // Main slug silhouette (expressive torso + rounded head + tail)
-    p(3, 4, 6, 5, sp.color);
-    p(4, 3, 4, 2, sp.color);
-    p(4, 6, 4, 3, sp.accent); // glowing belly
-    p(2, 8, 2, 2, sp.color); // tail tip
-
-    // Species-distinct anatomical traits
     switch (speciesId) {
-      case 'infurnus':
-      case 'piroclasto': {
-        // Flame plume crest
-        p(5, 1, 2, 2, '#fb923c');
-        p(6, 0, 1, 2, '#fde047');
-        p(3, 2, 1, 2, sp.accent);
-        p(8, 2, 1, 2, sp.accent);
-        if (speciesId === 'piroclasto') {
-          p(3, 6, 1, 2, '#f97316');
-          p(8, 6, 1, 2, '#f97316');
-        }
+      // ---- PROTOTYPE 1: INFURNUS (Slender Flame Creature) ----
+      case 'infurnus': {
+        // Outline + tall slender ember silhouette + flame tail
+        bob(7, 7, 10, 15, outline);
+        bob(8, 6, 8, 16, outline);
+        bob(4, 15, 4, 5, outline);
+        // Flame crest (flickers between frame 0 and 1)
+        bob(10 + f, 1, 2, 4, '#fde047');
+        bob(9, 3, 5, 4, '#f97316');
+        bob(8, 5, 2, 3, '#f97316');
+        bob(14, 5, 2, 3, '#fb923c');
+        // Body + shadow bottom-right + -45deg top-left highlight
+        bob(8, 7, 8, 14, sp.color);
+        bob(14, 10, 2, 10, '#991b1b');
+        bob(9, 8, 2, 4, '#fca5a5');
+        // Fiery belly plates
+        bob(10, 14, 4, 7, '#fde047');
+        bob(10, 17, 4, 1, '#f97316');
+        // Tail flame
+        bob(4, 16 - f, 4, 3, '#f97316');
+        bob(3, 15 + f, 2, 2, '#fde047');
         break;
       }
+
+      // ---- PROTOTYPE 2: FROSTCRAWLER (Wide Heavy Armored Crawler) ----
+      case 'frostcrawler': {
+        // Heavy low hexagonal outline hugging ground
+        bob(4, 10, 16, 12, outline);
+        bob(6, 8, 12, 14, outline);
+        bob(2, 16, 4, 5, outline);
+        // Three jagged crystal horns
+        bob(6, 5, 2, 4, '#bae6fd');
+        bob(11, 3, 2, 6, '#f0f9ff');
+        bob(16, 5, 2, 4, '#bae6fd');
+        // Wide armored cryo carapace
+        bob(5, 11, 14, 10, '#0891b2');
+        bob(7, 9, 10, 12, '#06b6d4');
+        // -45deg frosty specular top shell
+        bob(6, 10, 6, 2, '#e0f2fe');
+        bob(15, 13, 4, 7, '#164e63');
+        // Armored belly & lower mandible ridge
+        bob(8, 16, 8, 5, '#e0f2fe');
+        bob(6, 16, 2, 3, '#67e8f9');
+        bob(16, 16, 2, 3, '#67e8f9');
+        // Clubbed frost tail
+        bob(2, 17, 3, 3, '#38bdf8');
+        bob(1, 16, 2, 2, '#e0f2fe');
+        break;
+      }
+
+      // ---- PROTOTYPE 3: TAZERLING (Agile Hyper Lightning Sprinter) ----
+      case 'tazerling': {
+        // Lean silhouette + puff electric cheeks + forked tail
+        bob(7, 8, 10, 14, outline);
+        bob(6, 12, 12, 5, outline);
+        // Zigzag lightning antennae
+        bob(7, 4, 2, 4, '#fef08a');
+        bob(5 + f, 2, 2, 3, '#fde047');
+        bob(15, 4, 2, 4, '#fef08a');
+        bob(17 - f, 2, 2, 3, '#fde047');
+        // Lean bright yellow body
+        bob(8, 9, 8, 12, '#eab308');
+        bob(7, 13, 10, 4, '#eab308');
+        bob(9, 10, 2, 3, '#fef9c3');
+        bob(14, 12, 2, 8, '#a16207');
+        // Glowing blue conductive cheek sacs
+        bob(7, 14, 2, 2, '#38bdf8');
+        bob(15, 14, 2, 2, '#38bdf8');
+        // Belly
+        bob(10, 15, 4, 6, '#fef9c3');
+        // Forked lightning tail
+        bob(3, 15, 4, 2, '#fef08a');
+        bob(2, 13 + f, 2, 2, '#38bdf8');
+        bob(2, 17 - f, 2, 2, '#fde047');
+        break;
+      }
+
       case 'aquabeak': {
-        // Streamlined fin + cute beak
-        p(5, 1, 2, 2, '#38bdf8');
-        p(2, 6, 1, 2, '#bae6fd');
-        p(9, 6, 1, 2, '#bae6fd');
-        p(5, 6, 2, 1, '#fef08a');
+        bob(7, 8, 10, 14, outline);
+        bob(5, 14, 14, 4, outline);
+        bob(11, 3, 2, 5, '#38bdf8');
+        bob(8, 9, 8, 12, '#0284c7');
+        bob(9, 10, 3, 2, '#bae6fd');
+        bob(5, 14, 3, 3, '#38bdf8');
+        bob(16, 14, 3, 3, '#38bdf8');
+        bob(10, 15, 4, 6, '#bae6fd');
+        bob(11, 14, 2, 2, '#fde047'); // Beak!
+        bob(3, 17, 4, 3, '#0284c7');
         break;
       }
-      case 'tazerling':
-      case 'voltrix': {
-        // Lightning twin antennae
-        p(3, 1, 1, 2, '#fef08a');
-        p(8, 1, 1, 2, '#fef08a');
-        p(2, 2, 1, 1, '#fde047');
-        p(9, 2, 1, 1, '#fde047');
-        p(3, 6, 1, 1, '#fef08a');
-        p(8, 6, 1, 1, '#fef08a');
-        break;
-      }
-      case 'frostcrawler':
-      case 'glaciomita': {
-        // Ice crystal crown spikes
-        p(4, 1, 1, 2, '#e0f2fe');
-        p(6, 1, 1, 2, '#f0f9ff');
-        p(8, 2, 1, 1, '#bae6fd');
-        p(9, 5, 1, 2, '#7dd3fc');
-        break;
-      }
-      case 'doc': {
-        // Healer halo & emerald-white gem
-        p(4, 1, 4, 1, '#fef08a');
-        p(5, 3, 2, 1, '#5eead4');
-        p(3, 2, 1, 2, '#ffffff');
-        p(8, 2, 1, 2, '#ffffff');
-        break;
-      }
-      case 'darkfurnus':
-      case 'umbrospect': {
-        // Curved obsidian horns / abyssal third eye
-        p(3, 1, 1, 2, '#d8b4fe');
-        p(8, 1, 1, 2, '#d8b4fe');
-        p(2, 2, 1, 1, '#a855f7');
-        p(9, 2, 1, 1, '#a855f7');
-        if (speciesId === 'umbrospect') {
-          p(5, 3, 2, 1, '#f472b6');
-        }
-        break;
-      }
-      case 'flaringo': {
-        // Tall coral crest feather
-        p(5, 0, 2, 3, '#fb7185');
-        p(6, 1, 2, 1, '#fef08a');
-        p(3, 2, 1, 2, sp.accent);
-        break;
-      }
-      case 'lariat': {
-        // Stone brow & golden lasso band
-        p(3, 3, 6, 1, '#78350f');
-        p(3, 7, 6, 1, '#fbbf24');
-        p(4, 2, 1, 1, '#d97706');
-        p(7, 2, 1, 1, '#d97706');
-        break;
-      }
+
       case 'musgacorn': {
-        // Mossy sprout & leaf collar
-        p(5, 1, 2, 2, '#86efac');
-        p(6, 0, 2, 1, '#4ade80');
-        p(3, 6, 6, 1, '#16a34a');
+        bob(6, 9, 12, 13, outline);
+        bob(11, 4, 2, 5, '#15803d');
+        bob(9, 3, 3, 2, '#4ade80');
+        bob(13, 4, 3, 2, '#86efac');
+        bob(7, 10, 10, 11, '#16a34a');
+        bob(8, 11, 3, 2, '#bbf7d0');
+        bob(9, 15, 6, 6, '#dcfce7');
+        bob(7, 14, 10, 2, '#22c55e'); // leaf collar
+        bob(4, 17, 3, 3, '#15803d');
         break;
       }
-      case 'enigmo':
-      case 'aetherion': {
-        // Psychic prism / ancient crystal halo
-        p(5, 0, 2, 2, speciesId === 'aetherion' ? '#fef08a' : '#5eead4');
-        p(3, 2, 1, 2, '#99f6e4');
-        p(8, 2, 1, 2, '#99f6e4');
+
+      case 'doc': {
+        bob(8, 8, 8, 13, outline);
+        // Floating healer halo
+        bob(8, 3, 8, 2, '#fef08a');
+        bob(11, 9, 2, 2, '#2dd4bf');
+        bob(9, 9, 6, 11, '#eab308');
+        bob(10, 10, 2, 2, '#ffffff');
+        bob(10, 14, 4, 5, '#fefce8');
+        bob(6, 14, 3, 2, '#5eead4');
+        bob(15, 14, 3, 2, '#5eead4');
         break;
       }
+
+      case 'glaciomita': {
+        bob(7, 8, 10, 14, outline);
+        bob(9, 3, 2, 5, '#e0f2fe');
+        bob(11, 1, 2, 7, '#ffffff');
+        bob(13, 3, 2, 5, '#bae6fd');
+        bob(8, 9, 8, 12, '#0ea5e9');
+        bob(9, 10, 2, 3, '#f0f9ff');
+        bob(10, 15, 4, 6, '#f8fafc');
+        bob(4, 17, 3, 3, '#7dd3fc');
+        break;
+      }
+
+      case 'voltrix': {
+        bob(8, 7, 8, 15, outline);
+        bob(11, 2, 2, 5, '#fde047');
+        bob(5, 12, 3, 4, '#fef08a');
+        bob(16, 12, 3, 4, '#fef08a');
+        bob(9, 8, 6, 13, '#2563eb');
+        bob(10, 9, 2, 3, '#93c5fd');
+        bob(10, 14, 4, 7, '#dbeafe');
+        bob(4, 16, 4, 2, '#fde047');
+        break;
+      }
+
+      case 'flaringo': {
+        bob(8, 7, 8, 15, outline);
+        bob(11, 2, 3, 6, '#fb7185');
+        bob(14, 3, 2, 2, '#fef08a');
+        bob(9, 8, 6, 13, '#e11d48');
+        bob(10, 9, 2, 3, '#ffe4e6');
+        bob(10, 15, 4, 6, '#fef08a');
+        bob(4, 16, 4, 3, '#fb7185');
+        break;
+      }
+
+      case 'lariat': {
+        bob(4, 9, 16, 13, outline);
+        bob(5, 10, 14, 11, '#b45309');
+        bob(7, 8, 10, 3, '#78350f'); // stone brow
+        bob(11, 6, 2, 3, '#fef3c7'); // front horn
+        bob(6, 15, 12, 2, '#fbbf24'); // golden lasso belt
+        bob(8, 17, 8, 4, '#fde68a');
+        bob(2, 17, 3, 3, '#78350f');
+        break;
+      }
+
+      case 'piroclasto': {
+        bob(4, 9, 16, 13, outline);
+        bob(9, 5, 6, 4, '#451a03'); // volcanic crater
+        bob(10, 3 - f, 4, 3, '#f97316');
+        bob(5, 10, 14, 11, '#991b1b');
+        bob(7, 11, 3, 2, '#fca5a5');
+        bob(8, 15, 8, 6, '#fdba74');
+        bob(6, 17, 3, 2, '#fb923c'); // magma fissure
+        bob(15, 16, 3, 2, '#fb923c');
+        bob(2, 17, 3, 3, '#451a03');
+        break;
+      }
+
+      case 'enigmo': {
+        bob(6, 6, 12, 13, outline);
+        bob(11, 2, 2, 4, '#5eead4');
+        bob(7, 7, 10, 11, '#0d9488');
+        bob(8, 8, 3, 2, '#f0fdfa');
+        bob(10, 9, 4, 2, '#fef08a'); // psychic third eye
+        bob(9, 16, 6, 4, '#ccfbf1');
+        bob(8, 19, 2, 3, '#0d9488'); // twin tentacles
+        bob(14, 19, 2, 3, '#0d9488');
+        break;
+      }
+
+      case 'darkfurnus': {
+        bob(7, 7, 10, 15, outline);
+        bob(6, 3, 2, 5, '#c084fc');
+        bob(16, 3, 2, 5, '#c084fc');
+        bob(4, 13, 4, 4, '#3b0764'); // winglet
+        bob(16, 13, 4, 4, '#3b0764');
+        bob(8, 8, 8, 13, '#581c87');
+        bob(9, 9, 2, 2, '#e9d5ff');
+        bob(10, 15, 4, 6, '#d8b4fe');
+        bob(3, 16, 4, 3, '#a855f7');
+        break;
+      }
+
+      case 'umbrospect': {
+        bob(7, 7, 10, 14, outline);
+        bob(7, 3, 2, 4, '#a855f7');
+        bob(15, 3, 2, 4, '#a855f7');
+        bob(8, 8, 8, 12, '#4c1d95');
+        bob(11, 10, 2, 2, '#f472b6'); // lunar eye
+        bob(10, 15, 4, 4, '#ddd6fe');
+        bob(7, 19, 2, 2 + f, '#4c1d95'); // ghostly hem
+        bob(11, 19, 2, 3 - f, '#4c1d95');
+        bob(15, 19, 2, 2 + f, '#4c1d95');
+        break;
+      }
+
+      case 'aetherion':
       default: {
-        p(3, 2, 1, 2, sp.accent);
-        p(8, 2, 1, 2, sp.accent);
+        bob(7, 7, 10, 14, outline);
+        bob(11, 2, 2, 4, '#fef08a');
+        bob(5, 13, 14, 2, 'rgba(94, 234, 212, 0.55)'); // harmonic ring
+        bob(8, 8, 8, 12, '#0f766e');
+        bob(9, 9, 2, 3, rim);
+        bob(10, 14, 4, 6, '#fef08a');
+        bob(4, 16, 3, 3, '#2dd4bf');
         break;
       }
     }
 
-    // Expressive eyes by pose
+    // Expressive eyes & mouth aligned cleanly per species proportions
+    const isLow = speciesId === 'frostcrawler' || speciesId === 'lariat' || speciesId === 'piroclasto';
+    const eyeY = isLow ? 13 : 11;
+    const eyeLX = isLow ? 8 : 9;
+    const eyeRX = isLow ? 14 : 13;
+    const eyeDark =
+      speciesId === 'darkfurnus' || speciesId === 'umbrospect' || speciesId === 'piroclasto'
+        ? '#fde047'
+        : '#060c14';
+
     if (pose === 'rest') {
-      p(4, 5, 1, 1, '#090d16');
-      p(7, 5, 1, 1, '#090d16');
-    } else if (pose === 'happy') {
-      p(4, 4, 1, 1, '#090d16');
-      p(7, 4, 1, 1, '#090d16');
-      p(4, 5, 1, 1, '#ffffff');
-      p(7, 5, 1, 1, '#ffffff');
+      bob(eyeLX, eyeY + 1, 2, 1, '#060c14');
+      bob(eyeRX, eyeY + 1, 2, 1, '#060c14');
+    } else if (pose === 'happy' || pose === 'play') {
+      bob(eyeLX, eyeY, 2, 1, eyeDark);
+      bob(eyeRX, eyeY, 2, 1, eyeDark);
+      bob(11, eyeY + 3, 2, 1, '#450a0a');
+    } else if (pose === 'eat') {
+      bob(eyeLX, eyeY, 2, 1, eyeDark);
+      bob(eyeRX, eyeY, 2, 1, eyeDark);
+      bob(10, eyeY + 3, 4, 2, '#450a0a');
     } else {
-      const eyeCol = speciesId === 'darkfurnus' || speciesId === 'umbrospect' ? '#fef08a' : '#090d16';
-      p(4, 4, 1, 2, eyeCol);
-      p(7, 4, 1, 2, eyeCol);
-      p(4, 4, 1, 1, '#ffffff');
-      p(7, 4, 1, 1, '#ffffff');
+      bob(eyeLX, eyeY, 2, 2, eyeDark);
+      bob(eyeRX, eyeY, 2, 2, eyeDark);
+      bob(eyeLX, eyeY, 1, 1, '#ffffff');
+      bob(eyeRX, eyeY, 1, 1, '#ffffff');
+      if (speciesId === 'tazerling') {
+        bob(eyeLX + 1, eyeY + 1, 1, 1, '#ffffff');
+      }
+    }
+
+    this.charCache.set(key, c);
+    return c;
+  }
+
+  /**
+   * Articulated pixel-art RPG characters for Bajoterra NPCs & Cave Warlord Bosses
+   * (replaces generic canvas emojis in world exploration).
+   */
+  public getNpcCharacterSprite(
+    kind: 'merchant' | 'mercenary' | 'boss',
+    bossId?: string,
+    frame = 0
+  ): HTMLCanvasElement {
+    const f = frame & 1;
+    const key = `npc_${kind}_${bossId || 'std'}_${f}`;
+    const existing = this.charCache.get(key);
+    if (existing) return existing;
+
+    const [c, g] = makeCanvas(28, 28);
+    const S = 2;
+    const p = (gx: number, gy: number, gw: number, gh: number, col: string) =>
+      px(g, gx * S, gy * S, gw * S, gh * S, col);
+
+    const step = f === 1 ? 1 : 0;
+
+    if (kind === 'merchant') {
+      // Hooded subterranean trader with crystal pack & warm lantern
+      p(4, 11 + step, 2, 2, '#1e293b');
+      p(8, 12 - step, 2, 2, '#1e293b');
+      p(3, 5, 8, 7, '#065f46'); // cloak
+      p(4, 6, 6, 5, '#10b981'); // scarf trim
+      p(10, 6, 3, 4, '#0f766e'); // crystal backpack
+      p(11, 5, 2, 2, '#5eead4');
+      p(4, 1, 6, 5, '#047857'); // hood
+      p(5, 3, 4, 2, '#f3cba4'); // face
+      p(5, 3, 1, 1, '#060c14');
+      p(8, 3, 1, 1, '#060c14');
+      p(1, 7, 2, 3, '#f59e0b'); // glowing lantern
+      p(1, 8, 2, 1, '#fef08a');
+    } else if (kind === 'mercenary') {
+      // Dark tactical cavern duelist with purple visor & hip blaster
+      p(4, 10 + step, 2, 3 - step, '#0f172a');
+      p(8, 10 + (1 - step), 2, 3 - (1 - step), '#0f172a');
+      p(3, 5, 8, 6, '#3b0764'); // armor
+      p(4, 6, 6, 4, '#581c87');
+      p(4, 9, 6, 1, '#c084fc'); // slug bandolier
+      p(4, 1, 6, 5, '#1e1b4b'); // helmet
+      p(4, 3, 6, 1, '#e879f9'); // visor glow
+      p(11, 7, 2, 2, '#64748b'); // blaster
+      p(12, 7, 1, 1, '#f43f5e');
+    } else {
+      // Boss Warlords (Ignis Rex / Glacius Prime / Sombra Vex)
+      const isIce = bossId?.includes('ice') || bossId?.includes('glacius');
+      const isShadow = bossId?.includes('shadow') || bossId?.includes('sombra');
+      const armor = isIce ? '#0369a1' : isShadow ? '#4c1d95' : '#991b1b';
+      const trim = isIce ? '#7dd3fc' : isShadow ? '#c084fc' : '#fb923c';
+      const eye = isIce ? '#e0f2fe' : isShadow ? '#f472b6' : '#fde047';
+
+      p(4, 11, 2, 3, '#0f172a');
+      p(8, 11, 2, 3, '#0f172a');
+      // Broad armored cape & pauldrons
+      p(2, 5, 10, 7, '#090d16');
+      p(3, 5, 8, 6, armor);
+      p(2, 5, 2, 3, trim);
+      p(10, 5, 2, 3, trim);
+      p(5, 7, 4, 3, trim);
+      // Horned / Crowned helm
+      p(4, 1, 6, 5, armor);
+      p(3, 0, 2, 2, trim);
+      p(9, 0, 2, 2, trim);
+      p(6, 0, 2, 2, '#fde047');
+      // Glowing boss visor
+      p(5, 3, 4, 1, eye);
+      // Heavy gauntlet blaster
+      p(12, 7, 2, 3, trim);
     }
 
     this.charCache.set(key, c);

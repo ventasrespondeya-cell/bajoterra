@@ -7,6 +7,7 @@ import {
 } from './combatArenas';
 import { CombatManager } from './combat';
 import { ELEMENT_CHART, getSpecies } from './data';
+import { getSlugDesignSheet } from './slugArtDirection';
 import { getSlugCombatProfile, type SlugCombatProfile, type TransformSilhouette } from './slugCombatProfiles';
 import type {
   BattleState,
@@ -1080,20 +1081,40 @@ export class DuelArenaRenderer {
     }
 
     if (p.phase === 'protoform') {
+      const accelScale = 1 + Math.min(0.18, p.distanceTraveled / Math.max(60, p.transformDist) * 0.14);
+      ctx.scale(accelScale, 1 / Math.sqrt(accelScale));
       this.drawProtoformBody(ctx, p.speciesId, color, accent, time, p.perfectRelease, p.mega);
     } else if (p.phase === 'transforming') {
-      // Dramatic Velocimorph metamorphosis flash
+      // Dramatic Kinetic Velocimorph Metamorphosis: stretch -> shockwave chrysalis -> creature unfold
+      const prog = Math.max(0, Math.min(1, (p.distanceTraveled - p.transformDist) / 56));
+      const morphScale = 1.0 + prog * 0.44;
       ctx.save();
-      ctx.strokeStyle = '#ffffff';
+      // Kinetic speed lines
+      ctx.strokeStyle = p.mega ? '#fde047' : '#ffffff';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(-26, -10);
+      ctx.lineTo(-4, -5);
+      ctx.moveTo(-28, 10);
+      ctx.lineTo(-4, 5);
+      ctx.stroke();
+
+      // Metamorphosis energy ring
+      ctx.strokeStyle = p.mega ? '#fde047' : accent;
       ctx.lineWidth = 2.4;
       ctx.beginPath();
-      ctx.arc(0, 0, p.radius * 1.45, 0, Math.PI * 2);
+      ctx.arc(0, 0, p.radius * (1.25 + prog * 0.45), 0, Math.PI * 2);
       ctx.stroke();
-      ctx.scale(1.36, 1.36);
-      this.drawTransformedSilhouette(ctx, profile.silhouette, color, accent, p.mega, time);
+
+      ctx.scale(morphScale, morphScale);
+      if (prog < 0.42) {
+        this.drawProtoformBody(ctx, p.speciesId, color, accent, time, true, p.mega);
+      } else {
+        this.drawTransformedSilhouette(ctx, profile.silhouette, color, accent, p.mega, time);
+      }
       ctx.restore();
     } else {
-      const scale = p.mega ? 1.26 : p.mode === 'pulse' ? 1.22 : 1.08;
+      const scale = p.mega ? 1.28 : p.mode === 'pulse' ? 1.22 : 1.1;
       ctx.scale(scale, scale);
       this.drawTransformedSilhouette(ctx, profile.silhouette, color, accent, p.mega, time);
     }
@@ -1157,24 +1178,36 @@ export class DuelArenaRenderer {
     energized: boolean,
     mega = false
   ): void {
+    const sheet = getSlugDesignSheet(speciesId);
+    const rx = 11.5 * sheet.bodyProportions.widthScale;
+    const ry = 7.4 * sheet.bodyProportions.heightScale;
     const wiggle = Math.sin(time * 24) * 1.4;
+
     // Expressive tail
     ctx.fillStyle = accent;
     ctx.beginPath();
-    ctx.moveTo(-8, 0);
-    ctx.lineTo(-16, -4 + wiggle);
-    ctx.lineTo(-16, 4 + wiggle);
+    ctx.moveTo(-rx + 2, 0);
+    ctx.lineTo(-rx - 7, -4 + wiggle);
+    ctx.lineTo(-rx - 7, 4 + wiggle);
     ctx.closePath();
     ctx.fill();
 
-    // Main Bajoterra slug body
+    // Main Bajoterra slug body with -45deg dark outline & belly/rim contrast
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.ellipse(0, 0, 12, 7.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = energized ? '#ffffff' : mega ? '#fde047' : accent;
-    ctx.lineWidth = mega ? 2 : 1.6;
+    ctx.strokeStyle = energized ? '#ffffff' : mega ? '#fde047' : '#060c14';
+    ctx.lineWidth = mega ? 2.1 : 1.7;
     ctx.stroke();
+
+    // Rim specular highlight top-left (-45deg key light)
+    ctx.fillStyle = sheet.palette.highlight;
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.ellipse(-rx * 0.2, -ry * 0.45, rx * 0.45, ry * 0.22, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
 
     // Distinct anatomical features for ALL 15 species
     ctx.strokeStyle = accent;
@@ -1183,116 +1216,133 @@ export class DuelArenaRenderer {
     switch (speciesId) {
       case 'infurnus':
         ctx.beginPath();
-        ctx.moveTo(-2, -6);
-        ctx.lineTo(-8, -13);
-        ctx.lineTo(3, -8);
+        ctx.moveTo(-2, -ry);
+        ctx.lineTo(-9, -ry - 8);
+        ctx.lineTo(1, -ry - 4);
+        ctx.lineTo(4, -ry - 9);
+        ctx.lineTo(6, -ry);
         ctx.closePath();
         ctx.fill();
         break;
       case 'flaringo':
         ctx.beginPath();
-        ctx.moveTo(0, -6);
-        ctx.lineTo(-5, -13);
-        ctx.lineTo(5, -10);
+        ctx.moveTo(0, -ry);
+        ctx.lineTo(-6, -ry - 8);
+        ctx.lineTo(5, -ry - 4);
         ctx.closePath();
         ctx.fill();
         break;
       case 'piroclasto':
         ctx.beginPath();
-        ctx.moveTo(-6, -6);
-        ctx.lineTo(-3, -12);
-        ctx.lineTo(2, -12);
-        ctx.lineTo(5, -6);
+        ctx.moveTo(-7, -ry + 1);
+        ctx.lineTo(-4, -ry - 6);
+        ctx.lineTo(3, -ry - 6);
+        ctx.lineTo(6, -ry + 1);
         ctx.closePath();
         ctx.fill();
         break;
       case 'aquabeak':
         ctx.beginPath();
-        ctx.moveTo(-2, -7);
-        ctx.lineTo(-9, -12);
-        ctx.lineTo(-6, -5);
+        ctx.moveTo(-2, -ry);
+        ctx.lineTo(-9, -ry - 6);
+        ctx.lineTo(2, -ry + 1);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#fde047';
+        ctx.beginPath();
+        ctx.moveTo(rx - 1, -1);
+        ctx.lineTo(rx + 4, 1);
+        ctx.lineTo(rx - 1, 3);
         ctx.closePath();
         ctx.fill();
         break;
       case 'tazerling':
         ctx.beginPath();
-        ctx.moveTo(2, -6);
-        ctx.lineTo(-4, -12);
-        ctx.lineTo(0, -12);
-        ctx.lineTo(-5, -16);
+        ctx.moveTo(2, -ry);
+        ctx.lineTo(-4, -ry - 6);
+        ctx.lineTo(0, -ry - 6);
+        ctx.lineTo(-5, -ry - 10);
         ctx.stroke();
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath();
+        ctx.arc(3, 3, 2.2, 0, Math.PI * 2);
+        ctx.fill();
         break;
       case 'voltrix':
         ctx.beginPath();
-        ctx.moveTo(4, -6);
-        ctx.lineTo(8, -13);
-        ctx.moveTo(1, -6);
-        ctx.lineTo(-3, -13);
+        ctx.moveTo(4, -ry);
+        ctx.lineTo(8, -ry - 7);
+        ctx.moveTo(0, -ry);
+        ctx.lineTo(-4, -ry - 7);
         ctx.stroke();
         break;
       case 'frostcrawler':
+        // Triple cryo horns & dorsal plate ridge
         ctx.beginPath();
-        ctx.moveTo(-3, -7);
-        ctx.lineTo(0, -14);
-        ctx.lineTo(4, -7);
+        ctx.moveTo(-6, -ry + 1);
+        ctx.lineTo(-5, -ry - 5);
+        ctx.lineTo(-1, -ry + 1);
+        ctx.moveTo(-1, -ry + 1);
+        ctx.lineTo(1, -ry - 8);
+        ctx.lineTo(5, -ry + 1);
         ctx.fill();
         break;
       case 'glaciomita':
         ctx.beginPath();
-        ctx.moveTo(-4, -6);
-        ctx.lineTo(-1, -13);
-        ctx.lineTo(2, -7);
-        ctx.lineTo(6, -12);
-        ctx.lineTo(7, -6);
+        ctx.moveTo(-5, -ry + 1);
+        ctx.lineTo(-2, -ry - 7);
+        ctx.lineTo(2, -ry);
+        ctx.lineTo(6, -ry - 6);
+        ctx.lineTo(8, -ry + 1);
         ctx.stroke();
         break;
       case 'doc':
         ctx.beginPath();
-        ctx.arc(0, -10, 4.2, 0, Math.PI * 2);
+        ctx.arc(0, -ry - 4, 4.4, 0, Math.PI * 2);
         ctx.stroke();
         break;
       case 'aetherion':
         ctx.beginPath();
-        ctx.arc(0, -10, 4.8, 0, Math.PI * 2);
+        ctx.arc(0, -ry - 4, 4.8, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.fillRect(-1.5, -15, 3, 3);
+        ctx.fillRect(-1.5, -ry - 9, 3, 3);
         break;
       case 'darkfurnus':
         ctx.beginPath();
-        ctx.moveTo(-3, -6);
-        ctx.lineTo(-7, -13);
-        ctx.moveTo(3, -6);
-        ctx.lineTo(7, -13);
+        ctx.moveTo(-3, -ry + 1);
+        ctx.lineTo(-8, -ry - 7);
+        ctx.moveTo(3, -ry + 1);
+        ctx.lineTo(8, -ry - 7);
         ctx.stroke();
         break;
       case 'umbrospect':
         ctx.beginPath();
-        ctx.arc(0, -2, 3.2, 0, Math.PI * 2);
+        ctx.arc(2, -ry + 2, 3.2, 0, Math.PI * 2);
         ctx.stroke();
         break;
       case 'lariat':
         ctx.beginPath();
-        ctx.moveTo(4, -6);
-        ctx.lineTo(11, -11);
-        ctx.lineTo(7, -5);
+        ctx.moveTo(4, -ry + 1);
+        ctx.lineTo(rx + 2, -ry - 5);
+        ctx.lineTo(7, -ry + 2);
         ctx.closePath();
         ctx.fill();
         break;
       case 'musgacorn':
         ctx.beginPath();
-        ctx.moveTo(3, -6);
-        ctx.lineTo(7, -12);
-        ctx.moveTo(5, -9);
-        ctx.lineTo(9, -10);
+        ctx.moveTo(2, -ry + 1);
+        ctx.lineTo(6, -ry - 6);
+        ctx.moveTo(5, -ry - 3);
+        ctx.lineTo(10, -ry - 4);
         ctx.stroke();
         break;
       case 'enigmo':
       default:
         ctx.beginPath();
-        ctx.moveTo(3, -6);
-        ctx.lineTo(6, -12);
-        ctx.moveTo(-1, -6);
-        ctx.lineTo(-3, -12);
+        ctx.moveTo(3, -ry + 1);
+        ctx.lineTo(6, -ry - 6);
+        ctx.moveTo(-1, -ry + 1);
+        ctx.lineTo(-3, -ry - 6);
         ctx.stroke();
         break;
     }
@@ -1301,21 +1351,21 @@ export class DuelArenaRenderer {
     if (mega) {
       ctx.fillStyle = '#fde047';
       ctx.beginPath();
-      ctx.moveTo(6, -7);
-      ctx.lineTo(12, -11);
-      ctx.lineTo(9, -5);
+      ctx.moveTo(5, -ry);
+      ctx.lineTo(12, -ry - 5);
+      ctx.lineTo(8, -ry + 2);
       ctx.closePath();
       ctx.fill();
     }
 
-    // Expressive eye
+    // Expressive species eye
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(5, -2, 2.7, 0, Math.PI * 2);
+    ctx.arc(rx * 0.42, -2, 2.7, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#0f172a';
+    ctx.fillStyle = sheet.palette.eyeIris === '#fef08a' ? '#0f172a' : '#060c14';
     ctx.beginPath();
-    ctx.arc(5.8, -2, 1.4, 0, Math.PI * 2);
+    ctx.arc(rx * 0.48, -2, 1.4, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -1327,33 +1377,57 @@ export class DuelArenaRenderer {
     mega: boolean,
     time: number
   ): void {
-    const flap = Math.sin(time * 26) * 4;
+    const flap = Math.sin(time * 26) * 4.5;
 
     if (mega) {
       ctx.strokeStyle = '#fde047';
       ctx.lineWidth = 2.2;
       ctx.beginPath();
-      ctx.moveTo(-10, -16);
-      ctx.lineTo(19, 0);
-      ctx.lineTo(-10, 16);
+      ctx.moveTo(-12, -17);
+      ctx.lineTo(22, 0);
+      ctx.lineTo(-12, 17);
       ctx.stroke();
       ctx.fillStyle = '#fef08a';
       ctx.beginPath();
-      ctx.arc(Math.cos(time * 12) * 16, Math.sin(time * 12) * 16, 2.6, 0, Math.PI * 2);
+      ctx.arc(Math.cos(time * 12) * 18, Math.sin(time * 12) * 18, 2.8, 0, Math.PI * 2);
       ctx.fill();
     }
 
     switch (silhouette) {
-      case 'phoenix_flame':
-      case 'crimson_falcon': {
+      case 'phoenix_flame': {
+        // Infurnus: blazing swept phoenix wings + radiant core + flame tail
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(23, 0);
-        ctx.lineTo(-7, -16 + flap);
-        ctx.lineTo(-18, -5);
-        ctx.lineTo(-11, 0);
-        ctx.lineTo(-18, 5);
-        ctx.lineTo(-7, 16 - flap);
+        ctx.moveTo(25, 0);
+        ctx.lineTo(5, -6);
+        ctx.lineTo(-8, -19 + flap);
+        ctx.lineTo(-16, -7);
+        ctx.lineTo(-22, 0);
+        ctx.lineTo(-16, 7);
+        ctx.lineTo(-8, 19 - flap);
+        ctx.lineTo(5, 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#fde047';
+        ctx.lineWidth = 2.1;
+        ctx.stroke();
+        // Inner golden flame core
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.ellipse(2, 0, 9, 4.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case 'crimson_falcon': {
+        // Flaringo: sleek diving raptor crest & razor pinions
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(24, 0);
+        ctx.lineTo(-3, -15 + flap * 0.8);
+        ctx.lineTo(-19, -4);
+        ctx.lineTo(-10, 0);
+        ctx.lineTo(-19, 4);
+        ctx.lineTo(-3, 15 - flap * 0.8);
         ctx.closePath();
         ctx.fill();
         ctx.strokeStyle = accent;
@@ -1362,128 +1436,266 @@ export class DuelArenaRenderer {
         break;
       }
       case 'hydro_serpent': {
+        // Aquabeak: undulating aquatic torpedo with dorsal & caudal fins
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(23, 0);
-        ctx.quadraticCurveTo(4, -13, -19, -6);
-        ctx.lineTo(-12, 0);
-        ctx.lineTo(-19, 6);
-        ctx.quadraticCurveTo(4, 13, 23, 0);
+        ctx.moveTo(24, 0);
+        ctx.quadraticCurveTo(4, -14, -20, -6);
+        ctx.lineTo(-13, 0);
+        ctx.lineTo(-20, 6);
+        ctx.quadraticCurveTo(4, 14, 24, 0);
         ctx.fill();
         ctx.strokeStyle = accent;
-        ctx.lineWidth = 1.8;
+        ctx.lineWidth = 1.9;
+        ctx.stroke();
+        ctx.fillStyle = '#fde047';
+        ctx.beginPath();
+        ctx.moveTo(24, 0);
+        ctx.lineTo(17, -3.5);
+        ctx.lineTo(17, 3.5);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      case 'volt_bolt': {
+        // Tazerling: crackling double-fork lightning phantom
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(26, 0);
+        ctx.lineTo(6, -12);
+        ctx.lineTo(10, -4);
+        ctx.lineTo(-20, -13);
+        ctx.lineTo(-11, 0);
+        ctx.lineTo(-20, 13);
+        ctx.lineTo(10, 4);
+        ctx.lineTo(6, 12);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2.2;
         ctx.stroke();
         break;
       }
-      case 'volt_bolt':
       case 'rail_viper': {
+        // Voltrix: sleek electromagnetic twin-coil spear
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(25, 0);
-        ctx.lineTo(4, -10);
-        ctx.lineTo(8, -4);
-        ctx.lineTo(-19, -12);
-        ctx.lineTo(-11, 0);
-        ctx.lineTo(-19, 12);
-        ctx.lineTo(8, 4);
-        ctx.lineTo(4, 10);
+        ctx.moveTo(27, 0);
+        ctx.lineTo(4, -7);
+        ctx.lineTo(-18, -9);
+        ctx.lineTo(-12, 0);
+        ctx.lineTo(-18, 9);
+        ctx.lineTo(4, 7);
         ctx.closePath();
         ctx.fill();
-        ctx.strokeStyle = '#fef08a';
+        ctx.strokeStyle = '#fde047';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.strokeStyle = '#93c5fd';
+        ctx.beginPath();
+        ctx.arc(-2, 0, 9, -1.1, 1.1);
+        ctx.stroke();
+        break;
+      }
+      case 'cryo_drill': {
+        // Frostcrawler: heavy rotating spiral ice drill with armored prow
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(27, 0);
+        ctx.lineTo(-2, -13);
+        ctx.lineTo(-18, -9);
+        ctx.lineTo(-18, 9);
+        ctx.lineTo(-2, 13);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#e0f2fe';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Rotating cryo spiral flutes
+        ctx.strokeStyle = '#67e8f9';
+        ctx.lineWidth = 1.6;
+        const fluteShift = Math.sin(time * 22) * 3;
+        ctx.beginPath();
+        ctx.moveTo(14, -5 + fluteShift * 0.2);
+        ctx.lineTo(7, 6 + fluteShift * 0.2);
+        ctx.moveTo(4, -8 + fluteShift * 0.2);
+        ctx.lineTo(-4, 8 + fluteShift * 0.2);
+        ctx.stroke();
+        break;
+      }
+      case 'glacier_lance': {
+        // Glaciomita: razor faceted ice crystal lance
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(28, 0);
+        ctx.lineTo(0, -10);
+        ctx.lineTo(-18, -5);
+        ctx.lineTo(-14, 0);
+        ctx.lineTo(-18, 5);
+        ctx.lineTo(0, 10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
         ctx.stroke();
         break;
       }
-      case 'cryo_drill':
-      case 'glacier_lance': {
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(26, 0);
-        ctx.lineTo(-4, -12);
-        ctx.lineTo(-18, -8);
-        ctx.lineTo(-18, 8);
-        ctx.lineTo(-4, 12);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.8;
-        ctx.stroke();
-        break;
-      }
-      case 'seraph_prism':
-      case 'celestial_nova': {
+      case 'seraph_prism': {
+        // Doc: 4-winged luminous healing seraph
         ctx.fillStyle = accent;
         ctx.beginPath();
         ctx.moveTo(21, 0);
-        ctx.lineTo(-2, -16 + flap * 0.5);
-        ctx.lineTo(-15, -6);
-        ctx.lineTo(-15, 6);
-        ctx.lineTo(-2, 16 - flap * 0.5);
+        ctx.lineTo(0, -17 + flap * 0.5);
+        ctx.lineTo(-16, -7);
+        ctx.lineTo(-16, 7);
+        ctx.lineTo(0, 17 - flap * 0.5);
         ctx.closePath();
         ctx.fill();
         ctx.strokeStyle = color;
         ctx.lineWidth = 2.2;
         ctx.stroke();
+        ctx.strokeStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.arc(-6, 0, 12, 0, Math.PI * 2);
+        ctx.stroke();
         break;
       }
-      case 'terra_rhino':
-      case 'magma_meteor': {
+      case 'celestial_nova': {
+        // Aetherion: harmonic spinning star core with dual orbital rings
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.moveTo(22, 0);
+        ctx.lineTo(2, -14);
+        ctx.lineTo(-15, -8);
+        ctx.lineTo(-15, 8);
+        ctx.lineTo(2, 14);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#fef08a';
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+        ctx.strokeStyle = '#5eead4';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 18, 7, time * 4, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case 'terra_rhino': {
+        // Lariat: heavy basalt horned ram
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(0, 0, 14, 0, Math.PI * 2);
+        ctx.arc(-1, 0, 14, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = accent;
         ctx.lineWidth = 2.4;
         ctx.stroke();
-        ctx.fillStyle = accent;
+        ctx.fillStyle = '#fde68a';
         ctx.beginPath();
-        ctx.moveTo(23, -2);
+        ctx.moveTo(25, -2);
         ctx.lineTo(10, -8);
         ctx.lineTo(10, 4);
         ctx.closePath();
         ctx.fill();
         break;
       }
-      case 'abyss_wyvern':
-      case 'void_wraith': {
+      case 'magma_meteor': {
+        // Piroclasto: volcanic obsidian boulder comet with glowing cracks
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(22, 0);
-        ctx.lineTo(0, -14);
-        ctx.lineTo(-18, -10 + flap * 0.6);
+        ctx.moveTo(19, 0);
+        ctx.lineTo(10, -13);
+        ctx.lineTo(-11, -14);
+        ctx.lineTo(-17, 0);
+        ctx.lineTo(-11, 14);
+        ctx.lineTo(10, 13);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#fb923c';
+        ctx.lineWidth = 2.4;
+        ctx.stroke();
+        break;
+      }
+      case 'abyss_wyvern': {
+        // Darkfurnus: horned shadow wyvern with jagged wings
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(23, 0);
+        ctx.lineTo(1, -15);
+        ctx.lineTo(-19, -11 + flap * 0.6);
         ctx.lineTo(-11, 0);
-        ctx.lineTo(-18, 10 - flap * 0.6);
-        ctx.lineTo(0, 14);
+        ctx.lineTo(-19, 11 - flap * 0.6);
+        ctx.lineTo(1, 15);
         ctx.closePath();
         ctx.fill();
         ctx.strokeStyle = '#f5d0fe';
+        ctx.lineWidth = 1.9;
+        ctx.stroke();
+        break;
+      }
+      case 'void_wraith': {
+        // Umbrospect: ghostly fluttering spectral cloak
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(21, 0);
+        ctx.lineTo(0, -13);
+        ctx.lineTo(-20, -8 + flap * 0.5);
+        ctx.lineTo(-13, -3);
+        ctx.lineTo(-21, 0);
+        ctx.lineTo(-13, 3);
+        ctx.lineTo(-20, 8 - flap * 0.5);
+        ctx.lineTo(0, 13);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#f472b6';
         ctx.lineWidth = 1.8;
         ctx.stroke();
         break;
       }
-      case 'astral_eye':
-      case 'thorn_stag':
-      default: {
+      case 'astral_eye': {
+        // Enigmo: psychic orb with hovering tri-tentacles
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.ellipse(2, 0, 15, 11, 0, 0, Math.PI * 2);
+        ctx.ellipse(3, 0, 14, 11, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = accent;
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.beginPath();
         ctx.moveTo(-10, -7);
-        ctx.lineTo(-22, -13);
+        ctx.lineTo(-23, -12 + flap * 0.4);
+        ctx.moveTo(-11, 0);
+        ctx.lineTo(-24, flap * 0.2);
         ctx.moveTo(-10, 7);
-        ctx.lineTo(-22, 13);
+        ctx.lineTo(-23, 12 - flap * 0.4);
+        ctx.stroke();
+        break;
+      }
+      case 'thorn_stag':
+      default: {
+        // Musgacorn: horned spore guardian
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.ellipse(2, 0, 14, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(8, -8);
+        ctx.lineTo(15, -16);
+        ctx.moveTo(11, -12);
+        ctx.lineTo(18, -12);
+        ctx.moveTo(8, 8);
+        ctx.lineTo(15, 16);
         ctx.stroke();
         break;
       }
     }
 
+    // Glowing transformed eye
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(9, -2, 2.6, 0, Math.PI * 2);
+    ctx.arc(10, -2, 2.7, 0, Math.PI * 2);
     ctx.fill();
   }
 

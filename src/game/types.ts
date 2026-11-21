@@ -328,6 +328,16 @@ export interface BattleState {
   effects: CombatEffectEvent[];
   outcome?: 'victory' | 'defeat' | 'captured' | 'escaped';
   rewardText?: string;
+  captureResult?: {
+    slugUid: string;
+    speciesId: string;
+    slugName: string;
+    level: number;
+    element: ElementType;
+    rarity: Rarity;
+    isNewSpecies: boolean;
+    destination: 'party' | 'storage';
+  };
 }
 
 export type QuestMetric =
@@ -395,6 +405,7 @@ export interface GameOptions {
   touchControls: 'auto' | 'on' | 'off';
   lightingQuality: 'high' | 'eco';
   showMinimap: boolean;
+  reducedMotion?: boolean;
 }
 
 export interface PlayerState {
@@ -472,6 +483,9 @@ export interface HomeSlugEntry {
   lastPlayAt: number; // playTimeSec
   lastFeedAt: number; // playTimeSec
   lastGreetAt?: number; // transient playTimeSec greeting cooldown
+  lastSocialAt?: number; // transient playTimeSec slug-to-slug socialization cooldown
+  visualActivity?: 'walk' | 'look' | 'eat' | 'play' | 'sleep' | 'social' | 'greet';
+  facingX?: number; // >= 0 facing right, < 0 facing left
   reactionText?: string;
   reactionTimer?: number;
 }

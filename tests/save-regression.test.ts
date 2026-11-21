@@ -232,7 +232,11 @@ const {
   getSpecies,
   pickWeightedSpeciesByBiome,
 } = await import('../src/game/data.ts');
+const { sound } = await import('../src/game/audio.ts');
 const { cinematicEvents } = await import('../src/game/cinematicEvents.ts');
+const { CinematicQueueController, getCinematicDurationMs } = await import(
+  '../src/game/cinematicDirectorState.ts'
+);
 const { gameEngine } = await import('../src/game/engine.ts');
 const {
   canHomeSlugWalk,
@@ -253,6 +257,13 @@ const {
   grantSlugBond,
 } = await import('../src/game/progression.ts');
 const { TileType } = await import('../src/game/types.ts');
+const {
+  ART_DIRECTION_GUIDE,
+  SLUG_DESIGN_SHEETS,
+  STORY_ORDERED_SPECIES_IDS,
+  getSlugDesignSheet,
+  sampleSlugAnimationFrame,
+} = await import('../src/game/slugArtDirection.ts');
 const { sprites } = await import('../src/game/sprites.ts');
 const { WorldRenderer } = await import('../src/game/renderer.ts');
 const {
@@ -2539,6 +2550,539 @@ describe('Bajoterra 4.0 — FASE 8: Rediseño HUD, Acciones Contextuales y Prepa
     assert.ok(engineSrc.includes("tag === 'INPUT'") && engineSrc.includes("tag === 'TEXTAREA'"));
   });
 });
+
+describe('Bajoterra 4.0 — FASE 9: Cinemáticas, Presentaciones Épicas y Música Dinámica', () => {
+  test('F9.1 Director cinematográfico: prioridades, cola sin solapamiento, deduplicación y salto limpio', () => {
+    const qc = new CinematicQueueController();
+    const baseTime = 10_000;
+
+    // 1. Highlight event (biome) starts featured
+    const biomeEv = {
+      id: 'ev_1',
+      type: 'biome_discovered' as const,
+      timestampMs: baseTime,
+      title: 'Cavernas de Magma',
+      biome: 'Magma' as const,
+      audioCue: 'discovery_wonder' as const,
+      skippable: true,
+      priority: 'highlight' as const,
+      dedupeKey: 'biome_Magma',
+    };
+    const r1 = qc.enqueue(biomeEv, baseTime);
+    assert.equal(r1.accepted, true);
+    assert.equal(r1.startedFeatured?.id, 'ev_1');
+
+    // Duplicate within cooldown window is rejected
+    const rDup = qc.enqueue({ ...biomeEv, id: 'ev_dup' }, baseTime + 400);
+    assert.equal(rDup.accepted, false);
+
+    // Ambient POI never blocks featured and gets its own discreet banner slot
+    const poiEv = {
+      id: 'ev_poi',
+      type: 'poi_discovered' as const,
+      timestampMs: baseTime + 500,
+      title: 'Ruinas Ígneas',
+      biome: 'Magma' as const,
+      poiKind: 'ancient_ruins' as const,
+      audioCue: 'discovery_wonder' as const,
+      skippable: true,
+      priority: 'ambient' as const,
+      dedupeKey: 'poi_ruins',
+    };
+    const rPoi = qc.enqueue(poiEv, baseTime + 500);
+    assert.equal(rPoi.accepted, true);
+    assert.equal(rPoi.startedAmbient?.id, 'ev_poi');
+    assert.equal(qc.getSnapshot().featured?.id, 'ev_1');
+
+    // Dramatic capture interrupts biome banner safely while queueing biome banner behind it
+    const capEv = {
+      id: 'ev_cap',
+      type: 'slug_captured' as const,
+      timestampMs: baseTime + 600,
+      title: 'Infurnus',
+      speciesId: 'infurnus',
+      isNewSpecies: true,
+      captureDestination: 'party' as const,
+      audioCue: 'capture_chime' as const,
+      skippable: true,
+      priority: 'dramatic' as const,
+      dedupeKey: 'cap_1',
+    };
+    const rCap = qc.enqueue(capEv, baseTime + 600);
+    assert.equal(rCap.startedFeatured?.id, 'ev_cap');
+    assert.equal(qc.getSnapshot().pendingCount, 1);
+
+    // Skipping featured resolves to queued event and clears cleanly afterward
+    const nextAfterSkip = qc.skipFeatured();
+    assert.equal(nextAfterSkip?.id, 'ev_1');
+    assert.equal(qc.skipFeatured(), null);
+    qc.finishAmbient('ev_poi');
+    assert.equal(qc.getSnapshot().ambient, null);
+
+    // Reduced motion shortens duration smoothly
+    assert.ok(getCinematicDurationMs(capEv, true) < getCinematicDurationMs(capEv, false));
+  });
+
+  test('F9.2 Captura nueva vs repetida (sin falsos descubrimientos) y Megamorph sin duplicar consumo ni recompensas', () => {
+    cinematicEvents.clear();
+    const received: Array<{
+      type: string;
+      isNewSpecies?: boolean;
+      captureDestination?: string;
+      audioCue: string;
+    }> = [];
+    const unsub = cinematicEvents.subscribe((ev) => {
+      received.push({
+        type: ev.type,
+        isNewSpecies: ev.isNewSpecies,
+        captureDestination: ev.captureDestination,
+        audioCue: ev.audioCue,
+      });
+    });
+
+    try {
+      gameEngine.startNewGame();
+      // 1. Capture a species NOT yet in capturedSpecies -> isNewSpecies === true, ONE event
+      delete gameEngine.state.capturedSpecies.tazerling;
+      gameEngine.state.inventory.masterCapsules = 4;
+
+      const wildEnt1 = {
+        uid: 'f9_wild_1',
+        kind: 'wild' as const,
+        speciesId: 'tazerling',
+        name: 'Tazerling salvaje',
+        icon: '⚡',
+        x: 162,
+        y: 160,
+        homeX: 162,
+        homeY: 160,
+        biome: 'Verdes' as const,
+        level: 3,
+        hp: 100,
+        dir: 0,
+        cooldown: 0,
+      };
+      gameEngine.engageEntity(wildEnt1);
+      assert.ok(gameEngine.combat.battle);
+      gameEngine.combat.battle!.enemy.hp = 1; // Ensure capture succeeds cleanly
+
+      // Stub Math.random temporarily to guarantee capture hit without changing odds
+      const origRandom = Math.random;
+      Math.random = () => 0.01;
+      try {
+        const bmInternal = gameEngine.combat as unknown as {
+          resolveCaptureImpact: (st: typeof gameEngine.state, p: unknown) => void;
+        };
+        bmInternal.resolveCaptureImpact(gameEngine.state, { capsuleKey: 'masterCapsules' });
+      } finally {
+        Math.random = origRandom;
+      }
+
+      const capEvents1 = received.filter((e) => e.type === 'slug_captured');
+      assert.equal(capEvents1.length, 1, 'Una captura debe producir una única presentación');
+      assert.equal(capEvents1[0].isNewSpecies, true);
+      assert.equal(capEvents1[0].audioCue, 'capture_chime');
+      assert.ok(capEvents1[0].captureDestination === 'party' || capEvents1[0].captureDestination === 'storage');
+
+      // Closing battle after capture does NOT emit a second duplicate slug_captured event
+      gameEngine.combat.closeBattle();
+      assert.equal(received.filter((e) => e.type === 'slug_captured').length, 1);
+
+      // 2. Capture SAME species again -> isNewSpecies === false (repeat variant)
+      gameEngine.state.party = [
+        gameEngine.state.party[0],
+        createSlugInstance('burpy', 4),
+        createSlugInstance('doc', 4),
+        createSlugInstance('joules', 4),
+      ];
+      const uidsBeforeFullParty = gameEngine.state.party.map((s) => s.uid);
+      const storageBefore = gameEngine.state.storage.length;
+
+      const wildEnt2 = { ...wildEnt1, uid: 'f9_wild_2' };
+      gameEngine.engageEntity(wildEnt2);
+      gameEngine.combat.battle!.enemy.hp = 1;
+      Math.random = () => 0.01;
+      try {
+        const bmInternal = gameEngine.combat as unknown as {
+          resolveCaptureImpact: (st: typeof gameEngine.state, p: unknown) => void;
+        };
+        bmInternal.resolveCaptureImpact(gameEngine.state, { capsuleKey: 'masterCapsules' });
+      } finally {
+        Math.random = origRandom;
+      }
+      gameEngine.combat.closeBattle();
+
+      const capEvents2 = received.filter((e) => e.type === 'slug_captured');
+      assert.equal(capEvents2.length, 2);
+      assert.equal(capEvents2[1].isNewSpecies, false, 'Captura repetida debe marcar isNewSpecies = false');
+      assert.equal(capEvents2[1].captureDestination, 'storage', 'Con estuche lleno debe indicar envío al Refugio');
+      assert.equal(gameEngine.state.storage.length, storageBefore + 1);
+      assert.deepEqual(gameEngine.state.party.map((s) => s.uid), uidsBeforeFullParty);
+
+      // 3. Megamorph evolution emits ONE event and never duplicates rewards or resource cost on retry
+      const targetSlug = gameEngine.state.party[0];
+      targetSlug.level = 6;
+      targetSlug.bond = 65;
+      targetSlug.mega = false;
+      gameEngine.state.inventory.elixirs = 0;
+      gameEngine.state.inventory.evoStone = 2;
+      gameEngine.state.inventory.crystal = 5;
+      const megaBefore = gameEngine.state.stats.megaUnlocked;
+
+      assert.equal(gameEngine.evolveSlugToMegamorph(targetSlug.uid), true);
+      assert.equal(targetSlug.mega, true);
+      assert.equal(gameEngine.state.inventory.evoStone, 1);
+      assert.equal(gameEngine.state.inventory.crystal, 5);
+      assert.equal(gameEngine.state.stats.megaUnlocked, megaBefore + 1);
+
+      // Retrying Megamorph on same slug must fail cleanly without extra resource cost or event
+      assert.equal(gameEngine.evolveSlugToMegamorph(targetSlug.uid), false);
+      assert.equal(gameEngine.state.inventory.evoStone, 1);
+      assert.equal(gameEngine.state.inventory.crystal, 5);
+      const megaEvents = received.filter((e) => e.type === 'megamorph_awakened');
+      assert.equal(megaEvents.length, 1);
+      assert.equal(megaEvents[0].audioCue, 'megamorph_fanfare');
+    } finally {
+      unsub();
+      cinematicEvents.clear();
+    }
+  });
+
+  test('F9.3 Presentación de jefes/encuentros, descubrimientos sin repetición y guardado intacto', async () => {
+    cinematicEvents.clear();
+    const events: Array<{ type: string; priority: string; audioCue: string; enemyKind?: string; biome?: string }> = [];
+    const unsub = cinematicEvents.subscribe((ev) => {
+      events.push({
+        type: ev.type,
+        priority: ev.priority,
+        audioCue: ev.audioCue,
+        enemyKind: ev.enemyKind,
+        biome: ev.biome,
+      });
+    });
+
+    try {
+      gameEngine.startNewGame();
+      // Boss encounter gets dramatic encounter_intro + boss_ominous + active boss battle
+      const bossEnt = {
+        uid: 'f9_boss_1',
+        kind: 'boss' as const,
+        bossId: 'boss_ignis',
+        speciesId: 'infurnus',
+        name: 'Ignis Rex',
+        icon: '👑',
+        x: 162,
+        y: 160,
+        homeX: 162,
+        homeY: 160,
+        biome: 'Magma' as const,
+        level: 10,
+        hp: 200,
+        dir: 0,
+        cooldown: 0,
+      };
+      gameEngine.engageEntity(bossEnt);
+      assert.ok(gameEngine.combat.battle);
+      assert.equal(gameEngine.combat.battle!.kind, 'boss');
+      const bossIntro = events.find((e) => e.type === 'encounter_intro');
+      assert.ok(bossIntro);
+      assert.equal(bossIntro!.priority, 'dramatic');
+      assert.equal(bossIntro!.audioCue, 'boss_ominous');
+      assert.equal(bossIntro!.enemyKind, 'boss');
+      gameEngine.combat.closeBattle();
+
+      // Biome discovery fires once per biome (never repeats on re-entry)
+      const engInternal = gameEngine as unknown as {
+        onPlayerMoved: (dist: number) => void;
+      };
+      // Move into Magma / another biome by placing player in a Magma tile coordinate
+      let magmaCoord: { x: number; y: number } | null = null;
+      for (let x = 20; x < WORLD_W - 20 && !magmaCoord; x += 12) {
+        for (let y = 20; y < WORLD_H - 20 && !magmaCoord; y += 12) {
+          if (getBiomeAt(x, y, gameEngine.state.worldSeed) === 'Magma') {
+            magmaCoord = { x, y };
+          }
+        }
+      }
+      assert.ok(magmaCoord);
+      gameEngine.state.player.x = magmaCoord!.x;
+      gameEngine.state.player.y = magmaCoord!.y;
+      engInternal.onPlayerMoved(1);
+      engInternal.onPlayerMoved(1);
+      assert.equal(
+        events.filter((e) => e.type === 'biome_discovered' && e.biome === 'Magma').length,
+        1,
+        'El descubrimiento de bioma no debe repetirse al volver o moverse en él'
+      );
+
+      // Saving during/after cinematic events with reducedMotion preserves all slugs, UIDs & discoveries
+      gameEngine.updateOptions({ reducedMotion: true });
+      const partyUids = gameEngine.state.party.map((s) => s.uid);
+      const saveRes = await saveGameV4(gameEngine.state, { reason: 'manual' });
+      assert.equal(saveRes.ok, true);
+      const loaded = await loadGameV4();
+      assert.ok(loaded);
+      assert.equal(loaded!.options.reducedMotion, true);
+      assert.deepEqual(
+        loaded!.party.map((s) => s.uid),
+        partyUids
+      );
+      assert.ok(loaded!.discoveries.includes('Magma'));
+    } finally {
+      unsub();
+      cinematicEvents.clear();
+    }
+  });
+
+  test('F9.4 Música dinámica por bioma, prioridad de combate/jefe, restauración y silencio', () => {
+    sound.stopAllMusic();
+    sound.enabled = true;
+    sound.volume = 0.4;
+
+    // 1. Ambient tracks per biome
+    sound.setAmbientBiome('Verdes', true);
+    assert.equal(sound.getMusicState().activeTrack, 'biome_Verdes');
+
+    sound.setAmbientBiome('Magma', true);
+    assert.equal(sound.getMusicState().activeTrack, 'biome_Magma');
+
+    sound.setAmbientBiome('Heladas', true);
+    assert.equal(sound.getMusicState().activeTrack, 'biome_Heladas');
+
+    sound.setAmbientBiome('Sombrias', true);
+    assert.equal(sound.getMusicState().activeTrack, 'biome_Sombrias');
+
+    // 2. Normal duel takes priority over biome changes, then restores ambient on stopDuelMusic
+    sound.startDuelMusic(false);
+    assert.equal(sound.getMusicState().activeTrack, 'duel_normal');
+    assert.equal(sound.getMusicState().inCombat, true);
+    sound.setAmbientBiome('Magma', true);
+    assert.equal(sound.getMusicState().activeTrack, 'duel_normal', 'El combate debe mantener prioridad');
+    sound.stopDuelMusic();
+    assert.equal(sound.getMusicState().inCombat, false);
+    assert.equal(sound.getMusicState().activeTrack, 'biome_Magma');
+
+    // 3. Boss duel uses duel_boss track & all 7 cues are supported
+    sound.startDuelMusic(true);
+    assert.equal(sound.getMusicState().activeTrack, 'duel_boss');
+    sound.stopDuelMusic();
+    assert.equal(sound.getMusicState().activeTrack, 'biome_Magma');
+
+    for (const cue of [
+      'exploration_calm',
+      'discovery_wonder',
+      'duel_tension',
+      'boss_ominous',
+      'victory_fanfare',
+      'capture_chime',
+      'megamorph_fanfare',
+    ] as const) {
+      sound.playCue(cue);
+    }
+    sound.stopDuelMusic();
+
+    // 4. Mute stops active track cleanly; unmute restores it
+    sound.enabled = false;
+    assert.equal(sound.getMusicState().activeTrack, 'none');
+    sound.enabled = true;
+    assert.equal(sound.getMusicState().activeTrack, 'biome_Magma');
+    sound.stopAllMusic();
+
+    // 5. Integration contract check on App, CinematicDirector & PauseModal
+    const appSrc = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+    const dirSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/CinematicDirector.tsx'), 'utf8');
+    const pauseSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/PauseModal.tsx'), 'utf8');
+    assert.ok(appSrc.includes('CinematicDirector') && appSrc.includes('introPaused={battleIntroActive}'));
+    assert.ok(dirSrc.includes('cinematicEvents.subscribe') && dirSrc.includes('handleSkipFeatured'));
+    assert.ok(pauseSrc.includes('reducedMotion'));
+  });
+});
+
+describe('Bajoterra 4.0 — FASE 10: Dirección Artística Principal, Anatomía Individual y Mundo Vivo', () => {
+  test('F10.1 Fichas de diseño completas, orden narrativo, trío prototipo y animaciones reutilizables', () => {
+    assert.equal(ART_DIRECTION_GUIDE.lightDirectionDeg, -45);
+    assert.equal(ART_DIRECTION_GUIDE.outlineHex, '#060c14');
+    assert.equal(ART_DIRECTION_GUIDE.megamorphUnlockedLateOnly, true);
+    assert.deepEqual([...ART_DIRECTION_GUIDE.prototypePriorityIds], ['infurnus', 'frostcrawler', 'tazerling']);
+
+    // Every species has an individualized design sheet & unique anatomy class
+    assert.equal(STORY_ORDERED_SPECIES_IDS.length, SPECIES_LIST.length);
+    const seenAnatomies = new Set<string>();
+    const seenOrders = new Set<number>();
+
+    for (const sp of SPECIES_LIST) {
+      const sheet = getSlugDesignSheet(sp.id);
+      assert.equal(sheet.speciesId, sp.id);
+      assert.ok(sheet.storyChapter.length > 0);
+      assert.ok(sheet.silhouetteHooks.length >= 3);
+      assert.ok(sheet.personalityQuote.length > 5);
+      assert.ok(!seenAnatomies.has(sheet.anatomyClass), `Anatomía duplicada para ${sp.id}`);
+      assert.ok(!seenOrders.has(sheet.storyOrder), `Orden narrativo duplicado para ${sp.id}`);
+      seenAnatomies.add(sheet.anatomyClass);
+      seenOrders.add(sheet.storyOrder);
+    }
+
+    // Prototype trio has clearly differentiated body proportions
+    const inf = getSlugDesignSheet('infurnus');
+    const frs = getSlugDesignSheet('frostcrawler');
+    const taz = getSlugDesignSheet('tazerling');
+    assert.ok(frs.bodyProportions.widthScale > inf.bodyProportions.widthScale);
+    assert.ok(inf.bodyProportions.heightScale > frs.bodyProportions.heightScale);
+    assert.ok(taz.bodyProportions.headRatio > inf.bodyProportions.headRatio);
+
+    // Unified reusable animation sampler responds cleanly across states & reducedMotion
+    const walkA = sampleSlugAnimationFrame('infurnus', 'walk', 0.25, false);
+    const sleepA = sampleSlugAnimationFrame('infurnus', 'sleep', 0.25, false);
+    const atkA = sampleSlugAnimationFrame('tazerling', 'transform', 0.25, false);
+    assert.equal(sleepA.blinkClosed, true);
+    assert.ok(atkA.scaleX > walkA.scaleX || atkA.tiltDeg !== sleepA.tiltDeg);
+
+    const reducedSample = sampleSlugAnimationFrame('frostcrawler', 'play', 1.1, true);
+    assert.equal(reducedSample.offsetX, 0);
+    assert.equal(reducedSample.tailWagDeg, 0);
+  });
+
+  test('F10.2 Sprites pixel-art multi-pose (24x24), NPCs articulados y retratos SVG individuales', () => {
+    for (const sp of SPECIES_LIST) {
+      const idle0 = sprites.getSpeciesSlugSprite(sp.id, false, 'idle', 0);
+      const walk1 = sprites.getSpeciesSlugSprite(sp.id, false, 'walk', 1);
+      const eat0 = sprites.getSpeciesSlugSprite(sp.id, false, 'eat', 0);
+      const play1 = sprites.getSpeciesSlugSprite(sp.id, false, 'play', 1);
+      const rest0 = sprites.getSpeciesSlugSprite(sp.id, false, 'rest', 0);
+
+      for (const spr of [idle0, walk1, eat0, play1, rest0]) {
+        assert.equal(spr.width, 24);
+        assert.equal(spr.height, 24);
+      }
+      assert.notEqual(idle0, eat0);
+      assert.notEqual(idle0, play1);
+      assert.notEqual(idle0, rest0);
+    }
+
+    // Articulated NPC sprites replace raw canvas emojis
+    const merch0 = sprites.getNpcCharacterSprite('merchant', undefined, 0);
+    const merch1 = sprites.getNpcCharacterSprite('merchant', undefined, 1);
+    const merc = sprites.getNpcCharacterSprite('mercenary', undefined, 0);
+    assert.equal(merch0.width, 28);
+    assert.equal(merch0.height, 28);
+    assert.notEqual(merch0, merch1);
+    assert.notEqual(merch0, merc);
+
+    for (const boss of BOSS_DEFINITIONS) {
+      const bSpr = sprites.getNpcCharacterSprite('boss', boss.id, 0);
+      assert.equal(bSpr.width, 28);
+      assert.equal(bSpr.height, 28);
+    }
+
+    // Portrait & UI integration contracts
+    const portraitSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/SlugPortrait.tsx'), 'utf8');
+    const detailSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/SlugDetailPanel.tsx'), 'utf8');
+    const expSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/ExpeditionModal.tsx'), 'utf8');
+    const rendererSrc = fs.readFileSync(path.join(process.cwd(), 'src/game/renderer.ts'), 'utf8');
+
+    assert.ok(portraitSrc.includes('getAnatomyGeometry'));
+    for (const id of Object.keys(SLUG_DESIGN_SHEETS)) {
+      assert.ok(portraitSrc.includes(`case '${id}':`), `Falta silueta SVG individual para ${id} en SlugPortrait`);
+    }
+    assert.ok(detailSrc.includes('DETAIL_MOODS') && detailSrc.includes('setPreviewMood'));
+    assert.ok(expSrc.includes('STORY_ORDERED_SPECIES_IDS') && expSrc.includes('showArtGuide'));
+    assert.ok(rendererSrc.includes('getNpcCharacterSprite') && !rendererSrc.includes('ctx.fillText(ent.icon'));
+  });
+
+  test('F10.3 Vida en el Hogar, critters de bioma, guardado V4 limpio y sin desbloqueo prematuro de Megamorph', async () => {
+    const init = createInitialGameState();
+    assert.equal(
+      init.party.every((s) => s.mega === false),
+      true,
+      'Las babosas iniciales nunca deben comenzar en Megamorph'
+    );
+
+    gameEngine.startNewGame();
+    gameEngine.state.inventory.feeder = 1;
+    gameEngine.state.inventory.berries = 2;
+
+    const aquabeakReserve = createSlugInstance('aquabeak', 2);
+    const tazerReserve = createSlugInstance('tazerling', 2);
+    gameEngine.state.storage.push(aquabeakReserve, tazerReserve);
+
+    assert.equal(gameEngine.assignSlugToHome(aquabeakReserve.uid, 'habitat_aquatic'), true);
+    assert.equal(gameEngine.assignSlugToHome(tazerReserve.uid, 'habitat_crystal'), true);
+
+    const r1 = gameEngine.state.home!.residents[0];
+    const r2 = gameEngine.state.home!.residents[1];
+
+    // Bring both residents close together -> triggers socialization without corrupting persisted behavior enum
+    r1.behavior = 'pasear';
+    r2.behavior = 'pasear';
+    r1.x = r2.x + 1.0;
+    r1.y = r2.y;
+    r1.visualActivity = 'walk';
+    r2.visualActivity = 'walk';
+    updateHomeResidents(0.05, gameEngine.state, gameEngine.chunks, [], true);
+    assert.equal(r1.visualActivity, 'social');
+    assert.equal(r2.visualActivity, 'social');
+
+    // Feeding marks eating visual activity cleanly
+    gameEngine.feedHomeSlug(r1.slug.uid, 'berries');
+    assert.equal(r1.visualActivity, 'eat');
+
+    // Save roundtrip strips transient visual fields & keeps V4 validation 100% intact
+    const uidBefore = gameEngine.state.home!.residents.map((r) => r.slug.uid);
+    const saveRes = await saveGameV4(gameEngine.state, { reason: 'manual' });
+    assert.equal(saveRes.ok, true);
+    const loaded = await loadGameV4();
+    assert.ok(loaded);
+    assert.deepEqual(
+      loaded!.home!.residents.map((r) => r.slug.uid),
+      uidBefore
+    );
+    assert.equal((loaded!.home!.residents[0] as unknown as Record<string, unknown>).visualActivity, undefined);
+
+    // WorldRenderer executes cleanly across high & eco lighting modes with ambient critters and living home slugs
+    const wr = new WorldRenderer();
+    const ctx = canvasStub().getContext() as unknown as CanvasRenderingContext2D;
+    for (const quality of ['high', 'eco'] as const) {
+      gameEngine.state.options.lightingQuality = quality;
+      wr.renderWorld(ctx, 640, 360, 2.5, gameEngine.state, gameEngine.chunks, gameEngine.entities, null);
+    }
+  });
+
+  test('F10.4 Transformación Velocimorph progresiva y renderizado de combate de las 15 especies en high y eco', () => {
+    const cm = new CombatManager();
+    const dr = new DuelArenaRenderer();
+    const ctx = canvasStub().getContext() as unknown as CanvasRenderingContext2D;
+
+    for (const sp of SPECIES_LIST) {
+      const state = createInitialGameState();
+      state.party[0] = createSlugInstance(sp.id, 3);
+      const battle = cm.startBattle(state, { kind: 'wild', biome: sp.habitat, speciesId: sp.id, level: 2 });
+      const profile = getSlugCombatProfile(sp);
+
+      // Fire and inspect protoform -> transforming -> transformed rendering
+      const proj = cm.fireBlasterShot(state, { modeOverride: 'quick', charge: 0.85 });
+      assert.ok(proj, `Debe disparar ${sp.id}`);
+
+      // Protoform phase
+      proj!.phase = 'protoform';
+      proj!.distanceTraveled = profile.transformDist * 0.5;
+      dr.render(ctx, battle, state, cm, { ...state.options, lightingQuality: 'eco' });
+
+      // Transforming phase (progressive metamorphosis)
+      proj!.phase = 'transforming';
+      proj!.distanceTraveled = profile.transformDist + 24;
+      dr.render(ctx, battle, state, cm, { ...state.options, lightingQuality: 'high' });
+
+      // Transformed creature phase
+      proj!.phase = 'transformed';
+      proj!.distanceTraveled = profile.transformDist + 110;
+      dr.render(ctx, battle, state, cm, { ...state.options, lightingQuality: 'high' });
+
+      cm.closeBattle();
+    }
+  });
+});
+
+
 
 
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BattleModal } from './components/BattleModal';
+import { CinematicDirector } from './components/CinematicDirector';
 import { ExpeditionModal, type ExpeditionTabKey } from './components/ExpeditionModal';
 import { FullMapModal } from './components/FullMapModal';
 import { GameHUD } from './components/GameHUD';
@@ -11,6 +12,7 @@ import type { HudSnapshot } from './game/types';
 export default function App() {
   const [snap, setSnap] = useState<HudSnapshot>(() => gameEngine.getSnapshot());
   const [expeditionTab, setExpeditionTab] = useState<ExpeditionTabKey>('taller');
+  const [battleIntroActive, setBattleIntroActive] = useState(false);
   const mainCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const minimapRef = useRef<HTMLCanvasElement | null>(null);
   const fullMapRef = useRef<HTMLCanvasElement | null>(null);
@@ -114,6 +116,7 @@ export default function App() {
           battle={snap.battle}
           state={gameEngine.state}
           combat={gameEngine.combat}
+          introPaused={battleIntroActive}
           onSync={() => gameEngine.emitHud(true)}
         />
       )}
@@ -141,6 +144,8 @@ export default function App() {
           onTitle={() => gameEngine.setScreen('TITLE')}
         />
       )}
+
+      <CinematicDirector snap={snap} onBattleIntroActiveChange={setBattleIntroActive} />
     </div>
   );
 }

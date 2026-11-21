@@ -670,6 +670,8 @@ export function petHomeSlug(state: GameState, slugUid: string): HomeActionResult
   const now = state.playTimeSec;
   const cdLeft = Math.ceil(25 - (now - r.lastPetAt));
   r.behavior = 'acercarse';
+  r.visualActivity = 'greet';
+  r.facingX = state.player.x >= r.x ? 1 : -1;
   r.behaviorTimer = 2.2;
   r.reactionText = '♥';
   r.reactionTimer = 1.6;
@@ -716,6 +718,7 @@ export function playWithHomeSlug(state: GameState, slugUid: string): HomeActionR
 
   const now = state.playTimeSec;
   r.behavior = 'jugar';
+  r.visualActivity = 'play';
   r.behaviorTimer = 3.2;
   r.reactionText = '★ ¡Qué divertido!';
   r.reactionTimer = 1.8;
@@ -795,6 +798,9 @@ export function feedHomeSlug(
   }
 
   r.mood = computeHomeMood(r.hunger, r.energy, r.happiness);
+  r.visualActivity = 'eat';
+  r.behavior = 'descansar';
+  r.behaviorTimer = 2.4;
   r.reactionText = tieredUp
     ? `✨ ¡${newTierLabel}!`
     : isFavorite
@@ -883,10 +889,54 @@ export function updateHomeResidents(
         r.targetY = spot.y;
       }
       r.behavior = 'descansar';
+      r.visualActivity = 'sleep';
       continue;
     }
 
     r.behaviorTimer -= dt;
+
+    // 1. Slug-to-slug spontaneous socialization in shelter
+    if (
+      r.behavior !== 'descansar' &&
+      r.visualActivity !== 'eat' &&
+      r.visualActivity !== 'sleep' &&
+      (!r.lastSocialAt || state.playTimeSec - r.lastSocialAt >= 32)
+    ) {
+      const peer = home.residents.find(
+        (other) =>
+          other.slug.uid !== r.slug.uid &&
+          other.behavior !== 'descansar' &&
+          other.visualActivity !== 'sleep' &&
+          (!other.lastSocialAt || state.playTimeSec - other.lastSocialAt >= 32) &&
+          Math.hypot(other.x - r.x, other.y - r.y) <= 2.15
+      );
+      if (peer) {
+        r.lastSocialAt = state.playTimeSec;
+        peer.lastSocialAt = state.playTimeSec;
+        r.facingX = peer.x >= r.x ? 1 : -1;
+        peer.facingX = r.x >= peer.x ? 1 : -1;
+        r.visualActivity = 'social';
+        peer.visualActivity = 'social';
+        r.behavior = 'jugar';
+        peer.behavior = 'jugar';
+        r.behaviorTimer = 2.4;
+        peer.behaviorTimer = 2.4;
+        r.targetX = r.x;
+        r.targetY = r.y;
+        peer.targetX = peer.x;
+        peer.targetY = peer.y;
+        r.happiness = Math.min(100, r.happiness + 2);
+        peer.happiness = Math.min(100, peer.happiness + 2);
+        if (!r.reactionText) {
+          r.reactionText = '♥ ¡Hola!';
+          r.reactionTimer = 1.8;
+        }
+        if (!peer.reactionText) {
+          peer.reactionText = '✨ ¡A jugar!';
+          peer.reactionTimer = 1.8;
+        }
+      }
+    }
 
     const distToPlayer = Math.hypot(state.player.x - r.x, state.player.y - r.y);
     const greetRadius = r.slug.bond >= 50 ? 4.4 : 3.4;
@@ -897,6 +947,8 @@ export function updateHomeResidents(
       r.behavior !== 'jugar'
     ) {
       r.behavior = 'acercarse';
+      r.visualActivity = 'greet';
+      r.facingX = state.player.x >= r.x ? 1 : -1;
       if (canHomeSlugWalk(chunks, r.slug.id, state.player.x, state.player.y, home.furniture)) {
         r.targetX = state.player.x;
         r.targetY = state.player.y;
@@ -926,8 +978,42 @@ export function updateHomeResidents(
         r.reactionTimer = 1.7;
       }
     } else if (r.behaviorTimer <= 0) {
-      if (r.energy < 35) {
+      const feederSpot = home.furniture.find((f) => f.kind === 'feeder');
+      if (feederSpot && r.hunger < 62 && Math.random() < 0.7) {
+        // Spontaneous visit to home feeder & eat!
+        const adjFeeder = findAdjacentWalkableTile(
+          chunks,
+          r.slug.id,
+          feederSpot.x,
+          feederSpot.y,
+          home.furniture
+        );
+        if (adjFeeder) {
+          const distFeeder = Math.hypot(adjFeeder.x - r.x, adjFeeder.y - r.y);
+          if (distFeeder <= 1.2) {
+            r.behavior = 'descansar';
+            r.visualActivity = 'eat';
+            r.behaviorTimer = 2.6;
+            r.targetX = r.x;
+            r.targetY = r.y;
+            r.facingX = feederSpot.x >= r.x ? 1 : -1;
+            r.hunger = Math.min(100, r.hunger + 6);
+            r.mood = computeHomeMood(r.hunger, r.energy, r.happiness);
+            if (!r.reactionText) {
+              r.reactionText = '🍖 Ñam';
+              r.reactionTimer = 1.6;
+            }
+          } else {
+            r.behavior = 'pasear';
+            r.visualActivity = 'walk';
+            r.behaviorTimer = 3.2;
+            r.targetX = adjFeeder.x;
+            r.targetY = adjFeeder.y;
+          }
+        }
+      } else if (r.energy < 35) {
         r.behavior = 'descansar';
+        r.visualActivity = 'sleep';
         r.behaviorTimer = 4 + Math.random() * 2.5;
         const restSpot = home.furniture.find((f) => f.kind === 'nest' || f.kind === 'bed');
         const adjacentRest = restSpot
@@ -953,13 +1039,38 @@ export function updateHomeResidents(
         }
       } else {
         const roll = Math.random();
-        if (roll < 0.25) {
+        if (roll < 0.16) {
+          // Curious looking around (flips facing direction smoothly)
           r.behavior = 'descansar';
+          r.visualActivity = 'look';
+          r.facingX = (r.facingX ?? 1) > 0 ? -1 : 1;
+          r.behaviorTimer = 1.9 + Math.random() * 1.4;
+          r.targetX = r.x;
+          r.targetY = r.y;
+        } else if (roll < 0.34) {
+          r.behavior = 'descansar';
+          r.visualActivity = 'sleep';
           r.behaviorTimer = 2.6 + Math.random() * 2;
           r.targetX = r.x;
           r.targetY = r.y;
+        } else if (roll < 0.5 && r.energy > 45) {
+          r.behavior = 'jugar';
+          r.visualActivity = 'play';
+          r.behaviorTimer = 2.4 + Math.random() * 1.6;
+          let picked: { x: number; y: number } | null = null;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            const ox = habDef.anchorX + (Math.random() - 0.5) * 4;
+            const oy = habDef.anchorY + (Math.random() - 0.5) * 4;
+            if (canHomeSlugWalk(chunks, r.slug.id, ox, oy, home.furniture)) {
+              picked = { x: ox, y: oy };
+              break;
+            }
+          }
+          r.targetX = picked ? picked.x : r.x;
+          r.targetY = picked ? picked.y : r.y;
         } else {
           r.behavior = 'pasear';
+          r.visualActivity = 'walk';
           r.behaviorTimer = 2.5 + Math.random() * 3;
           let picked: { x: number; y: number } | null = null;
           for (let attempt = 0; attempt < 6; attempt++) {
@@ -990,6 +1101,12 @@ export function updateHomeResidents(
     const dy = r.targetY - r.y;
     const distTarget = Math.hypot(dx, dy);
     if (distTarget > 0.15 && (r.behavior === 'pasear' || r.behavior === 'acercarse' || r.behavior === 'jugar')) {
+      if (Math.abs(dx) > 0.05) {
+        r.facingX = dx >= 0 ? 1 : -1;
+      }
+      if (!r.visualActivity || r.visualActivity === 'sleep' || r.visualActivity === 'look') {
+        r.visualActivity = r.behavior === 'jugar' ? 'play' : r.behavior === 'acercarse' ? 'greet' : 'walk';
+      }
       const baseSpeed = r.behavior === 'jugar' ? 2.1 : r.behavior === 'acercarse' ? 1.9 : 1.25;
       const step = Math.min(distTarget, baseSpeed * dt);
       const vx = (dx / distTarget) * step;
@@ -1033,6 +1150,7 @@ export function updateHomeResidents(
         r.targetX = r.x;
         r.targetY = r.y;
         r.behavior = 'descansar';
+        r.visualActivity = 'look';
         r.behaviorTimer = 1.0;
       }
     } else if (!canHomeSlugWalk(chunks, r.slug.id, r.x, r.y, home.furniture)) {

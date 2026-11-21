@@ -67,6 +67,7 @@ export class CombatManager {
   private moveInputY = 0;
   private onBattleEndCallback: ((endedBattle: BattleState | null) => void) | null = null;
   private onStateChangeCallback: (() => void) | null = null;
+  private onCaptureCallback: ((result: NonNullable<BattleState['captureResult']>) => void) | null = null;
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
   private clearPendingTimers(): void {
@@ -88,6 +89,7 @@ export class CombatManager {
       iconOverride?: string;
       onEnd?: (endedBattle?: BattleState | null) => void;
       onStateChange?: () => void;
+      onCapture?: (result: NonNullable<BattleState['captureResult']>) => void;
     }
   ): BattleState {
     this.clearPendingTimers();
@@ -165,6 +167,7 @@ export class CombatManager {
     this.allyChillTurns = 0;
     this.onBattleEndCallback = opts.onEnd || null;
     this.onStateChangeCallback = opts.onStateChange || null;
+    this.onCaptureCallback = opts.onCapture || null;
 
     this.battle = {
       active: true,
@@ -242,7 +245,7 @@ export class CombatManager {
       effects: [],
     };
 
-    sound.startDuelMusic();
+    sound.startDuelMusic(opts.kind === 'boss');
     return this.battle;
   }
 
@@ -1554,9 +1557,10 @@ export class CombatManager {
     const chance = Math.min(0.97, baseChance + hpRatio * 0.64 + stunBonus + perkBonus);
 
     if (Math.random() < chance) {
-      sound.playCapture();
-      sound.stopDuelMusic();
       const caught = createSlugInstance(enemy.id, enemy.level);
+      const isNewSpecies = (state.capturedSpecies[caught.id] || 0) === 0;
+      sound.playCapture(isNewSpecies);
+      sound.stopDuelMusic();
       state.seenSpecies[caught.id] = true;
       state.capturedSpecies[caught.id] = (state.capturedSpecies[caught.id] || 0) + 1;
       const addedToParty = state.party.length < 4;
@@ -1573,11 +1577,24 @@ export class CombatManager {
       b.playerDuelist.vy = 0;
       b.turn = 'ended';
       b.outcome = 'captured';
+      b.captureResult = {
+        slugUid: caught.uid,
+        speciesId: caught.id,
+        slugName: caught.name,
+        level: caught.level,
+        element: caught.type,
+        rarity: caught.rarity,
+        isNewSpecies,
+        destination: addedToParty ? 'party' : 'storage',
+      };
       b.rewardText = addedToParty
         ? `¡Capturaste a ${caught.name} (Nv.${caught.level})! Añadida al estuche.`
         : `¡Capturaste a ${caught.name} (Nv.${caught.level})! Enviada al Refugio.`;
       this.pushEffect({ target: 'enemy', kind: 'capture', text: '¡CAPTURADA!', color: '#4ade80', x: ed.x, y: ed.y - 40 });
       this.pushLog(b.rewardText);
+      if (this.onCaptureCallback && b.captureResult) {
+        this.onCaptureCallback(b.captureResult);
+      }
     } else {
       sound.playHit(false);
       this.pushShockwave(ed.x, ed.y, 60, '#f59e0b', 'impact', '¡Escapó!');
@@ -1870,6 +1887,7 @@ export class CombatManager {
     this.battle = null;
     this.onBattleEndCallback = null;
     this.onStateChangeCallback = null;
+    this.onCaptureCallback = null;
     if (cb) cb(endedBattle);
   }
 }

@@ -301,6 +301,7 @@ export class BajoterraEngine {
     this.renderer.resetCamera(this.state.player.x, this.state.player.y);
     this.seedInitialEntities();
     this.screen = 'PLAYING';
+    this.syncAmbientMusic();
     void requestPersistentStorageIfNeeded();
     this.notify('¡Nueva expedición iniciada en las Cuevas Verdes!');
     this.emitHud(true);
@@ -323,6 +324,7 @@ export class BajoterraEngine {
     this.renderer.resetCamera(this.state.player.x, this.state.player.y);
     this.seedInitialEntities();
     this.screen = 'PLAYING';
+    this.syncAmbientMusic();
     void requestPersistentStorageIfNeeded();
     this.notify(
       loadRes.recoveredFromCorruption
@@ -357,6 +359,7 @@ export class BajoterraEngine {
     this.seedInitialEntities();
     this.hasV4 = true;
     this.screen = 'PLAYING';
+    this.syncAmbientMusic();
     void requestPersistentStorageIfNeeded();
     this.notify('¡Partida de Bajoterra 3.0 importada sin sobrescribir la original!');
     this.emitHud(true);
@@ -387,6 +390,7 @@ export class BajoterraEngine {
     this.seedInitialEntities();
     this.hasV4 = true;
     this.screen = 'PLAYING';
+    this.syncAmbientMusic();
     void requestPersistentStorageIfNeeded();
     this.notify(
       res.kind === 'v3'
@@ -458,6 +462,7 @@ export class BajoterraEngine {
     this.screen = screen;
     this.keysHeld.clear();
     sound.playUi();
+    this.syncAmbientMusic();
     this.emitHud(true);
     if (screen === 'FULL_MAP' && this.fullMapCanvas) {
       requestAnimationFrame(() => {
@@ -466,6 +471,19 @@ export class BajoterraEngine {
         }
       });
     }
+  }
+
+  private syncAmbientMusic(): void {
+    if (this.screen === 'TITLE') {
+      sound.stopAllMusic();
+      return;
+    }
+    const biome = getBiomeAt(
+      Math.floor(this.state.player.x + 0.5),
+      Math.floor(this.state.player.y + 0.5),
+      this.state.worldSeed
+    );
+    sound.setAmbientBiome(biome, true);
   }
 
   public setHotbar(index: number): void {
@@ -764,19 +782,22 @@ export class BajoterraEngine {
       this.state.exploredChunks[ck] = 1;
     }
 
-    // Biome discovery
+    // Biome tracking & first discovery
     const b = getBiomeAt(px, py, this.state.worldSeed);
+    sound.setAmbientBiome(b, this.screen !== 'TITLE');
     if (!this.state.discoveries.includes(b)) {
       this.state.discoveries.push(b);
-      sound.playVictory();
+      sound.playDiscovery(true);
       cinematicEvents.emit({
         type: 'biome_discovered',
         title: BIOME_INFO[b].name,
         subtitle: BIOME_INFO[b].subtitle,
+        loreLine: BIOME_INFO[b].subtitle,
         biome: b,
         audioCue: 'discovery_wonder',
         skippable: true,
         priority: 'highlight',
+        dedupeKey: `biome_${b}`,
       });
       this.notify(`¡Nuevo bioma descubierto: ${BIOME_INFO[b].name}!`);
       this.emitHud(true);
@@ -834,15 +855,24 @@ export class BajoterraEngine {
             x: meta.centerX,
             y: meta.centerY,
           });
-          sound.playPickup();
+          sound.playDiscovery(false);
+          const poiSubtitleMap: Record<NonNullable<ChunkStructureMeta['kind']>, string> = {
+            secret_chamber: 'Cámara Secreta',
+            outpost: 'Puesto Subterráneo',
+            abandoned_mine: 'Mina Antigua',
+            ancient_ruins: 'Ruinas Antiguas',
+            crystal_chamber: 'Cámara Cristalina',
+          };
           cinematicEvents.emit({
             type: 'poi_discovered',
             title: meta.name,
+            subtitle: poiSubtitleMap[meta.kind] || 'Punto de Interés',
             biome: meta.biome,
             poiKind: meta.kind,
             audioCue: 'discovery_wonder',
             skippable: true,
             priority: 'ambient',
+            dedupeKey: `poi_${meta.id}`,
           });
           this.awardPlayerXp(10);
           this.notify(`¡Lugar descubierto: ${meta.name}!`);
@@ -1716,6 +1746,8 @@ export class BajoterraEngine {
     this.keysHeld.clear();
     ent.cooldown = 6;
     const spId = ent.speciesId || 'infurnus';
+    const enemySpecies = getSpecies(spId);
+    const ally = this.state.party[this.state.activePartyIndex] || this.state.party[0];
 
     const currentBiome = getBiomeAt(
       Math.round(this.state.player.x),
@@ -1723,16 +1755,42 @@ export class BajoterraEngine {
       this.state.worldSeed
     );
 
+    const rivalLore =
+      ent.kind === 'boss'
+        ? `¡El guardián supremo de ${BIOME_INFO[currentBiome].name} desata su poder ${enemySpecies.type}!`
+        : ent.kind === 'mercenary'
+        ? ent.challengeId
+          ? '¡Protege el santuario antiguo con su bláster cargado!'
+          : '«Mis babosas sombrías no dejan paso a ningún explorador.»'
+        : enemySpecies.lore;
+
     cinematicEvents.emit({
       type: ent.kind === 'boss' || ent.kind === 'mercenary' ? 'encounter_intro' : 'combat_intro',
       title: ent.name,
+      subtitle:
+        ent.kind === 'boss'
+          ? `Jefe de Bioma · Nv.${ent.level}`
+          : ent.kind === 'mercenary'
+          ? `Duelo Especial · Nv.${ent.level}`
+          : `${enemySpecies.name} Salvaje · Nv.${ent.level}`,
       biome: currentBiome,
       speciesId: spId,
+      slugName: enemySpecies.name,
+      slugElement: enemySpecies.type,
+      slugRarity: enemySpecies.rarity,
+      enemyKind: ent.kind === 'boss' ? 'boss' : ent.kind === 'mercenary' ? 'mercenary' : 'wild',
+      enemyLevel: ent.level,
+      allySpeciesId: ally?.id,
+      allyName: ally?.name,
+      allyMega: ally?.mega,
+      loreLine: rivalLore,
       audioCue: ent.kind === 'boss' ? 'boss_ominous' : 'duel_tension',
       skippable: true,
       priority: ent.kind === 'boss' ? 'dramatic' : 'highlight',
+      dedupeKey: `battle_${ent.uid}`,
     });
 
+    let captureCinematicEmitted = false;
     this.combat.startBattle(this.state, {
       kind: ent.kind === 'boss' ? 'boss' : ent.kind === 'mercenary' ? 'mercenary' : 'wild',
       speciesId: spId,
@@ -1741,22 +1799,34 @@ export class BajoterraEngine {
       nameOverride: ent.kind === 'boss' ? ent.name : undefined,
       bossId: ent.bossId,
       iconOverride: ent.kind === 'boss' ? ent.icon : undefined,
+      onCapture: (cap) => {
+        if (captureCinematicEmitted) return;
+        captureCinematicEmitted = true;
+        const capSpecies = getSpecies(cap.speciesId);
+        cinematicEvents.emit({
+          type: 'slug_captured',
+          title: cap.slugName,
+          subtitle: capSpecies.name,
+          biome: currentBiome,
+          speciesId: cap.speciesId,
+          slugName: cap.slugName,
+          slugElement: cap.element,
+          slugRarity: cap.rarity,
+          enemyLevel: cap.level,
+          isNewSpecies: cap.isNewSpecies,
+          captureDestination: cap.destination,
+          loreLine: capSpecies.lore,
+          audioCue: 'capture_chime',
+          skippable: true,
+          priority: 'dramatic',
+          dedupeKey: `capture_${cap.slugUid}`,
+        });
+      },
       onStateChange: () => {
         this.emitHud(true);
       },
       onEnd: (endedBattle) => {
         const outcome = endedBattle?.outcome;
-        if (outcome === 'captured') {
-          cinematicEvents.emit({
-            type: 'slug_captured',
-            title: endedBattle?.enemy.name || 'Babosa capturada',
-            biome: currentBiome,
-            speciesId: endedBattle?.enemy.id,
-            audioCue: 'capture_chime',
-            skippable: true,
-            priority: 'dramatic',
-          });
-        }
         if (outcome === 'victory' || outcome === 'captured') {
           this.entities = this.entities.filter((x) => x.uid !== ent.uid);
           if (ent.challengeId) {
@@ -1775,6 +1845,7 @@ export class BajoterraEngine {
             }
           }
         }
+        this.syncAmbientMusic();
         void this.runBackgroundSave('battle');
         this.emitHud(true);
       },
@@ -1820,15 +1891,22 @@ export class BajoterraEngine {
   public evolveSlugToMegamorph(slugUid: string): boolean {
     const res = evolveSlugToMegamorphHelper(this.state, slugUid);
     if (res.ok) {
-      sound.playVictory();
+      sound.playMegamorphFanfare();
       const evolved = findSlugByUidAnywhere(this.state, slugUid);
+      const sp = evolved ? getSpecies(evolved.id) : null;
       cinematicEvents.emit({
         type: 'megamorph_awakened',
         title: evolved?.name || 'Megamorph',
+        subtitle: sp?.evoName || 'Forma Megamorph',
         speciesId: evolved?.id,
-        audioCue: 'victory_fanfare',
+        slugName: evolved?.name,
+        slugElement: evolved?.type,
+        slugRarity: evolved?.rarity,
+        loreLine: sp?.lore,
+        audioCue: 'megamorph_fanfare',
         skippable: true,
         priority: 'dramatic',
+        dedupeKey: `mega_${slugUid}`,
       });
       this.renderer.spawnBurst(
         Math.floor(this.state.player.x + 0.5),

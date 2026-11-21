@@ -25,6 +25,7 @@ interface BattleModalProps {
   battle: BattleState;
   state: GameState;
   combat: CombatManager;
+  introPaused?: boolean;
   onSync: () => void;
 }
 
@@ -46,7 +47,13 @@ const MOVE_KEYS = new Set([
   'arrowright',
 ]);
 
-export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat, onSync }) => {
+export const BattleModal: React.FC<BattleModalProps> = ({
+  battle,
+  state,
+  combat,
+  introPaused = false,
+  onSync,
+}) => {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [joyNub, setJoyNub] = useState({ x: 0, y: 0 });
@@ -141,7 +148,9 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
 
       if (combat.battle) {
         if (combat.battle.turn === 'duel') {
-          combat.step(dt, state);
+          if (!introPaused) {
+            combat.step(dt, state);
+          }
         } else {
           combat.stepEndedVisuals(dt);
         }
@@ -164,7 +173,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
     return () => {
       cancelAnimationFrame(rafId);
     };
-  }, [combat, state, onSync]);
+  }, [combat, introPaused, state, onSync]);
 
   const selectOrFireMode = useCallback(
     (mode: BlasterShotMode) => {
@@ -185,7 +194,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
   // Full 2D keyboard controls (WASD / Arrows move, 1-4 or Q/E switch, Z/X skills, F/Shift contextual, R pulse, Space charge/fire)
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (!combat.battle || isEditableEventTarget(e.target)) return;
+      if (!combat.battle || introPaused || isEditableEventTarget(e.target)) return;
       if (e.key === 'Escape' && actionsOpen) {
         e.preventDefault();
         setActionsOpen(false);
@@ -230,7 +239,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({ battle, state, combat,
         }
       }
     },
-    [actionsOpen, combat, state, onSync, selectOrFireMode, updateKeyboardMove]
+    [actionsOpen, combat, introPaused, state, onSync, selectOrFireMode, updateKeyboardMove]
   );
 
   const handleKeyUp = useCallback(

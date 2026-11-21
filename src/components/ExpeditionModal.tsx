@@ -18,10 +18,15 @@ import {
 import { gameEngine } from '../game/engine';
 import { getMoodLabel } from '../game/home';
 import { checkMegamorphEligibility, getBondTierInfo } from '../game/progression';
+import {
+  ART_DIRECTION_GUIDE,
+  STORY_ORDERED_SPECIES_IDS,
+  getSlugDesignSheet,
+} from '../game/slugArtDirection';
 import type { FurnitureKind, GameState, HabitatId, HudSnapshot, InventoryKey } from '../game/types';
 import { ResourceSwatch } from './GameIcons';
 import { SlugDetailPanel } from './SlugDetailPanel';
-import { SlugPortrait } from './SlugPortrait';
+import { SlugPortrait, type SlugPortraitMood } from './SlugPortrait';
 
 export type ExpeditionTabKey = 'taller' | 'criaturas' | 'hogar' | 'babosapedia' | 'misiones';
 
@@ -75,6 +80,8 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
   const [swapTargetPartyIdx, setSwapTargetPartyIdx] = useState<number>(0);
   const [assignPick, setAssignPick] = useState<Partial<Record<HabitatId, string>>>({});
   const [inspectedSlugUid, setInspectedSlugUid] = useState<string | null>(null);
+  const [catalogMood, setCatalogMood] = useState<SlugPortraitMood>('happy');
+  const [showArtGuide, setShowArtGuide] = useState<boolean>(false);
 
   const allSlugs = [...snap.party, ...snap.storage];
   const capturedCount = Object.keys(snap.capturedSpecies).length;
@@ -638,8 +645,12 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                             {residents.map((res) => {
                               const fav = getFavoriteFoodForSpecies(res.slug.id);
                               const bondTier = getBondTierInfo(res.slug.bond);
-                              const moodPose =
-                                res.behavior === 'descansar'
+                              const moodPose: SlugPortraitMood =
+                                res.visualActivity === 'eat'
+                                  ? 'eat'
+                                  : res.visualActivity === 'play' || res.visualActivity === 'social'
+                                  ? 'play'
+                                  : res.visualActivity === 'sleep' || res.behavior === 'descansar'
                                   ? 'sleep'
                                   : res.mood === 'contenta'
                                   ? 'happy'
@@ -768,59 +779,149 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
           )}
 
           {tab === 'babosapedia' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-              {SPECIES_LIST.map((sp) => {
-                const seen = !!snap.seenSpecies[sp.id];
-                const caught = snap.capturedSpecies[sp.id] || 0;
-                const known = seen || caught > 0;
-                return (
-                  <div
-                    key={sp.id}
-                    className={`bt-card rounded-xl p-3.5 flex flex-col justify-between ${
-                      caught > 0
-                        ? 'border-teal-400/50'
-                        : known
-                        ? 'border-slate-600/80'
-                        : 'opacity-65 border-slate-800'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center gap-2.5 mb-2">
-                        <div className="w-11 h-11 rounded-xl bt-inset flex items-center justify-center shrink-0">
-                          {known ? (
-                            <SlugPortrait speciesId={sp.id} size={36} mood={caught > 0 ? 'happy' : 'idle'} />
-                          ) : (
-                            <span className="text-base font-extrabold text-slate-500">?</span>
+            <div className="space-y-3.5">
+              {/* Expression Switcher & Style Guide Bar */}
+              <div className="bt-inset rounded-xl p-3 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-extrabold text-teal-300 uppercase tracking-wider mr-1">
+                    Animación en catálogo:
+                  </span>
+                  {(
+                    [
+                      { id: 'happy', label: 'Feliz' },
+                      { id: 'idle', label: 'Tranquila' },
+                      { id: 'play', label: 'Jugar' },
+                      { id: 'eat', label: 'Comer' },
+                      { id: 'attack', label: 'Ataque' },
+                      { id: 'sleep', label: 'Descanso' },
+                    ] as Array<{ id: SlugPortraitMood; label: string }>
+                  ).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setCatalogMood(m.id)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer whitespace-nowrap ${
+                        catalogMood === m.id ? 'bt-btn-primary' : 'bt-btn-secondary'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowArtGuide((v) => !v)}
+                  className="bt-btn-secondary border-cyan-400/50 px-3 py-1.5 rounded-xl text-[11px] font-extrabold text-cyan-200 cursor-pointer whitespace-nowrap"
+                >
+                  {showArtGuide ? 'Ocultar Guía y Prototipos' : 'Guía Artística y Prototipos'}
+                </button>
+              </div>
+
+              {showArtGuide && (
+                <div className="bt-inset border-cyan-400/40 rounded-xl p-3.5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="text-xs font-extrabold text-amber-300 uppercase tracking-wider">
+                      {ART_DIRECTION_GUIDE.title}
+                    </h4>
+                    <span className="text-[11px] text-slate-300">
+                      Luz {ART_DIRECTION_GUIDE.lightDirectionDeg}° · Contorno {ART_DIRECTION_GUIDE.outlineHex} · Megamorph exclusivo en progreso avanzado
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                    {ART_DIRECTION_GUIDE.prototypePriorityIds.map((pid) => {
+                      const psp = getSpecies(pid);
+                      const psheet = getSlugDesignSheet(pid);
+                      return (
+                        <div key={pid} className="bt-card rounded-xl p-3 space-y-1.5 border-amber-400/35">
+                          <div className="flex items-center gap-2.5">
+                            <SlugPortrait speciesId={pid} mood={catalogMood} size={44} />
+                            <div className="min-w-0">
+                              <div className="text-xs font-extrabold text-white">{psp.name}</div>
+                              <div className="text-[10px] font-bold text-amber-300">
+                                Prototipo · {psheet.vfxSignature.transformLabel}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-[11px] text-slate-300">{psheet.silhouetteHooks.join(' · ')}</div>
+                          <div className="text-[10px] text-teal-200 italic">{psheet.personalityQuote}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Story-Ordered Species Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {STORY_ORDERED_SPECIES_IDS.map((id) => getSpecies(id)).map((sp) => {
+                  const seen = !!snap.seenSpecies[sp.id];
+                  const caught = snap.capturedSpecies[sp.id] || 0;
+                  const known = seen || caught > 0;
+                  const sheet = getSlugDesignSheet(sp.id);
+                  return (
+                    <div
+                      key={sp.id}
+                      className={`bt-card rounded-xl p-3.5 flex flex-col justify-between ${
+                        caught > 0
+                          ? 'border-teal-400/50'
+                          : known
+                          ? 'border-slate-600/80'
+                          : 'opacity-70 border-slate-800'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-1 text-[10px] text-slate-400 mb-1.5">
+                          <span>#{sheet.storyOrder} · {sheet.storyChapter}</span>
+                          {sheet.prototypeTier === 'prototype_trio' && (
+                            <span className="text-amber-300 font-bold">Prototipo</span>
                           )}
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="font-extrabold text-sm text-white truncate">
-                              {known ? sp.name : 'Especie desconocida'}
-                            </span>
-                            <span className="text-[10px] font-bold text-amber-300 shrink-0">{sp.rarity}</span>
+                        <div className="flex items-center gap-2.5 mb-2">
+                          <div className="w-12 h-12 rounded-xl bt-inset flex items-center justify-center shrink-0">
+                            {known ? (
+                              <SlugPortrait
+                                speciesId={sp.id}
+                                size={42}
+                                mood={caught > 0 ? catalogMood : 'idle'}
+                              />
+                            ) : (
+                              <span className="text-base font-extrabold text-slate-500">?</span>
+                            )}
                           </div>
-                          <div className="text-[11px] text-slate-300 mt-0.5">
-                            <span className="font-bold" style={{ color: ELEMENT_CHART[sp.type]?.color }}>
-                              {sp.type}
-                            </span>{' '}
-                            · {BIOME_INFO[sp.habitat].name}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-extrabold text-sm text-white truncate">
+                                {known ? sp.name : 'Especie desconocida'}
+                              </span>
+                              <span className="text-[10px] font-bold text-amber-300 shrink-0">{sp.rarity}</span>
+                            </div>
+                            <div className="text-[11px] text-slate-300 mt-0.5">
+                              <span className="font-bold" style={{ color: ELEMENT_CHART[sp.type]?.color }}>
+                                {sp.type}
+                              </span>{' '}
+                              · {BIOME_INFO[sp.habitat].name}
+                            </div>
                           </div>
                         </div>
+                        <p className="text-[11px] text-slate-300 leading-relaxed">
+                          {known
+                            ? sp.lore
+                            : `Explora ${BIOME_INFO[sp.habitat].name} para descubrir esta especie.`}
+                        </p>
+                        {known && (
+                          <div className="text-[10px] text-cyan-200/85 mt-1.5 leading-snug">
+                            Rasgos: {sheet.silhouetteHooks.slice(0, 2).join(' · ')}
+                          </div>
+                        )}
                       </div>
-                      <p className="text-[11px] text-slate-300 leading-relaxed">
-                        {known
-                          ? sp.lore
-                          : `Explora ${BIOME_INFO[sp.habitat].name} para descubrir esta especie.`}
-                      </p>
+                      <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-teal-200 tabular-nums font-semibold">
+                        <span>Capturadas: {caught}</span>
+                        {known && <span className="text-amber-200/85 text-[10px]">{sheet.vfxSignature.transformLabel}</span>}
+                      </div>
                     </div>
-                    <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-teal-200 tabular-nums font-semibold">
-                      <span>Capturadas: {caught}</span>
-                      {known && <span className="text-amber-200/85 text-[10px]">{sp.evoName}</span>}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
 

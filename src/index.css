@@ -271,6 +271,230 @@
   animation: bt-aura-pulse 2.2s ease-in-out infinite;
 }
 
+@keyframes bt-cinematic-shockwave {
+  0% {
+    opacity: 0.92;
+    transform: scale(0.32);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.05);
+  }
+}
+
+@keyframes bt-cinematic-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bt-cinematic-slash {
+  0% {
+    opacity: 0;
+    transform: translateX(-28px) scaleX(0.6);
+  }
+  35% {
+    opacity: 1;
+    transform: translateX(0) scaleX(1);
+  }
+  100% {
+    opacity: 0.72;
+    transform: translateX(6px) scaleX(1.03);
+  }
+}
+
+@keyframes bt-cinematic-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.65);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bt-cinematic-spark {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0px) scale(0.85);
+  }
+  50% {
+    opacity: 0.95;
+    transform: translateY(-10px) scale(1.15);
+  }
+}
+
+.bt-cinematic-shockwave {
+  animation: bt-cinematic-shockwave 780ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.bt-cinematic-spin {
+  animation: bt-cinematic-spin 7s linear infinite;
+}
+
+.bt-cinematic-slash {
+  animation: bt-cinematic-slash 460ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.bt-cinematic-pop {
+  animation: bt-cinematic-pop 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.bt-cinematic-spark {
+  animation: bt-cinematic-spark 1.8s ease-in-out infinite;
+}
+
+/* Living Slug Portrait Animation System (compositor-only transforms/opacity) */
+@keyframes bt-slug-idle-breathe {
+  0%, 100% {
+    transform: translateY(0px) scaleX(1) scaleY(1);
+  }
+  50% {
+    transform: translateY(-0.8px) scaleX(1.028) scaleY(0.975);
+  }
+}
+
+@keyframes bt-slug-happy-bounce {
+  0%, 100% {
+    transform: translateY(0px) scale(1, 1) rotate(0deg);
+  }
+  28% {
+    transform: translateY(-2.4px) scale(0.96, 1.07) rotate(-2.5deg);
+  }
+  65% {
+    transform: translateY(-0.6px) scale(1.04, 0.96) rotate(2deg);
+  }
+}
+
+@keyframes bt-slug-play-hop {
+  0%, 100% {
+    transform: translate(0px, 0px) rotate(0deg);
+  }
+  25% {
+    transform: translate(-1.4px, -2.8px) rotate(-6deg);
+  }
+  50% {
+    transform: translate(0px, 0px) scale(1.07, 0.92);
+  }
+  75% {
+    transform: translate(1.4px, -2.6px) rotate(6deg);
+  }
+}
+
+@keyframes bt-slug-eat-munch {
+  0%, 100% {
+    transform: translateY(0px) scale(1, 1);
+  }
+  35% {
+    transform: translateY(1px) scale(1.06, 0.94);
+  }
+  70% {
+    transform: translateY(-0.6px) scale(0.97, 1.03);
+  }
+}
+
+@keyframes bt-slug-sleep-sway {
+  0%, 100% {
+    transform: translateY(1.2px) scaleX(1.04) scaleY(0.93);
+  }
+  50% {
+    transform: translateY(1.6px) scaleX(1.07) scaleY(0.90);
+  }
+}
+
+@keyframes bt-slug-attack-surge {
+  0%, 100% {
+    transform: translateX(0px) scale(1) rotate(0deg);
+  }
+  45% {
+    transform: translateX(1.8px) scale(1.07, 0.94) rotate(-5deg);
+  }
+}
+
+@keyframes bt-slug-blink {
+  0%, 92%, 100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.12);
+  }
+}
+
+@keyframes bt-slug-zzz-float {
+  0% {
+    opacity: 0;
+    transform: translate(0px, 2px) scale(0.75);
+  }
+  30% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(3px, -5px) scale(1.1);
+  }
+}
+
+.bt-slug-pose-idle {
+  transform-origin: 16px 26px;
+  animation: bt-slug-idle-breathe 2.6s ease-in-out infinite;
+}
+
+.bt-slug-pose-happy,
+.bt-slug-pose-victory,
+.bt-slug-pose-react {
+  transform-origin: 16px 26px;
+  animation: bt-slug-happy-bounce 1.25s ease-in-out infinite;
+}
+
+.bt-slug-pose-play {
+  transform-origin: 16px 26px;
+  animation: bt-slug-play-hop 1.15s ease-in-out infinite;
+}
+
+.bt-slug-pose-eat {
+  transform-origin: 16px 26px;
+  animation: bt-slug-eat-munch 0.72s ease-in-out infinite;
+}
+
+.bt-slug-pose-sleep,
+.bt-slug-pose-rest {
+  transform-origin: 16px 26px;
+  animation: bt-slug-sleep-sway 3.1s ease-in-out infinite;
+}
+
+.bt-slug-pose-attack,
+.bt-slug-pose-charge,
+.bt-slug-pose-transform {
+  transform-origin: 16px 26px;
+  animation: bt-slug-attack-surge 0.85s ease-in-out infinite;
+}
+
+.bt-slug-blink-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bt-slug-blink 3.6s ease-in-out infinite;
+}
+
+.bt-slug-zzz {
+  animation: bt-slug-zzz-float 2.1s ease-in-out infinite;
+}
+
+.bt-reduced-motion,
+.bt-reduced-motion * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -139,6 +139,18 @@ export const PauseModal: React.FC<PauseModalProps> = ({ snap, onResume, onTitle 
               {snap.options.showMinimap ? 'Visible' : 'Oculto'}
             </button>
           </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-slate-100 font-semibold">Movimiento y destellos</span>
+            <button
+              onClick={() => gameEngine.updateOptions({ reducedMotion: !snap.options.reducedMotion })}
+              className={`px-3.5 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] ${
+                snap.options.reducedMotion ? 'bt-btn-amber' : 'bt-btn-secondary'
+              }`}
+            >
+              {snap.options.reducedMotion ? 'Reducido' : 'Completo'}
+            </button>
+          </div>
         </div>
 
         {/* Save & Migration */}

@@ -503,7 +503,14 @@ export async function saveGameV4(state: GameState, opts?: SaveOptions): Promise<
   let payload: string;
   try {
     payload = JSON.stringify(state, (key, value) =>
-      key === 'reactionText' || key === 'reactionTimer' || key === 'lastGreetAt' ? undefined : value
+      key === 'reactionText' ||
+      key === 'reactionTimer' ||
+      key === 'lastGreetAt' ||
+      key === 'lastSocialAt' ||
+      key === 'visualActivity' ||
+      key === 'facingX'
+        ? undefined
+        : value
     );
   } catch (err) {
     const errMsg = formatError(err);
@@ -1183,6 +1190,12 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     if (o.showMinimap !== undefined) {
       if (typeof o.showMinimap !== 'boolean') return { ok: false, error: 'Opción de minimapa inválida.' };
       validOptions.showMinimap = o.showMinimap;
+    }
+    if (o.reducedMotion !== undefined) {
+      if (typeof o.reducedMotion !== 'boolean') {
+        return { ok: false, error: 'Opción de movimiento reducido inválida.' };
+      }
+      validOptions.reducedMotion = o.reducedMotion;
     }
   }
 

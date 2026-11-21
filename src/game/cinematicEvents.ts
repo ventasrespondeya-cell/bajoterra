@@ -1,9 +1,5 @@
-import type { BiomeId, POIKind } from './types';
+import type { BiomeId, ElementType, POIKind, Rarity } from './types';
 
-/**
- * ETAPA E (FASE 8): Arquitectura ligera de eventos para futuras secuencias cinematográficas (FASE 9).
- * Contratos tipados sin bloqueo de gameplay ni cinemáticas pesadas todavía.
- */
 export type CinematicEventType =
   | 'slug_captured'
   | 'encounter_intro'
@@ -18,7 +14,8 @@ export type AudioCueMood =
   | 'duel_tension'
   | 'boss_ominous'
   | 'victory_fanfare'
-  | 'capture_chime';
+  | 'capture_chime'
+  | 'megamorph_fanfare';
 
 export interface CinematicEvent {
   id: string;
@@ -32,6 +29,18 @@ export interface CinematicEvent {
   audioCue: AudioCueMood;
   skippable: boolean;
   priority: 'ambient' | 'highlight' | 'dramatic';
+  enemyKind?: 'wild' | 'mercenary' | 'boss';
+  enemyLevel?: number;
+  allySpeciesId?: string;
+  allyName?: string;
+  allyMega?: boolean;
+  isNewSpecies?: boolean;
+  captureDestination?: 'party' | 'storage';
+  slugName?: string;
+  slugElement?: ElementType;
+  slugRarity?: Rarity;
+  loreLine?: string;
+  dedupeKey?: string;
 }
 
 export type CinematicEventListener = (event: CinematicEvent) => void;
@@ -48,9 +57,7 @@ class CinematicEventBus {
     };
   }
 
-  public emit(
-    payload: Omit<CinematicEvent, 'id' | 'timestampMs'>
-  ): CinematicEvent {
+  public emit(payload: Omit<CinematicEvent, 'id' | 'timestampMs'>): CinematicEvent {
     const event: CinematicEvent = {
       ...payload,
       id: `cin_${this.seq++}_${Date.now().toString(36)}`,
@@ -64,7 +71,7 @@ class CinematicEventBus {
       try {
         fn(event);
       } catch {
-        // Never allow future cinematic listeners to disrupt the core game loop
+        // Never allow cinematic listeners to disrupt the core game loop
       }
     });
     return event;
