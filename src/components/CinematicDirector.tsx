@@ -26,6 +26,7 @@ import { SlugPortrait } from './SlugPortrait';
 
 interface CinematicDirectorProps {
   snap: HudSnapshot;
+  reducedMotion?: boolean;
   onBattleIntroActiveChange?: (active: boolean) => void;
 }
 
@@ -40,8 +41,10 @@ const SPARK_POSITIONS = [
 
 export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
   snap,
+  reducedMotion,
   onBattleIntroActiveChange,
 }) => {
+  const effectiveReduced = Boolean(reducedMotion ?? snap.options.reducedMotion);
   const controllerRef = useRef<CinematicQueueController>(new CinematicQueueController());
   const [featured, setFeatured] = useState<CinematicEvent | null>(null);
   const [ambient, setAmbient] = useState<CinematicEvent | null>(null);
@@ -50,11 +53,11 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
   const featuredTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stageTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const ambientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reducedMotionRef = useRef<boolean>(Boolean(snap.options.reducedMotion));
+  const reducedMotionRef = useRef<boolean>(effectiveReduced);
 
   useEffect(() => {
-    reducedMotionRef.current = Boolean(snap.options.reducedMotion);
-  }, [snap.options.reducedMotion]);
+    reducedMotionRef.current = effectiveReduced;
+  }, [effectiveReduced]);
 
   const clearFeaturedTimers = useCallback(() => {
     if (featuredTimerRef.current !== null) {
@@ -195,7 +198,7 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [featured, handleSkipFeatured]);
 
-  const reducedClass = snap.options.reducedMotion ? 'bt-reduced-motion' : '';
+  const reducedClass = effectiveReduced ? 'bt-reduced-motion' : '';
 
   const sp = featured?.speciesId ? getSpecies(featured.speciesId) : null;
   const elColor =
@@ -222,7 +225,9 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
                   · {ambient.subtitle}
                 </span>
               )}
-              <span className="text-[10px] font-extrabold text-amber-300 shrink-0">+10 EXP</span>
+              {ambient.type === 'poi_discovered' && (
+                <span className="text-[10px] font-extrabold text-amber-300 shrink-0">+10 EXP</span>
+              )}
             </div>
           </div>
         </div>
@@ -239,7 +244,7 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
             className="relative overflow-hidden bt-panel bt-animate-modal rounded-2xl px-5 py-4 text-center cursor-pointer shadow-2xl"
             style={{ borderColor: `${elColor}88` }}
           >
-            {!snap.options.reducedMotion && (
+            {!effectiveReduced && (
               <div className="pointer-events-none absolute inset-0 overflow-hidden">
                 {SPARK_POSITIONS.slice(0, 4).map((pos, i) => (
                   <span
@@ -301,7 +306,7 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
             )}
 
             {/* Ambient sparks */}
-            {!snap.options.reducedMotion && (
+            {!effectiveReduced && (
               <div className="pointer-events-none absolute inset-0 overflow-hidden">
                 {SPARK_POSITIONS.map((pos, i) => (
                   <span
@@ -336,7 +341,7 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
 
             {/* Central Stage: Cylinder -> Silhouette -> Reveal */}
             <div className="relative z-10 h-36 flex items-center justify-center my-2">
-              {!snap.options.reducedMotion && phaseIndex >= 1 && (
+              {!effectiveReduced && phaseIndex >= 1 && (
                 <div
                   className="bt-cinematic-shockwave absolute w-28 h-28 rounded-full border-2 pointer-events-none"
                   style={{ borderColor: elColor }}
@@ -347,7 +352,7 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
                 /* Stage 0: Technological Capture Cylinder Locking */
                 <div className="relative flex items-center justify-center">
                   <div
-                    className={`${!snap.options.reducedMotion ? 'bt-cinematic-spin' : ''} w-24 h-24 rounded-full border-2 border-dashed flex items-center justify-center`}
+                    className={`${!effectiveReduced ? 'bt-cinematic-spin' : ''} w-24 h-24 rounded-full border-2 border-dashed flex items-center justify-center`}
                     style={{ borderColor: elColor }}
                   />
                   <div
@@ -485,7 +490,7 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
               </button>
             )}
 
-            {!snap.options.reducedMotion && (
+            {!effectiveReduced && (
               <div className="pointer-events-none absolute inset-0 overflow-hidden">
                 {SPARK_POSITIONS.map((pos, i) => (
                   <span
@@ -510,7 +515,7 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
             </div>
 
             <div className="relative z-10 h-36 flex items-center justify-center my-2">
-              {!snap.options.reducedMotion && phaseIndex === 1 && (
+              {!effectiveReduced && phaseIndex === 1 && (
                 <div
                   className="bt-cinematic-shockwave absolute w-32 h-32 rounded-full border-4 border-amber-300 pointer-events-none"
                 />

@@ -209,7 +209,11 @@ export class DuelArenaRenderer {
   ): void {
     const theme = buildArenaForBiome(battle.biome);
     const highLighting = options.lightingQuality !== 'eco';
-    const reducedMotion = Boolean(options.reducedMotion);
+    const reducedMotion =
+      Boolean(options.reducedMotion) ||
+      (typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const time = reducedMotion ? 0 : battle.elapsedSec;
     const ally = state.party[state.activePartyIndex] || state.party[0];
     const allySpecies = getSpecies(ally.id);
@@ -345,11 +349,16 @@ export class DuelArenaRenderer {
       ctx.restore();
     }
 
-    // 9. Floating Damage / Status Callouts
+    // 9. Floating Damage / Status Callouts (with vertical anti-overlap separation)
     const recentEffects = battle.effects.slice(-4);
-    recentEffects.forEach((ef, idx) => {
+    const placedLabels: Array<{ x: number; y: number }> = [];
+    recentEffects.forEach((ef) => {
       const ex = ef.x ?? (ef.target === 'enemy' ? battle.enemyDuelist.x : battle.playerDuelist.x);
-      const ey = (ef.y ?? 200) - idx * 14;
+      let ey = ef.y ?? 200;
+      while (placedLabels.some((p) => Math.abs(p.x - ex) < 72 && Math.abs(p.y - ey) < 16)) {
+        ey -= 16;
+      }
+      placedLabels.push({ x: ex, y: ey });
       ctx.save();
       ctx.font = '800 13px system-ui, sans-serif';
       ctx.textAlign = 'center';

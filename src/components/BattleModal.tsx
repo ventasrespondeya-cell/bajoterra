@@ -26,6 +26,7 @@ interface BattleModalProps {
   state: GameState;
   combat: CombatManager;
   introPaused?: boolean;
+  reducedMotion?: boolean;
   onSync: () => void;
 }
 
@@ -52,8 +53,10 @@ export const BattleModal: React.FC<BattleModalProps> = ({
   state,
   combat,
   introPaused = false,
+  reducedMotion,
   onSync,
 }) => {
+  const effectiveReduced = Boolean(reducedMotion ?? state.options.reducedMotion);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [joyNub, setJoyNub] = useState({ x: 0, y: 0 });
@@ -407,11 +410,11 @@ export const BattleModal: React.FC<BattleModalProps> = ({
       : 'idle';
 
   const allyFlameBurst =
-    !state.options.reducedMotion &&
+    !effectiveReduced &&
     ally.id === 'infurnus' &&
     (allyMood === 'transform' || allyMood === 'fire');
   const enemyFlameBurst =
-    !state.options.reducedMotion &&
+    !effectiveReduced &&
     enemy.id === 'infurnus' &&
     enemyMood === 'transform';
 
@@ -450,7 +453,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
                 mega={ally.mega}
                 mood={allyMood}
                 size={40}
-                animated={!state.options.reducedMotion}
+                animated={!effectiveReduced}
               />
               {allyFlameBurst && (
                 <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-visible">
@@ -589,7 +592,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
                 mood={enemyMood}
                 size={40}
                 flipX
-                animated={!state.options.reducedMotion}
+                animated={!effectiveReduced}
               />
               {enemyFlameBurst && (
                 <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-visible">

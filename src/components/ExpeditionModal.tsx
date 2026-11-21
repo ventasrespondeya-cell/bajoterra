@@ -235,7 +235,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   {snap.party.map((s, idx) => {
                     const bondTier = getBondTierInfo(s.bond);
                     const megaCheck = checkMegamorphEligibility(
-                      { inventory: snap.inventory } as unknown as GameState,
+                      { inventory: snap.inventory, story: snap.storyState } as unknown as GameState,
                       s
                     );
                     const selected = swapTargetPartyIdx === idx;
@@ -994,11 +994,116 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                     </ul>
                   )}
                 </div>
+
+                {/* Compact Story Chapter & Route Summary */}
+                <div className="border-t border-cyan-400/15 pt-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-extrabold text-cyan-300 uppercase tracking-wider">
+                      Historia ({snap.story.currentChapterOrder}/{snap.story.totalChapters})
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-300 tabular-nums">
+                      {snap.story.chapterProgressPct}%
+                    </span>
+                  </div>
+                  <div className="text-xs font-extrabold text-white">{snap.story.currentChapterTitle}</div>
+                  <div className="text-[11px] text-teal-200/90">
+                    Escenario actual: <span className="font-bold text-white">{snap.story.currentScenarioName}</span>
+                  </div>
+                  <div className="text-[11px] text-amber-200/95 leading-snug">
+                    Objetivo: {snap.story.mainObjectiveText}
+                  </div>
+                  {snap.story.unlockedRoutes.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="text-[11px] font-bold text-slate-300">Rutas conectadas:</div>
+                      {snap.story.unlockedRoutes.map((r) => (
+                        <div
+                          key={r.id}
+                          className="bt-card rounded-lg px-2.5 py-2 flex items-center justify-between gap-2 text-[11px]"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-bold text-white truncate">{r.toScenarioName}</div>
+                            <div className={r.unlocked ? 'text-emerald-300 truncate' : 'text-amber-300/90 truncate'}>
+                              {r.unlocked ? r.name : `Bloqueada: ${r.lockedReason}`}
+                            </div>
+                          </div>
+                          <button
+                            disabled={!r.unlocked}
+                            onClick={() => gameEngine.travelToStoryScenario(r.toScenarioId)}
+                            className="bt-btn-secondary px-2.5 py-1 rounded-lg font-bold text-[11px] disabled:opacity-40 cursor-pointer shrink-0"
+                          >
+                            {r.unlocked ? 'Ir' : 'Cerrada'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Quests List */}
+              {/* Quests & Chapter Missions List */}
               <div className="lg:col-span-2 space-y-2.5">
-                {QUEST_LIST.map((q) => {
+                {snap.story.activeMissions.map((m) => {
+                  const catLabel =
+                    m.category === 'principal'
+                      ? 'Principal'
+                      : m.category === 'personaje'
+                      ? 'Personaje'
+                      : m.category === 'hogar'
+                      ? 'Hogar'
+                      : 'Secundaria';
+                  const catColor =
+                    m.category === 'principal'
+                      ? 'text-amber-300'
+                      : m.category === 'personaje'
+                      ? 'text-sky-300'
+                      : m.category === 'hogar'
+                      ? 'text-emerald-300'
+                      : 'text-teal-300';
+                  const isCompleted = m.state === 'completed';
+                  return (
+                    <div
+                      key={m.id}
+                      className={`bt-card rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                        isCompleted
+                          ? 'border-emerald-500/35 opacity-65'
+                          : m.readyToClaim
+                          ? 'border-teal-300 shadow-[0_0_18px_rgba(45,212,191,0.16)]'
+                          : ''
+                      }`}
+                    >
+                      <div className="flex-1">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 mb-0.5">
+                          <span className={`${catColor} font-extrabold`}>{catLabel}</span>
+                          <span>·</span>
+                          <span className="tabular-nums font-semibold">{m.progressText}</span>
+                        </div>
+                        <div className="text-sm font-extrabold text-white">{m.title}</div>
+                        <div className="text-xs text-slate-300 mt-0.5">{m.description}</div>
+                        <div className="text-[11px] text-emerald-300 mt-1 font-semibold">
+                          Recompensa: {m.rewardText}
+                        </div>
+                      </div>
+
+                      <button
+                        disabled={!m.readyToClaim}
+                        onClick={() => gameEngine.claimStoryMission(m.id)}
+                        className={`px-4 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap cursor-pointer min-h-[40px] ${
+                          isCompleted
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : m.readyToClaim
+                            ? 'bt-btn-primary'
+                            : 'bt-btn-secondary opacity-60'
+                        }`}
+                      >
+                        {isCompleted ? 'Completada' : m.readyToClaim ? 'Reclamar' : 'En curso'}
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {QUEST_LIST.filter(
+                  (q) => !snap.story.activeMissions.some((m) => m.legacyQuestId === q.id)
+                ).map((q) => {
                   const prog = gameEngine.getQuestProgress(q);
                   const claimed = snap.claimedQuests.includes(q.id);
                   const ready = !claimed && gameEngine.isQuestComplete(q);

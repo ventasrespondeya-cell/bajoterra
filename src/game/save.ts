@@ -20,6 +20,14 @@ import {
 import { createDefaultHomeState, isInShelterZone } from './home';
 import { MAX_MOVE_MASTERY, MAX_SLUG_LEVEL, getXpForNextLevel } from './progression';
 import {
+  STORY_CHAPTERS_BY_ID,
+  STORY_MISSIONS_BY_ID,
+  STORY_ROUTES,
+  STORY_SCENARIOS,
+} from './storyData';
+import { createInitialStoryState, migrateLegacyProgressToStory } from './storyEngine';
+import type { StoryChapterStatus, StoryMissionLifecycleState, StoryProgressState } from './storyTypes';
+import {
   TileType,
   type BiomeId,
   type BreedingEgg,
@@ -60,6 +68,12 @@ const VALID_HABITAT_IDS = new Set<HabitatId>(HABITAT_DEFS.map((h) => h.id));
 const VALID_FURNITURE_KINDS = new Set<FurnitureKind>(['nest', 'bed', 'feeder', 'decor']);
 const VALID_HOME_MOODS = new Set<HomeMood>(['contenta', 'tranquila', 'hambrienta', 'cansada']);
 const VALID_HOME_BEHAVIORS = new Set<HomeBehavior>(['pasear', 'descansar', 'acercarse', 'jugar']);
+const VALID_CHAPTER_IDS = new Set<string>(Object.keys(STORY_CHAPTERS_BY_ID));
+const VALID_SCENARIO_IDS = new Set<string>(Object.keys(STORY_SCENARIOS));
+const VALID_ROUTE_IDS = new Set<string>(Object.keys(STORY_ROUTES));
+const VALID_STORY_MISSION_IDS = new Set<string>(Object.keys(STORY_MISSIONS_BY_ID));
+const VALID_CHAPTER_STATUSES = new Set<StoryChapterStatus>(['locked', 'active', 'completed']);
+const VALID_MISSION_STATUSES = new Set<StoryMissionLifecycleState>(['locked', 'available', 'active', 'completed']);
 const VALID_STAT_KEYS = new Set<string>([
   'oreMined',
   'wins',
@@ -207,6 +221,7 @@ export function createInitialGameState(): GameState {
     },
     defeatedBosses: [],
     claimedQuests: [],
+    story: createInitialStoryState(),
     playTimeSec: 0,
     options: {
       soundEnabled: true,
@@ -1428,48 +1443,167 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     }
   }
 
+  const assembledBaseState: GameState = {
+    version: '4.0',
+    ...(validSaveMeta ? { saveMeta: validSaveMeta } : {}),
+    worldSeed: raw.worldSeed !== undefined ? (raw.worldSeed as number) : base.worldSeed,
+    worldWidth: WORLD_W,
+    worldHeight: WORLD_H,
+    player: {
+      x: p.x,
+      y: p.y,
+      facingX: p.facingX !== undefined ? (p.facingX as number) : 0,
+      facingY: p.facingY !== undefined ? (p.facingY as number) : 1,
+      hp: p.hp,
+      maxHp: p.maxHp,
+      stamina,
+      maxStamina,
+      level: p.level !== undefined ? Math.floor(p.level as number) : base.player.level,
+      xp: p.xp !== undefined ? (p.xp as number) : base.player.xp,
+      perks: Array.isArray(p.perks) ? [...(p.perks as string[])] : [],
+    },
+    party: validParty,
+    storage: validStorage,
+    activePartyIndex,
+    inventory: mergedInv,
+    selectedHotbar,
+    tilesDelta: validTilesDelta,
+    exploredChunks: validExplored,
+    discoveries: validDiscoveries,
+    discoveredPOIs: validDiscoveredPOIs,
+    clearedChallenges: validClearedChallenges,
+    seenSpecies: validSeen,
+    capturedSpecies: validCaptured,
+    eggs: validEggs,
+    shelterTier,
+    home: validHome,
+    stats: mergedStats,
+    defeatedBosses: validDefeatedBosses,
+    claimedQuests: validClaimedQuests,
+    playTimeSec,
+    options: validOptions,
+  };
+
+  let validStory: StoryProgressState;
+  if (raw.story === undefined) {
+    // Pre-Phase-12 V4 save: reconstruct deterministic narrative state without breaking legacy progress
+    validStory = migrateLegacyProgressToStory(assembledBaseState);
+  } else {
+    if (!isPlainObject(raw.story)) {
+      return { ok: false, error: 'Datos de progreso narrativo (story) inválidos.' };
+    }
+    const rs = raw.story;
+    if (rs.schemaVersion !== undefined && rs.schemaVersion !== 1) {
+      return { ok: false, error: 'Versión de esquema narrativo incompatible.' };
+    }
+    if (typeof rs.currentChapterId !== 'string' || !VALID_CHAPTER_IDS.has(rs.currentChapterId)) {
+      return { ok: false, error: 'Capítulo actual inválido en progreso narrativo.' };
+    }
+    if (typeof rs.currentScenarioId !== 'string' || !VALID_SCENARIO_IDS.has(rs.currentScenarioId)) {
+      return { ok: false, error: 'Escenario actual inválido en progreso narrativo.' };
+    }
+    if (!isPlainObject(rs.chapterStates)) {
+      return { ok: false, error: 'Estados de capítulos inválidos.' };
+    }
+    const validChapterStates: Record<string, StoryChapterStatus> = {};
+    for (const [cId, cStat] of Object.entries(rs.chapterStates)) {
+      if (!VALID_CHAPTER_IDS.has(cId)) {
+        return { ok: false, error: `Capítulo desconocido en guardado: ${cId}.` };
+      }
+      if (typeof cStat !== 'string' || !VALID_CHAPTER_STATUSES.has(cStat as StoryChapterStatus)) {
+        return { ok: false, error: `Estado inválido para capítulo ${cId}.` };
+      }
+      validChapterStates[cId] = cStat as StoryChapterStatus;
+    }
+
+    if (!isPlainObject(rs.missionStates)) {
+      return { ok: false, error: 'Estados de misiones narrativas inválidos.' };
+    }
+    const validMissionStates: Record<string, StoryMissionLifecycleState> = {};
+    for (const [mId, mStat] of Object.entries(rs.missionStates)) {
+      if (!VALID_STORY_MISSION_IDS.has(mId)) {
+        return { ok: false, error: `Misión narrativa desconocida en guardado: ${mId}.` };
+      }
+      if (typeof mStat !== 'string' || !VALID_MISSION_STATUSES.has(mStat as StoryMissionLifecycleState)) {
+        return { ok: false, error: `Estado inválido para misión narrativa ${mId}.` };
+      }
+      validMissionStates[mId] = mStat as StoryMissionLifecycleState;
+    }
+
+    const validateStringIdList = (
+      val: unknown,
+      label: string,
+      allowedSet: Set<string> | null
+    ): ValidationResult<string[]> => {
+      if (val === undefined) return { ok: true, value: [] };
+      if (!Array.isArray(val) || val.length > 500) {
+        return { ok: false, error: `Lista inválida en story.${label}.` };
+      }
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const item of val) {
+        if (typeof item !== 'string' || item.trim().length === 0) {
+          return { ok: false, error: `Entrada inválida en story.${label}.` };
+        }
+        if (allowedSet && !allowedSet.has(item)) {
+          return { ok: false, error: `ID desconocido en story.${label}: ${item}.` };
+        }
+        if (seen.has(item)) {
+          return { ok: false, error: `ID duplicado en story.${label}: ${item}.` };
+        }
+        seen.add(item);
+        out.push(item);
+      }
+      return { ok: true, value: out };
+    };
+
+    const uScenRes = validateStringIdList(rs.unlockedScenarioIds, 'unlockedScenarioIds', VALID_SCENARIO_IDS);
+    if (!uScenRes.ok || !uScenRes.value) return { ok: false, error: uScenRes.error };
+    const vScenRes = validateStringIdList(rs.visitedScenarioIds, 'visitedScenarioIds', VALID_SCENARIO_IDS);
+    if (!vScenRes.ok || !vScenRes.value) return { ok: false, error: vScenRes.error };
+    const uRouteRes = validateStringIdList(rs.unlockedRouteIds, 'unlockedRouteIds', VALID_ROUTE_IDS);
+    if (!uRouteRes.ok || !uRouteRes.value) return { ok: false, error: uRouteRes.error };
+    const evRes = validateStringIdList(rs.completedEvents, 'completedEvents', null);
+    if (!evRes.ok || !evRes.value) return { ok: false, error: evRes.error };
+    const cChRes = validateStringIdList(rs.claimedChapterRewards, 'claimedChapterRewards', VALID_CHAPTER_IDS);
+    if (!cChRes.ok || !cChRes.value) return { ok: false, error: cChRes.error };
+    const cMisRes = validateStringIdList(rs.claimedMissionRewards, 'claimedMissionRewards', VALID_STORY_MISSION_IDS);
+    if (!cMisRes.ok || !cMisRes.value) return { ok: false, error: cMisRes.error };
+
+    const validFlags: Record<string, boolean> = {};
+    if (rs.storyFlags !== undefined) {
+      if (!isPlainObject(rs.storyFlags)) {
+        return { ok: false, error: 'Banderas narrativas (storyFlags) inválidas.' };
+      }
+      for (const [fk, fv] of Object.entries(rs.storyFlags)) {
+        if (fk.trim().length === 0 || typeof fv !== 'boolean') {
+          return { ok: false, error: `Bandera narrativa inválida (${fk}).` };
+        }
+        validFlags[fk] = fv;
+      }
+    }
+
+    validStory = {
+      schemaVersion: 1,
+      currentChapterId: rs.currentChapterId,
+      currentScenarioId: rs.currentScenarioId,
+      chapterStates: validChapterStates,
+      missionStates: validMissionStates,
+      unlockedScenarioIds: uScenRes.value,
+      visitedScenarioIds: vScenRes.value,
+      unlockedRouteIds: uRouteRes.value,
+      completedEvents: evRes.value,
+      storyFlags: validFlags,
+      claimedChapterRewards: cChRes.value,
+      claimedMissionRewards: cMisRes.value,
+    };
+  }
+
+  assembledBaseState.story = validStory;
+
   return {
     ok: true,
-    value: {
-      version: '4.0',
-      ...(validSaveMeta ? { saveMeta: validSaveMeta } : {}),
-      worldSeed: raw.worldSeed !== undefined ? (raw.worldSeed as number) : base.worldSeed,
-      worldWidth: WORLD_W,
-      worldHeight: WORLD_H,
-      player: {
-        x: p.x,
-        y: p.y,
-        facingX: p.facingX !== undefined ? (p.facingX as number) : 0,
-        facingY: p.facingY !== undefined ? (p.facingY as number) : 1,
-        hp: p.hp,
-        maxHp: p.maxHp,
-        stamina,
-        maxStamina,
-        level: p.level !== undefined ? Math.floor(p.level as number) : base.player.level,
-        xp: p.xp !== undefined ? (p.xp as number) : base.player.xp,
-        perks: Array.isArray(p.perks) ? [...(p.perks as string[])] : [],
-      },
-      party: validParty,
-      storage: validStorage,
-      activePartyIndex,
-      inventory: mergedInv,
-      selectedHotbar,
-      tilesDelta: validTilesDelta,
-      exploredChunks: validExplored,
-      discoveries: validDiscoveries,
-      discoveredPOIs: validDiscoveredPOIs,
-      clearedChallenges: validClearedChallenges,
-      seenSpecies: validSeen,
-      capturedSpecies: validCaptured,
-      eggs: validEggs,
-      shelterTier,
-      home: validHome,
-      stats: mergedStats,
-      defeatedBosses: validDefeatedBosses,
-      claimedQuests: validClaimedQuests,
-      playTimeSec,
-      options: validOptions,
-    },
+    value: assembledBaseState,
   };
 }
 
@@ -1758,6 +1892,8 @@ export function validateAndMigrateV3(raw: unknown): ValidationResult<GameState> 
       }
     }
   }
+
+  next.story = migrateLegacyProgressToStory(next);
 
   return { ok: true, value: next };
 }

@@ -254,10 +254,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </span>
           </div>
 
-          {activeQuest && (
+          {(snap.story || activeQuest) && (
             <div className="mt-1 text-[10px] text-amber-200/95 truncate border-t border-cyan-400/15 pt-1 flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-amber-300 shrink-0" />
-              <span className="truncate">{activeQuest.title}</span>
+              <span className="truncate">
+                {snap.story
+                  ? `Cap.${snap.story.currentChapterOrder} · ${snap.story.mainObjectiveText}`
+                  : activeQuest?.title}
+              </span>
             </div>
           )}
         </div>

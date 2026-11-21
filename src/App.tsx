@@ -13,9 +13,23 @@ export default function App() {
   const [snap, setSnap] = useState<HudSnapshot>(() => gameEngine.getSnapshot());
   const [expeditionTab, setExpeditionTab] = useState<ExpeditionTabKey>('taller');
   const [battleIntroActive, setBattleIntroActive] = useState(false);
+  const [osReducedMotion, setOsReducedMotion] = useState<boolean>(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false
+  );
   const mainCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const minimapRef = useRef<HTMLCanvasElement | null>(null);
   const fullMapRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = (e: MediaQueryListEvent) => setOsReducedMotion(e.matches);
+    setOsReducedMotion(mq.matches);
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
 
   useEffect(() => {
     const unsub = gameEngine.subscribe(setSnap);
@@ -61,10 +75,12 @@ export default function App() {
     gameEngine.attachCanvases(mainCanvasRef.current, minimapRef.current, fullMapRef.current);
   }, [snap.screen, snap.options.showMinimap]);
 
+  const effectiveReducedMotion = Boolean(snap.options.reducedMotion || osReducedMotion);
+
   return (
     <div
       className={`relative w-full h-[100dvh] overflow-hidden bg-[#060c13]${
-        snap.options.reducedMotion ? ' bt-reduced-motion' : ''
+        effectiveReducedMotion ? ' bt-reduced-motion' : ''
       }`}
     >
       {/* Isolated 60fps Canvas Viewport */}
@@ -121,6 +137,7 @@ export default function App() {
           state={gameEngine.state}
           combat={gameEngine.combat}
           introPaused={battleIntroActive}
+          reducedMotion={effectiveReducedMotion}
           onSync={() => gameEngine.emitHud(true)}
         />
       )}
@@ -149,7 +166,11 @@ export default function App() {
         />
       )}
 
-      <CinematicDirector snap={snap} onBattleIntroActiveChange={setBattleIntroActive} />
+      <CinematicDirector
+        snap={snap}
+        reducedMotion={effectiveReducedMotion}
+        onBattleIntroActiveChange={setBattleIntroActive}
+      />
     </div>
   );
 }

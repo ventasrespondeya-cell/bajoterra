@@ -232,7 +232,11 @@ export class WorldRenderer {
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, vw, vh);
 
-    const reduced = Boolean(state.options.reducedMotion);
+    const reduced =
+      Boolean(state.options.reducedMotion) ||
+      (typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const visualTime = reduced ? 0 : timeSec;
     const sxShake = !reduced && this.shakeTime > 0 ? (Math.random() - 0.5) * 2 * this.shakeMag : 0;
     const syShake = !reduced && this.shakeTime > 0 ? (Math.random() - 0.5) * 2 * this.shakeMag : 0;
@@ -280,9 +284,9 @@ export class WorldRenderer {
           ctx.fillStyle = `rgba(186, 230, 253, ${shimmer})`;
           ctx.fillRect(sx + 4, sy + 7 + Math.sin(visualTime * 2.2 + ty) * 2, 11, 2);
           ctx.fillStyle = `rgba(125, 211, 252, ${shimmer * 0.85})`;
-          ctx.fillRect(sx + 11, sy + 16 + Math.cos(timeSec * 2.4 + tx) * 2, 9, 2);
+          ctx.fillRect(sx + 11, sy + 16 + Math.cos(visualTime * 2.4 + tx) * 2, 9, 2);
         } else if (tile === TileType.TORCH) {
-          const flick = 6 + Math.sin(timeSec * 14 + tx * 3) * 2.5;
+          const flick = reduced ? 6 : 6 + Math.sin(visualTime * 14 + tx * 3) * 2.5;
           lightSources.push({ sx: sx + 14, sy: sy + 10, r: 112 + flick, color: 'rgba(253, 186, 116, 0.88)' });
         } else if (tile === TileType.ENERGY_CRYSTAL || tile === TileType.ALTAR || tile === TileType.ICE_CRYSTAL) {
           lightSources.push({
@@ -291,15 +295,15 @@ export class WorldRenderer {
             r: tile === TileType.ICE_CRYSTAL ? 68 : 88,
             color: tile === TileType.ICE_CRYSTAL ? 'rgba(125, 211, 252, 0.6)' : 'rgba(45, 212, 191, 0.68)',
           });
-          if (Math.sin(timeSec * 5 + tx) > 0.65) {
+          if (!reduced && Math.sin(visualTime * 5 + tx) > 0.65) {
             ctx.fillStyle = 'rgba(255,255,255,0.72)';
             ctx.fillRect(sx + 11, sy + 5, 3, 3);
           }
           if (tile === TileType.ALTAR) {
-            ctx.strokeStyle = `rgba(94, 234, 212, ${0.28 + Math.sin(timeSec * 4) * 0.14})`;
+            ctx.strokeStyle = `rgba(94, 234, 212, ${0.28 + Math.sin(visualTime * 4) * 0.14})`;
             ctx.lineWidth = 1.2;
             ctx.beginPath();
-            ctx.arc(sx + 14, sy + 14, 11 + Math.sin(timeSec * 3) * 1.5, 0, Math.PI * 2);
+            ctx.arc(sx + 14, sy + 14, 11 + Math.sin(visualTime * 3) * 1.5, 0, Math.PI * 2);
             ctx.stroke();
           }
         } else if (tile === TileType.SHADOW_CRYSTAL) {
@@ -312,9 +316,9 @@ export class WorldRenderer {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 46, color: 'rgba(249, 115, 22, 0.44)' });
         } else if (tile === TileType.RECHARGE_STATION) {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 116, color: 'rgba(56, 189, 248, 0.82)' });
-          const scanAlpha = 0.35 + Math.sin(timeSec * 6 + tx) * 0.2;
+          const scanAlpha = 0.35 + Math.sin(visualTime * 6 + tx) * 0.2;
           ctx.fillStyle = `rgba(125, 211, 252, ${scanAlpha})`;
-          ctx.fillRect(sx + 7, sy + 9 + Math.round((Math.sin(timeSec * 4) + 1) * 4), 14, 2);
+          ctx.fillRect(sx + 7, sy + 9 + Math.round((Math.sin(visualTime * 4) + 1) * 4), 14, 2);
         } else if (tile === TileType.MUSHROOM) {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 52, color: 'rgba(52, 211, 153, 0.42)' });
         } else if (
@@ -324,7 +328,7 @@ export class WorldRenderer {
             tile === TileType.DARK_IRON) &&
           state.player.perks.includes('Visión de Cristal')
         ) {
-          const glint = 0.28 + Math.sin(timeSec * 6 + tx) * 0.22;
+          const glint = 0.28 + Math.sin(visualTime * 6 + tx) * 0.22;
           ctx.strokeStyle = `rgba(250, 204, 21, ${glint})`;
           ctx.lineWidth = 1.5;
           ctx.strokeRect(sx + 2, sy + 2, TILE_PX - 4, TILE_PX - 4);
@@ -364,7 +368,7 @@ export class WorldRenderer {
     if (targetTile) {
       const tsx = targetTile.x * TILE_PX - ox;
       const tsy = targetTile.y * TILE_PX - oy;
-      const pulseAlpha = 0.65 + Math.sin(timeSec * 6) * 0.25;
+      const pulseAlpha = 0.65 + Math.sin(visualTime * 6) * 0.25;
       ctx.fillStyle = `rgba(94, 234, 212, ${pulseAlpha})`;
       // Top-left bracket
       ctx.fillRect(tsx, tsy, 7, 2);
@@ -397,11 +401,11 @@ export class WorldRenderer {
       const bob = reduced ? 0 : Math.sin(timeSec * 4.2 + ent.x) * 2.2;
       if (ent.kind === 'wild' && ent.speciesId) {
         const sp = getSpecies(ent.speciesId);
-        const anim = sampleSlugAnimationFrame(ent.speciesId, 'walk', timeSec, reduced);
+        const anim = sampleSlugAnimationFrame(ent.speciesId, 'walk', visualTime, reduced);
         const flipLeft = Math.cos(ent.dir) < 0;
         // Subtle elemental shimmer ring
         ctx.strokeStyle = sp.accent;
-        ctx.globalAlpha = 0.35 + Math.sin(timeSec * 3.5 + ent.y) * 0.15;
+        ctx.globalAlpha = 0.35 + Math.sin(visualTime * 3.5 + ent.y) * 0.15;
         ctx.lineWidth = 1.25;
         ctx.beginPath();
         ctx.ellipse(ex + 14, ey + 22, 10, 4.5, 0, 0, Math.PI * 2);
@@ -591,7 +595,7 @@ export class WorldRenderer {
 
     // 3.8 Ambient subterranean biome critters (lightweight life in every biome)
     const curBiome = getBiomeAt(Math.round(state.player.x), Math.round(state.player.y), state.worldSeed);
-    this.renderAmbientCritters(ctx, vw, vh, curBiome, timeSec, state.options.lightingQuality, reduced);
+    this.renderAmbientCritters(ctx, vw, vh, curBiome, visualTime, state.options.lightingQuality, reduced);
 
     // 4. Companion Slug following player
     const activeSlug = state.party[state.activePartyIndex] || state.party[0];
@@ -944,17 +948,21 @@ export class WorldRenderer {
       const bx = (boss.x / WORLD_W) * w;
       const by = (boss.y / WORLD_H) * h;
       const defeated = state.defeatedBosses.includes(boss.id);
+      const alignRight = bx > w * 0.65;
+      const tx = alignRight ? bx - 7 : bx + 7;
       g.fillStyle = defeated ? '#4ade80' : '#ef4444';
       g.beginPath();
       g.arc(bx, by, 4.5, 0, Math.PI * 2);
       g.fill();
       g.font = 'bold 10px sans-serif';
+      g.textAlign = alignRight ? 'right' : 'left';
       const txt = defeated ? `✓ ${boss.name}` : boss.name;
       g.fillStyle = '#060c14';
-      g.fillText(txt, bx + 8, by + 4);
+      g.fillText(txt, tx + 1, by + 4);
       g.fillStyle = defeated ? '#86efac' : '#fecaca';
-      g.fillText(txt, bx + 7, by + 3);
+      g.fillText(txt, tx, by + 3);
     }
+    g.textAlign = 'left';
 
     // Player
     const px = (state.player.x / WORLD_W) * w;

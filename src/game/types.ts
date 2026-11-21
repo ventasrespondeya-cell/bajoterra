@@ -1,3 +1,5 @@
+import type { StoryHudSummary, StoryProgressState } from './storyTypes';
+
 export type BiomeId = 'Verdes' | 'Magma' | 'Heladas' | 'Sombrias';
 
 export type ElementType =
@@ -562,6 +564,7 @@ export interface GameState {
   };
   defeatedBosses: string[];
   claimedQuests: string[];
+  story?: StoryProgressState;
   playTimeSec: number;
   options: GameOptions;
 }
@@ -616,6 +619,8 @@ export interface HudSnapshot {
   stats: GameState['stats'];
   defeatedBosses: string[];
   claimedQuests: string[];
+  story: StoryHudSummary;
+  storyState: StoryProgressState;
   options: GameOptions;
   battle: BattleState | null;
   toast: string;

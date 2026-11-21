@@ -70,6 +70,20 @@ import {
   type UIScreen,
 } from './types';
 import {
+  STORY_CHAPTERS_BY_ID,
+  STORY_MISSIONS_BY_LEGACY_ID,
+  STORY_ROUTES,
+} from './storyData';
+import {
+  activateMission,
+  buildStoryHudSummary,
+  claimStoryMission as claimStoryMissionHelper,
+  ensureStoryState,
+  reconcileStoryProgress,
+  travelToScenario,
+} from './storyEngine';
+import type { StoryProgressState } from './storyTypes';
+import {
   ChunkManager,
   type ChunkStructureMeta,
   getBiomeAt,
@@ -114,10 +128,14 @@ export class BajoterraEngine {
   public storageCapabilities: StorageCapabilities | null = null;
   private cachedRooms: RoomValidationInfo[] = [];
   private roomsDirty = true;
+  private recentChapterAlert: string | null = null;
+  private recentChapterAlertTimer = 0;
 
   constructor() {
     ensureHomeState(this.state);
     this.ensureExplorationFields();
+    ensureStoryState(this.state);
+    reconcileStoryProgress(this.state, { skipRewards: true });
     this.chunks = new ChunkManager(this.state.worldSeed, this.state.tilesDelta);
     this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
     this.seedInitialEntities();
@@ -130,6 +148,60 @@ export class BajoterraEngine {
     }
     if (!Array.isArray(this.state.clearedChallenges)) {
       this.state.clearedChallenges = [];
+    }
+  }
+
+  private cloneStoryState(): StoryProgressState {
+    const s = ensureStoryState(this.state);
+    return {
+      schemaVersion: 1,
+      currentChapterId: s.currentChapterId,
+      currentScenarioId: s.currentScenarioId,
+      chapterStates: { ...s.chapterStates },
+      missionStates: { ...s.missionStates },
+      unlockedScenarioIds: [...s.unlockedScenarioIds],
+      visitedScenarioIds: [...s.visitedScenarioIds],
+      unlockedRouteIds: [...s.unlockedRouteIds],
+      completedEvents: [...s.completedEvents],
+      storyFlags: { ...s.storyFlags },
+      claimedChapterRewards: [...s.claimedChapterRewards],
+      claimedMissionRewards: [...s.claimedMissionRewards],
+    };
+  }
+
+  private syncStoryProgress(opts?: { skipRewards?: boolean }): void {
+    const res = reconcileStoryProgress(this.state, opts);
+    if (res.xpGained > 0 && !opts?.skipRewards) {
+      this.awardPlayerXp(res.xpGained);
+    }
+    if (res.newlyActivatedChapterIds.length > 0) {
+      const latestId = res.newlyActivatedChapterIds[res.newlyActivatedChapterIds.length - 1];
+      const ch = STORY_CHAPTERS_BY_ID[latestId];
+      if (ch) {
+        this.recentChapterAlert = ch.title;
+        this.recentChapterAlertTimer = 5;
+        cinematicEvents.emit({
+          type: 'chapter_unlocked',
+          title: ch.title,
+          subtitle: ch.subtitle,
+          audioCue: 'discovery_wonder',
+          skippable: true,
+          priority: 'ambient',
+          dedupeKey: `ch_${ch.id}`,
+        });
+      }
+    } else if (res.newlyUnlockedRouteIds.length > 0) {
+      const route = STORY_ROUTES[res.newlyUnlockedRouteIds[0]];
+      if (route) {
+        cinematicEvents.emit({
+          type: 'route_unlocked',
+          title: `Ruta abierta: ${route.name}`,
+          audioCue: 'discovery_wonder',
+          skippable: true,
+          priority: 'ambient',
+          dedupeKey: `route_${route.id}`,
+        });
+      }
     }
   }
 
@@ -205,6 +277,8 @@ export class BajoterraEngine {
       stats: { ...this.state.stats },
       defeatedBosses: [...this.state.defeatedBosses],
       claimedQuests: [...this.state.claimedQuests],
+      story: buildStoryHudSummary(this.state, this.recentChapterAlert),
+      storyState: this.cloneStoryState(),
       options: { ...this.state.options },
       battle: this.combat.battle
         ? {
@@ -293,6 +367,9 @@ export class BajoterraEngine {
     this.state = createInitialGameState();
     ensureHomeState(this.state);
     this.ensureExplorationFields();
+    ensureStoryState(this.state);
+    this.recentChapterAlert = null;
+    this.recentChapterAlertTimer = 0;
     this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
@@ -316,6 +393,10 @@ export class BajoterraEngine {
     this.state = loadRes.state;
     ensureHomeState(this.state);
     this.ensureExplorationFields();
+    ensureStoryState(this.state);
+    this.syncStoryProgress({ skipRewards: true });
+    this.recentChapterAlert = null;
+    this.recentChapterAlertTimer = 0;
     this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
@@ -350,6 +431,10 @@ export class BajoterraEngine {
     this.state = parsed.state;
     ensureHomeState(this.state);
     this.ensureExplorationFields();
+    ensureStoryState(this.state);
+    this.syncStoryProgress({ skipRewards: true });
+    this.recentChapterAlert = null;
+    this.recentChapterAlertTimer = 0;
     this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
@@ -381,6 +466,10 @@ export class BajoterraEngine {
     this.state = res.state;
     ensureHomeState(this.state);
     this.ensureExplorationFields();
+    ensureStoryState(this.state);
+    this.syncStoryProgress({ skipRewards: true });
+    this.recentChapterAlert = null;
+    this.recentChapterAlertTimer = 0;
     this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
@@ -621,6 +710,13 @@ export class BajoterraEngine {
       this.toastTimer -= dt;
       if (this.toastTimer <= 0) {
         this.toastText = '';
+        this.emitHud(true);
+      }
+    }
+    if (this.recentChapterAlertTimer > 0) {
+      this.recentChapterAlertTimer -= dt;
+      if (this.recentChapterAlertTimer <= 0) {
+        this.recentChapterAlert = null;
         this.emitHud(true);
       }
     }
@@ -1845,6 +1941,7 @@ export class BajoterraEngine {
             }
           }
         }
+        this.syncStoryProgress();
         this.syncAmbientMusic();
         void this.runBackgroundSave('battle');
         this.emitHud(true);
@@ -2058,7 +2155,80 @@ export class BajoterraEngine {
     return true;
   }
 
+  public claimStoryMission(missionId: string): boolean {
+    const res = claimStoryMissionHelper(this.state, missionId);
+    if (!res.ok) {
+      sound.playUi();
+      this.notify(res.message);
+      return false;
+    }
+    if (res.xpGained > 0) {
+      this.awardPlayerXp(res.xpGained);
+    }
+    if (res.unlockedChapterId) {
+      const ch = STORY_CHAPTERS_BY_ID[res.unlockedChapterId];
+      if (ch) {
+        this.recentChapterAlert = ch.title;
+        this.recentChapterAlertTimer = 5;
+        cinematicEvents.emit({
+          type: 'chapter_unlocked',
+          title: ch.title,
+          subtitle: ch.subtitle,
+          audioCue: 'discovery_wonder',
+          skippable: true,
+          priority: 'ambient',
+          dedupeKey: `ch_${ch.id}`,
+        });
+      }
+    } else if (res.unlockedRoutes.length > 0) {
+      const route = STORY_ROUTES[res.unlockedRoutes[0]];
+      if (route) {
+        cinematicEvents.emit({
+          type: 'route_unlocked',
+          title: `Ruta abierta: ${route.name}`,
+          audioCue: 'discovery_wonder',
+          skippable: true,
+          priority: 'ambient',
+          dedupeKey: `route_${route.id}`,
+        });
+      }
+    }
+    sound.playVictory();
+    this.notify(
+      res.unlockedChapterId && STORY_CHAPTERS_BY_ID[res.unlockedChapterId]
+        ? `${res.message} · ¡${STORY_CHAPTERS_BY_ID[res.unlockedChapterId].title} activo!`
+        : res.message
+    );
+    this.emitHud(true);
+    return true;
+  }
+
+  public activateStoryMission(missionId: string): boolean {
+    const ok = activateMission(this.state, missionId);
+    if (ok) {
+      sound.playUi();
+      this.emitHud(true);
+    }
+    return ok;
+  }
+
+  public travelToStoryScenario(scenarioId: string): boolean {
+    const res = travelToScenario(this.state, scenarioId);
+    if (res.ok) {
+      sound.playPulse();
+    } else {
+      sound.playUi();
+    }
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
+  }
+
   public claimQuest(questId: string): boolean {
+    const storyCounterpart = STORY_MISSIONS_BY_LEGACY_ID[questId];
+    if (storyCounterpart) {
+      return this.claimStoryMission(storyCounterpart.id);
+    }
     if (this.state.claimedQuests.includes(questId)) return false;
     const q = QUEST_LIST.find((x) => x.id === questId);
     if (!q) return false;
@@ -2077,6 +2247,7 @@ export class BajoterraEngine {
         this.state.inventory[k as InventoryKey] = (this.state.inventory[k as InventoryKey] || 0) + (v as number);
       }
     }
+    this.syncStoryProgress();
     sound.playVictory();
     this.notify(`Misión completada: ${q.title}`);
     this.emitHud(true);

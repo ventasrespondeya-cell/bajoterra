@@ -208,6 +208,8 @@ const {
   parseImportedJsonSave,
   parseImportedJsonSaveDetailed,
   normalizeV4State,
+  validateV4State,
+  validateAndMigrateV3,
   migrateV3ToV4,
   checkStorageCapabilities,
   requestPersistentStorageIfNeeded,
@@ -274,6 +276,26 @@ const {
   isTileHazard,
   isTileSolid,
 } = await import('../src/game/world.ts');
+const {
+  INITIAL_CHAPTER_ID,
+  INITIAL_SCENARIO_ID,
+  MEGAMORPH_NARRATIVE_FLAG,
+  MEGAMORPH_REQUIRED_CHAPTER_ID,
+  STORY_CHAPTERS,
+  STORY_MISSIONS,
+  STORY_ROUTES,
+  STORY_SCENARIOS,
+} = await import('../src/game/storyData.ts');
+const {
+  activateMission,
+  canAccessRoute,
+  claimStoryMission,
+  createInitialStoryState,
+  isMegamorphNarrativelyUnlocked,
+  reconcileStoryProgress,
+  setStoryFlag,
+  travelToScenario,
+} = await import('../src/game/storyEngine.ts');
 
 beforeEach(() => {
   mockLs.clear();
@@ -1488,14 +1510,23 @@ describe('Bajoterra 4.0 — FASE 4: Vínculos, Maestría y Evolución de Babosas
     assert.ok(slug.bond >= 60);
     assert.equal(slug.mega, false);
 
-    // Without elixir or relic, evolution cannot trigger
+    // Even with level 5, bond 60 and Elixir, Megamorph remains blocked until narrative Chapter 5 milestone
+    gameEngine.state.inventory.elixirs = 1;
+    const earlyCheck = checkMegamorphEligibility(gameEngine.state, slug);
+    assert.equal(earlyCheck.hasNarrativeUnlock, false);
+    assert.equal(earlyCheck.eligible, false);
+    assert.equal(gameEngine.evolveSlugToMegamorph(slug.uid), false);
+    assert.equal(slug.mega, false);
+
+    // Unlock the narrative Megamorph milestone (Cap. 5), then verify resource check
+    setStoryFlag(gameEngine.state, MEGAMORPH_NARRATIVE_FLAG, true);
     gameEngine.state.inventory.elixirs = 0;
     gameEngine.state.inventory.relics = 0;
     assert.equal(checkMegamorphEligibility(gameEngine.state, slug).eligible, false);
     assert.equal(gameEngine.evolveSlugToMegamorph(slug.uid), false);
     assert.equal(slug.mega, false);
 
-    // Granting 1 Elixir allows intentional Megamorph evolution
+    // Granting 1 Elixir allows intentional Megamorph evolution once narrative milestone is unlocked
     gameEngine.state.inventory.elixirs = 1;
     grantMoveMastery(slug, 0, 35);
     const atkBefore = slug.atk;
@@ -1656,6 +1687,7 @@ describe('Bajoterra 4.0 — PARTE A (FASE 5 Gate): Correcciones Obligatorias de 
     gameEngine.state.storage.push(homeSlug);
     assert.equal(gameEngine.assignSlugToHome(homeSlug.uid, 'habitat_aquatic'), true);
 
+    setStoryFlag(gameEngine.state, MEGAMORPH_NARRATIVE_FLAG, true);
     gameEngine.state.inventory.elixirs = 2;
     const hpBeforeMega = homeSlug.maxHp;
     const atkBeforeMega = homeSlug.atk;
@@ -1867,7 +1899,8 @@ describe('Bajoterra 4.0 — FASE 5: Expansión del Mundo Subterráneo', () => {
     assert.equal(gameEngine.state.inventory.blueQuartz, 0);
     assert.equal(gameEngine.state.inventory.darkIron, 0);
 
-    // Test Megamorph using evoStone when elixirs & relics are 0
+    // Test Megamorph using evoStone when elixirs & relics are 0 (with narrative milestone unlocked)
+    setStoryFlag(gameEngine.state, MEGAMORPH_NARRATIVE_FLAG, true);
     const slug = gameEngine.state.party[0];
     slug.level = 6;
     slug.bond = 70;
@@ -2721,6 +2754,7 @@ describe('Bajoterra 4.0 — FASE 9: Cinemáticas, Presentaciones Épicas y Músi
       assert.deepEqual(gameEngine.state.party.map((s) => s.uid), uidsBeforeFullParty);
 
       // 3. Megamorph evolution emits ONE event and never duplicates rewards or resource cost on retry
+      setStoryFlag(gameEngine.state, MEGAMORPH_NARRATIVE_FLAG, true);
       const targetSlug = gameEngine.state.party[0];
       targetSlug.level = 6;
       targetSlug.bond = 65;
@@ -3259,7 +3293,371 @@ describe('Bajoterra 4.0 — FASE 10: Dirección Artística Principal, Anatomía 
     assert.ok(hudSrc.includes('w-[min(92vw,312px)]'));
     assert.ok(hudSrc.includes('whitespace-nowrap'));
   });
+
+  test('F11.2 Regresiones visuales: determinismo reducedMotion, etiquetas mapa y callouts sin solape', () => {
+    const makeRecordingCanvas = (w = 640, h = 360) => {
+      const ops: string[] = [];
+      const texts: Array<{ text: string; x: number; y: number; textAlign: string }> = [];
+      const ctx: Record<string, unknown> = {
+        textAlign: 'left',
+        font: '10px sans-serif',
+        fillStyle: '#000',
+        strokeStyle: '#000',
+        lineWidth: 1,
+        globalAlpha: 1,
+        imageSmoothingEnabled: false,
+        fillRect: (x: number, y: number, rw: number, rh: number) =>
+          ops.push(`fillRect:${x.toFixed(1)},${y.toFixed(1)},${rw.toFixed(1)},${rh.toFixed(1)}`),
+        strokeRect: (x: number, y: number, rw: number, rh: number) =>
+          ops.push(`strokeRect:${x.toFixed(1)},${y.toFixed(1)},${rw.toFixed(1)},${rh.toFixed(1)}`),
+        clearRect: () => {},
+        drawImage: (_img: unknown, x: number, y: number) => ops.push(`drawImage:${Number(x).toFixed(1)},${Number(y).toFixed(1)}`),
+        beginPath: () => {},
+        closePath: () => {},
+        moveTo: () => {},
+        lineTo: () => {},
+        quadraticCurveTo: () => {},
+        bezierCurveTo: () => {},
+        arc: (x: number, y: number, r: number) => ops.push(`arc:${x.toFixed(1)},${y.toFixed(1)},${r.toFixed(1)}`),
+        ellipse: (x: number, y: number, rx: number, ry: number) =>
+          ops.push(`ellipse:${x.toFixed(1)},${y.toFixed(1)},${rx.toFixed(1)},${ry.toFixed(1)}`),
+        fill: () => {},
+        stroke: () => {},
+        createLinearGradient: () => ({ addColorStop: () => {} }),
+        createRadialGradient: () => ({ addColorStop: () => {} }),
+        save: () => {},
+        restore: () => {},
+        translate: () => {},
+        rotate: () => {},
+        scale: () => {},
+        setTransform: () => {},
+        fillText: (text: string, x: number, y: number) => {
+          texts.push({ text, x, y, textAlign: String(ctx.textAlign || 'left') });
+          ops.push(`fillText:${text}:${x.toFixed(1)},${y.toFixed(1)}`);
+        },
+      };
+      return {
+        canvas: { width: w, height: h, getContext: () => ctx } as unknown as HTMLCanvasElement,
+        ctx: ctx as unknown as CanvasRenderingContext2D,
+        ops,
+        texts,
+      };
+    };
+
+    // 1. WorldRenderer.renderWorld with reducedMotion: true must be identical across differing timeSec
+    gameEngine.startNewGame();
+    gameEngine.state.options.reducedMotion = true;
+    gameEngine.state.options.lightingQuality = 'eco';
+    const wr = new WorldRenderer();
+    const recA = makeRecordingCanvas(640, 360);
+    const recB = makeRecordingCanvas(640, 360);
+    wr.renderWorld(recA.ctx, 640, 360, 1.25, gameEngine.state, gameEngine.chunks, gameEngine.entities, {
+      x: Math.round(gameEngine.state.player.x) + 1,
+      y: Math.round(gameEngine.state.player.y),
+    });
+    wr.renderWorld(recB.ctx, 640, 360, 8.73, gameEngine.state, gameEngine.chunks, gameEngine.entities, {
+      x: Math.round(gameEngine.state.player.x) + 1,
+      y: Math.round(gameEngine.state.player.y),
+    });
+    assert.deepEqual(recA.ops, recB.ops);
+
+    // 2. renderFullWorldMap right-aligns boss labels on the eastern side (bx > w * 0.65)
+    const mapRec = makeRecordingCanvas(600, 600);
+    wr.renderFullWorldMap(mapRec.canvas, gameEngine.state);
+    const easternBossText = mapRec.texts.find((t) => t.text.includes('Comandante') || t.text.includes('Espectro'));
+    assert.ok(easternBossText, 'Expected eastern boss label on full world map');
+    assert.equal(easternBossText.textAlign, 'right');
+
+    // 3. DuelArenaRenderer separates stacked floating callouts vertically by >= 16px
+    const cm = new CombatManager();
+    const dr = new DuelArenaRenderer();
+    const battle = cm.startBattle(gameEngine.state, {
+      kind: 'wild',
+      biome: 'Verdes',
+      speciesId: 'tazerling',
+      level: 3,
+    });
+    battle.effects = [
+      { id: 1, text: '-42 Perf.', color: '#fde047', age: 0.1, target: 'enemy', x: battle.enemyDuelist.x, y: 180, kind: 'hit' },
+      { id: 2, text: '⚠ ¡Cargando!', color: '#facc15', age: 0.1, target: 'enemy', x: battle.enemyDuelist.x, y: 180, kind: 'status' },
+    ];
+    const combatRec = makeRecordingCanvas(960, 440);
+    dr.render(combatRec.ctx, battle, gameEngine.state, cm, {
+      ...gameEngine.state.options,
+      lightingQuality: 'eco',
+      reducedMotion: true,
+    });
+    const dmgDraw = combatRec.texts.find((t) => t.text === '-42 Perf.');
+    const warnDraw = combatRec.texts.find((t) => t.text === '⚠ ¡Cargando!');
+    assert.ok(dmgDraw && warnDraw, 'Expected both floating callouts to render');
+    assert.ok(Math.abs(dmgDraw.y - warnDraw.y) >= 16, 'Stacked callouts must separate vertically by >= 16px');
+    cm.closeBattle();
+
+    // 4. OS prefers-reduced-motion wiring in App, BattleModal, and CinematicDirector
+    const appSrc = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+    const battleModalSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/BattleModal.tsx'), 'utf8');
+    const cineSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/CinematicDirector.tsx'), 'utf8');
+    assert.ok(appSrc.includes("prefers-reduced-motion: reduce"));
+    assert.ok(battleModalSrc.includes('reducedMotion?: boolean') && battleModalSrc.includes('effectiveReduced'));
+    assert.ok(cineSrc.includes('reducedMotion?: boolean') && cineSrc.includes('effectiveReduced'));
+  });
 });
+
+describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Capítulos', () => {
+  test('12.1 Integridad secuencial de capítulos: inicio en Cap. 1, bloqueo de posteriores y sin saltos ni doble recompensa', () => {
+    gameEngine.startNewGame();
+    const s = gameEngine.state.story!;
+    assert.equal(s.currentChapterId, INITIAL_CHAPTER_ID);
+    assert.equal(s.currentScenarioId, INITIAL_SCENARIO_ID);
+    assert.equal(s.chapterStates.cap_01_descenso, 'active');
+    assert.equal(s.chapterStates.cap_02_refugio_banda, 'locked');
+    assert.equal(s.chapterStates.cap_03_sombra_agua_oscura, 'locked');
+    assert.equal(s.chapterStates.cap_05_acelerador_megamorph, 'locked');
+    assert.equal(s.chapterStates.cap_06_ciudadela_blakk, 'locked');
+
+    // Attempt to tamper/skip directly to Cap. 3 while Cap. 1 is incomplete -> reconcile forces linear order
+    s.chapterStates.cap_03_sombra_agua_oscura = 'active';
+    reconcileStoryProgress(gameEngine.state);
+    assert.equal(s.chapterStates.cap_01_descenso, 'active');
+    assert.equal(s.chapterStates.cap_03_sombra_agua_oscura, 'locked');
+
+    // Cannot claim Cap. 2 mission while Cap. 1 is not completed even if metrics are met
+    gameEngine.state.stats.structuresBuilt = 6;
+    gameEngine.state.shelterTier = 2;
+    assert.equal(gameEngine.claimStoryMission('m_cap2_constructor_refugio'), false);
+    assert.equal(s.chapterStates.cap_02_refugio_banda, 'locked');
+
+    // Complete Cap. 1 main mission -> unlocks Cap. 2 cleanly and awards torches/capsules once
+    const torchesBefore = gameEngine.state.inventory.torches;
+    const capsulesBefore = gameEngine.state.inventory.capsules;
+    gameEngine.state.stats.oreMined = 10;
+    gameEngine.state.stats.torchesPlaced = 2;
+    assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
+    assert.equal(gameEngine.state.inventory.torches, torchesBefore + 3);
+    assert.equal(gameEngine.state.inventory.capsules, capsulesBefore + 2);
+    assert.equal(s.chapterStates.cap_01_descenso, 'completed');
+    assert.equal(s.chapterStates.cap_02_refugio_banda, 'active');
+    assert.equal(s.currentChapterId, 'cap_02_refugio_banda');
+
+    // Duplicate claim fails cleanly and grants 0 extra resources
+    assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), false);
+    assert.equal(gameEngine.state.inventory.torches, torchesBefore + 3);
+
+    // Now Cap. 2 mission is active and claimable
+    assert.equal(s.missionStates.m_cap2_constructor_refugio, 'active');
+    assert.equal(gameEngine.claimStoryMission('m_cap2_constructor_refugio'), true);
+    assert.equal(s.chapterStates.cap_02_refugio_banda, 'completed');
+    assert.equal(s.chapterStates.cap_03_sombra_agua_oscura, 'active');
+  });
+
+  test('12.2 Sistema de misiones: 4 categorías, ciclo de vida, opcionales no bloqueantes y sincronía con QUEST_LIST', () => {
+    gameEngine.startNewGame();
+    const categories = new Set(STORY_MISSIONS.map((m) => m.category));
+    assert.deepEqual(Array.from(categories).sort(), ['hogar', 'personaje', 'principal', 'secundaria']);
+
+    const snap0 = gameEngine.getSnapshot();
+    const burpyMission = snap0.story.activeMissions.find((m) => m.id === 'm_char_burpy_vinculo');
+    const sideTorchMission = snap0.story.activeMissions.find((m) => m.id === 'm_side_antorchas');
+    assert.ok(burpyMission && burpyMission.state === 'available');
+    assert.ok(sideTorchMission && sideTorchMission.state === 'available');
+
+    // Optional mission activation: available -> active -> completed
+    assert.equal(activateMission(gameEngine.state, 'm_char_burpy_vinculo'), true);
+    assert.equal(gameEngine.state.story!.missionStates.m_char_burpy_vinculo, 'active');
+
+    // Complete Cap. 1 WITHOUT completing optional missions -> Cap. 1 advances without being blocked
+    gameEngine.state.stats.oreMined = 10;
+    gameEngine.state.stats.torchesPlaced = 2;
+    assert.equal(gameEngine.claimQuest('q_main_1'), true); // synced via legacyQuestId
+    assert.equal(gameEngine.state.story!.missionStates.m_cap1_primeros_pasos, 'completed');
+    assert.ok(gameEngine.state.claimedQuests.includes('q_main_1'));
+    assert.equal(gameEngine.state.story!.chapterStates.cap_01_descenso, 'completed');
+
+    // Optional mission from Cap. 1 (already completed chapter) remains completable afterward
+    gameEngine.state.party[0].bond = 35;
+    assert.equal(gameEngine.claimStoryMission('m_char_burpy_vinculo'), true);
+    assert.equal(gameEngine.state.story!.missionStates.m_char_burpy_vinculo, 'completed');
+
+    // Home mission (m_home_primer_habitat) unlocks in Cap. 2 and tracks resident count
+    assert.equal(gameEngine.state.story!.missionStates.m_home_primer_habitat, 'available');
+    assert.equal(gameEngine.claimStoryMission('m_home_primer_habitat'), false);
+    const residentSlug = createSlugInstance('infurnus', 2);
+    gameEngine.state.storage.push(residentSlug);
+    assert.equal(gameEngine.assignSlugToHome(residentSlug.uid, 'habitat_thermal'), true);
+    assert.equal(gameEngine.claimStoryMission('m_home_primer_habitat'), true);
+    assert.equal(gameEngine.state.story!.missionStates.m_home_primer_habitat, 'completed');
+  });
+
+  test('12.3 Escenarios y rutas conectadas: desbloqueo por progreso, motivos legibles, retroceso y bloqueo de saltos', () => {
+    gameEngine.startNewGame();
+    // Initial route Refugio <-> Caverna del Descenso is open; Valley Verde route is locked
+    assert.equal(canAccessRoute(gameEngine.state, 'ruta_descenso_verde').allowed, true);
+    const valleyCheck = canAccessRoute(gameEngine.state, 'ruta_valle_verde');
+    assert.equal(valleyCheck.allowed, false);
+    assert.ok(valleyCheck.reason.includes('Capítulo 1'));
+
+    // Cannot skip straight to locked future scenario
+    assert.equal(gameEngine.travelToStoryScenario('esc_pueblo_valle_verde'), false);
+    assert.equal(gameEngine.travelToStoryScenario('esc_ciudadela_sombria'), false);
+    assert.equal(gameEngine.state.story!.currentScenarioId, 'esc_refugio_shane');
+
+    // Can move to connected Caverna del Descenso and backtrack to Refugio
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+    assert.equal(gameEngine.state.story!.currentScenarioId, 'esc_caverna_descenso');
+    assert.equal(gameEngine.travelToStoryScenario('esc_refugio_shane'), true);
+    assert.equal(gameEngine.state.story!.currentScenarioId, 'esc_refugio_shane');
+
+    // Complete Cap. 1 -> unlocks ruta_valle_verde and esc_pueblo_valle_verde
+    gameEngine.state.stats.oreMined = 10;
+    gameEngine.state.stats.torchesPlaced = 2;
+    assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
+    assert.equal(canAccessRoute(gameEngine.state, 'ruta_valle_verde').allowed, true);
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+    assert.equal(gameEngine.travelToStoryScenario('esc_pueblo_valle_verde'), true);
+    assert.equal(gameEngine.state.story!.currentScenarioId, 'esc_pueblo_valle_verde');
+
+    // Fast backtrack to visited Refugio Shane succeeds
+    assert.equal(travelToScenario(gameEngine.state, 'esc_refugio_shane').ok, true);
+    assert.ok(Object.keys(STORY_SCENARIOS).length >= 8);
+    assert.ok(Object.keys(STORY_ROUTES).length >= 7);
+    assert.ok(STORY_CHAPTERS.every((c) => ['serie_canon', 'adaptacion_juego', 'pendiente_canon'].includes(c.canonStatus)));
+  });
+
+  test('12.4 Persistencia V4/V3 y compatibilidad con guardados previos a Fase 12', async () => {
+    // 1. Fresh V4 save + reload preserves full story state
+    gameEngine.startNewGame();
+    gameEngine.state.stats.oreMined = 10;
+    gameEngine.state.stats.torchesPlaced = 2;
+    assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+
+    const saveRes = await saveGameV4(gameEngine.state, { reason: 'manual' });
+    assert.equal(saveRes.ok, true);
+    const loaded = await loadGameV4();
+    assert.ok(loaded && loaded.story);
+    assert.equal(loaded.story.currentChapterId, 'cap_02_refugio_banda');
+    assert.equal(loaded.story.currentScenarioId, 'esc_caverna_descenso');
+    assert.equal(loaded.story.chapterStates.cap_01_descenso, 'completed');
+    assert.equal(loaded.story.chapterStates.cap_02_refugio_banda, 'active');
+
+    // 2. Pre-Phase-12 V4 save WITHOUT `story` migrates cleanly keeping UIDs, inventory & legacy quests
+    const legacyV4 = createInitialGameState();
+    const keeperUid = legacyV4.party[0].uid;
+    legacyV4.inventory.ore = 77;
+    legacyV4.claimedQuests = ['q_main_1'];
+    delete legacyV4.story;
+    const v4Check = validateV4State(legacyV4);
+    assert.equal(v4Check.ok, true);
+    assert.ok(v4Check.value?.story);
+    assert.equal(v4Check.value!.party[0].uid, keeperUid);
+    assert.equal(v4Check.value!.inventory.ore, 77);
+    assert.equal(v4Check.value!.story!.chapterStates.cap_01_descenso, 'completed');
+    assert.equal(v4Check.value!.story!.chapterStates.cap_02_refugio_banda, 'active');
+    assert.equal(v4Check.value!.story!.storyFlags[MEGAMORPH_NARRATIVE_FLAG], undefined);
+
+    // 3. Legacy V3 migration initializes coherent story state
+    const v3Raw = {
+      player: { x: 56, y: 56, hp: 100, maxHp: 100, level: 2, xp: 15 },
+      party: [{ id: 'infurnus', level: 3, friend: 40 }],
+      tiles: {},
+      won: 2,
+      quest: { ore: 12, wins: 2, biomes: 1 },
+    };
+    const v3Res = validateAndMigrateV3(v3Raw);
+    assert.equal(v3Res.ok, true);
+    assert.ok(v3Res.value?.story);
+    assert.equal(v3Res.value!.story!.currentChapterId, INITIAL_CHAPTER_ID);
+
+    // 4. Corrupted `story` object in V4 is cleanly rejected
+    const corrupt = createInitialGameState() as unknown as Record<string, unknown>;
+    corrupt.story = { ...createInitialStoryState(), currentChapterId: 'cap_inexistente' };
+    assert.equal(validateV4State(corrupt).ok, false);
+  });
+
+  test('12.5 Bloqueo narrativo de Megamorph: requisitos de nivel+vínculo+catalizador insuficientes hasta Cap. 5', () => {
+    gameEngine.startNewGame();
+    const slug = gameEngine.state.party[0];
+    slug.level = 10;
+    slug.bond = 100;
+    gameEngine.state.inventory.elixirs = 5;
+    gameEngine.state.inventory.evoStone = 3;
+    gameEngine.state.inventory.relics = 3;
+
+    // Even maxed out in Chapter 1, Megamorph must remain narratively locked
+    const gate0 = isMegamorphNarrativelyUnlocked(gameEngine.state);
+    assert.equal(gate0.unlocked, false);
+    const check0 = checkMegamorphEligibility(gameEngine.state, slug);
+    assert.equal(check0.hasLevel, true);
+    assert.equal(check0.hasBond, true);
+    assert.equal(check0.hasResource, true);
+    assert.equal(check0.hasNarrativeUnlock, false);
+    assert.equal(check0.eligible, false);
+    assert.ok(check0.missingReasons.some((r) => r.includes('Capítulo 5')));
+    assert.equal(gameEngine.evolveSlugToMegamorph(slug.uid), false);
+    assert.equal(slug.mega, false);
+
+    // Advance sequentially through Cap 1..5
+    gameEngine.state.stats.oreMined = 10;
+    gameEngine.state.stats.torchesPlaced = 2;
+    assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
+
+    gameEngine.state.stats.structuresBuilt = 4;
+    gameEngine.state.shelterTier = 2;
+    assert.equal(gameEngine.claimStoryMission('m_cap2_constructor_refugio'), true);
+
+    gameEngine.state.stats.wins = 3;
+    assert.equal(gameEngine.claimStoryMission('m_cap3_rastro_oscuro'), true);
+
+    gameEngine.state.discoveries = ['Verdes', 'Magma', 'Heladas', 'Sombrias'];
+    assert.equal(gameEngine.claimStoryMission('m_cap4_fronteras_elementales'), true);
+    assert.equal(gameEngine.state.story!.currentChapterId, MEGAMORPH_REQUIRED_CHAPTER_ID);
+
+    // Still locked before finishing Cap. 5 boss trial
+    assert.equal(checkMegamorphEligibility(gameEngine.state, slug).eligible, false);
+
+    // Defeat 1 boss and claim Cap. 5 mission -> unlocks Megamorph narratively
+    gameEngine.state.defeatedBosses = ['boss_magma'];
+    assert.equal(gameEngine.claimStoryMission('m_cap5_acelerador'), true);
+    assert.equal(isMegamorphNarrativelyUnlocked(gameEngine.state).unlocked, true);
+
+    const checkUnlocked = checkMegamorphEligibility(gameEngine.state, slug);
+    assert.equal(checkUnlocked.eligible, true);
+    assert.equal(gameEngine.evolveSlugToMegamorph(slug.uid), true);
+    assert.equal(slug.mega, true);
+  });
+
+  test('12.6 Regresión general: combate en tiempo real, hogar vivo, colección, crianza y cinemáticas siguen intactos', () => {
+    gameEngine.startNewGame();
+
+    // Real-time blaster combat still works with full Velocimorph & live charge
+    const cm = new CombatManager();
+    const battle = cm.startBattle(gameEngine.state, { kind: 'wild', speciesId: 'tazerling', level: 2 });
+    assert.equal(battle.turn, 'duel');
+    const shot = cm.fireBlasterShot(gameEngine.state, { charge: 0.9, modeOverride: 0 });
+    assert.ok(shot);
+    assert.ok(Math.hypot(shot.vx, shot.vy) > 0);
+    cm.closeBattle();
+
+    // Living Home habitat assignment & care still work
+    const extraSlug = createSlugInstance('frostcrawler', 3);
+    gameEngine.state.storage.push(extraSlug);
+    assert.equal(gameEngine.assignSlugToHome(extraSlug.uid, 'habitat_aquatic'), true);
+    assert.equal(gameEngine.petHomeSlug(extraSlug.uid), true);
+
+    // Breeding incubator still works
+    gameEngine.state.party[0].bond = 30;
+    gameEngine.state.party[1].bond = 30;
+    assert.equal(gameEngine.startBreeding(gameEngine.state.party[0].uid, gameEngine.state.party[1].uid), true);
+    assert.equal(gameEngine.state.eggs.length, 1);
+
+    // HudSnapshot exposes complete story summary cleanly alongside legacy fields
+    const snap = gameEngine.getSnapshot();
+    assert.ok(snap.story && snap.storyState);
+    assert.equal(snap.story.currentChapterId, INITIAL_CHAPTER_ID);
+    assert.equal(snap.party.length, 3);
+  });
+});
+
 
 
 

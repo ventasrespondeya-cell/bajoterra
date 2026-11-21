@@ -54,7 +54,7 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
   const nextXp = getXpForNextLevel(slug.level);
   const xpPct = slug.level >= MAX_SLUG_LEVEL ? 100 : Math.min(100, Math.round((slug.xp / nextXp) * 100));
   const megaCheck = checkMegamorphEligibility(
-    { inventory: snap.inventory } as unknown as GameState,
+    { inventory: snap.inventory, story: snap.storyState } as unknown as GameState,
     slug
   );
   const effectiveMood: SlugPortraitMood = slug.hp <= 0 && previewMood === 'happy' ? 'ko' : previewMood;
@@ -277,7 +277,19 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
             </p>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div
+                  className={`px-3 py-2 rounded-lg border ${
+                    megaCheck.hasNarrativeUnlock
+                      ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-200'
+                      : 'bt-card text-slate-300'
+                  }`}
+                >
+                  {megaCheck.hasNarrativeUnlock ? '✓' : '○'}{' '}
+                  {megaCheck.hasNarrativeUnlock
+                    ? 'Historia: Acelerador 200 MPH listo'
+                    : megaCheck.narrativeReason}
+                </div>
                 <div
                   className={`px-3 py-2 rounded-lg border ${
                     megaCheck.hasLevel

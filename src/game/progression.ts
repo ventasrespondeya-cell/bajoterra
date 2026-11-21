@@ -1,4 +1,5 @@
 import { MAX_SLUG_LEVEL, getSpecies } from './data';
+import { isMegamorphNarrativelyUnlocked } from './storyEngine';
 import type { GameState, SlugInstance } from './types';
 
 export { MAX_SLUG_LEVEL };
@@ -354,7 +355,12 @@ export function awardSlugExperience(
 ): string[] {
   ensureSlugProgressionFields(slug);
   const msgs: string[] = [];
-  const wasMegaEligible = !slug.mega && slug.level >= MEGAMORPH_MIN_LEVEL && slug.bond >= MEGAMORPH_MIN_BOND;
+  const narrativeGate = isMegamorphNarrativelyUnlocked(_state);
+  const wasMegaEligible =
+    !slug.mega &&
+    narrativeGate.unlocked &&
+    slug.level >= MEGAMORPH_MIN_LEVEL &&
+    slug.bond >= MEGAMORPH_MIN_BOND;
 
   if (opts?.bondDelta && opts.bondDelta > 0) {
     const bondRes = grantSlugBond(slug, opts.bondDelta, { allowTraitBonus: opts.allowTraitBonus });
@@ -398,7 +404,11 @@ export function awardSlugExperience(
     }
   }
 
-  const isNowMegaEligible = !slug.mega && slug.level >= MEGAMORPH_MIN_LEVEL && slug.bond >= MEGAMORPH_MIN_BOND;
+  const isNowMegaEligible =
+    !slug.mega &&
+    narrativeGate.unlocked &&
+    slug.level >= MEGAMORPH_MIN_LEVEL &&
+    slug.bond >= MEGAMORPH_MIN_BOND;
   if (!wasMegaEligible && isNowMegaEligible) {
     msgs.push(`¡${slug.name} ya puede evolucionar a Megamorph desde su ficha!`);
   }
@@ -409,6 +419,8 @@ export function awardSlugExperience(
 export interface MegamorphCheck {
   eligible: boolean;
   alreadyMega: boolean;
+  hasNarrativeUnlock: boolean;
+  narrativeReason: string;
   hasLevel: boolean;
   hasBond: boolean;
   hasResource: boolean;
@@ -418,10 +430,13 @@ export interface MegamorphCheck {
 
 export function checkMegamorphEligibility(state: GameState, slug: SlugInstance): MegamorphCheck {
   ensureSlugProgressionFields(slug);
+  const narrativeGate = isMegamorphNarrativelyUnlocked(state);
   if (slug.mega) {
     return {
       eligible: false,
       alreadyMega: true,
+      hasNarrativeUnlock: narrativeGate.unlocked,
+      narrativeReason: narrativeGate.reason,
       hasLevel: true,
       hasBond: true,
       hasResource: true,
@@ -429,6 +444,7 @@ export function checkMegamorphEligibility(state: GameState, slug: SlugInstance):
       missingReasons: ['Ya alcanzó su forma Megamorph.'],
     };
   }
+  const hasNarrativeUnlock = narrativeGate.unlocked;
   const hasLevel = slug.level >= MEGAMORPH_MIN_LEVEL;
   const hasBond = slug.bond >= MEGAMORPH_MIN_BOND;
   const resourceKind: 'elixirs' | 'relics' | 'evoStone' | null =
@@ -442,13 +458,16 @@ export function checkMegamorphEligibility(state: GameState, slug: SlugInstance):
   const hasResource = resourceKind !== null;
 
   const missingReasons: string[] = [];
+  if (!hasNarrativeUnlock) missingReasons.push(narrativeGate.reason);
   if (!hasLevel) missingReasons.push(`Nivel ${MEGAMORPH_MIN_LEVEL}+ (actual Nv.${slug.level})`);
   if (!hasBond) missingReasons.push(`Amistad ${MEGAMORPH_MIN_BOND}+ (actual ${slug.bond})`);
   if (!hasResource) missingReasons.push('1× Elixir, 1× Piedra Evolutiva o 1× Reliquia');
 
   return {
-    eligible: hasLevel && hasBond && hasResource,
+    eligible: hasNarrativeUnlock && hasLevel && hasBond && hasResource,
     alreadyMega: false,
+    hasNarrativeUnlock,
+    narrativeReason: narrativeGate.reason,
     hasLevel,
     hasBond,
     hasResource,

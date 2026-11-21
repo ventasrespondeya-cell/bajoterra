@@ -6,7 +6,9 @@ export type CinematicEventType =
   | 'combat_intro'
   | 'megamorph_awakened'
   | 'biome_discovered'
-  | 'poi_discovered';
+  | 'poi_discovered'
+  | 'chapter_unlocked'
+  | 'route_unlocked';
 
 export type AudioCueMood =
   | 'exploration_calm'
