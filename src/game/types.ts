@@ -1,4 +1,4 @@
-import type { StoryHudSummary, StoryProgressState } from './storyTypes';
+import type { CanonSourceTag, StoryHudSummary, StoryProgressState } from './storyTypes';
 
 export type BiomeId = 'Verdes' | 'Magma' | 'Heladas' | 'Sombrias';
 
@@ -117,6 +117,16 @@ export interface SlugMove {
   description: string;
 }
 
+export type SlugPersonality =
+  | 'juguetona'
+  | 'calmada'
+  | 'curiosa'
+  | 'energetica'
+  | 'timida'
+  | 'orgullosa'
+  | 'traviesa'
+  | 'valiente';
+
 export interface SlugSpecies {
   id: string;
   name: string;
@@ -132,6 +142,8 @@ export interface SlugSpecies {
   evoName: string;
   habitat: BiomeId;
   lore: string;
+  canonStatus?: CanonSourceTag;
+  canonNote?: string;
   specialMoves: [SlugMove, SlugMove];
 }
 
@@ -139,6 +151,8 @@ export interface SlugInstance {
   uid: string;
   id: string;
   name: string;
+  nickname?: string;
+  personality?: SlugPersonality;
   type: ElementType;
   rarity: Rarity;
   icon: string;
@@ -353,7 +367,11 @@ export type QuestMetric =
   | 'eggsHatched'
   | 'shelterTier'
   | 'bossesDefeated'
-  | 'megaUnlocked';
+  | 'megaUnlocked'
+  | 'challengesCleared'
+  | 'dialoguesDone'
+  | 'tournamentsWon'
+  | 'racesWon';
 
 export interface QuestCondition {
   metric: QuestMetric;
@@ -529,6 +547,30 @@ export interface DiscoveredPOI {
   y: number;
 }
 
+export type MechaTheme = 'shane_blue' | 'molten_core' | 'frost_pulse' | 'shadow_stealth';
+
+export interface MechaState {
+  unlocked: boolean;
+  active: boolean;
+  name: string;
+  tier: 1 | 2 | 3;
+  theme: MechaTheme;
+  unlockedThemes: MechaTheme[];
+  upgrades: string[];
+}
+
+export interface TrainingRecord {
+  bestScore: number;
+  bestRank: 'B' | 'A' | 'S';
+  completions: number;
+}
+
+export interface RaceRecord {
+  bestTimeSec: number;
+  cleared: boolean;
+  wins: number;
+}
+
 export interface GameState {
   version: '4.0';
   saveMeta?: SaveMetadata;
@@ -540,6 +582,7 @@ export interface GameState {
   storage: SlugInstance[];
   activePartyIndex: number;
   inventory: Inventory;
+  cavernTokens?: number;
   selectedHotbar: number;
   tilesDelta: Record<string, number>;
   exploredChunks: Record<string, number>; // "cx,cy": 1
@@ -551,6 +594,13 @@ export interface GameState {
   eggs: BreedingEgg[];
   shelterTier: number;
   home?: HomeState;
+  mecha?: MechaState;
+  trainingRecords?: Record<string, TrainingRecord>;
+  clearedTournaments?: string[];
+  raceRecords?: Record<string, RaceRecord>;
+  journalEntries?: string[];
+  completedDialogues?: string[];
+  discoveredSecrets?: string[];
   stats: {
     oreMined: number;
     wins: number;
@@ -604,6 +654,7 @@ export interface HudSnapshot {
   storage: SlugInstance[];
   activePartyIndex: number;
   inventory: Inventory;
+  cavernTokens: number;
   selectedHotbar: number;
   contextualAction: ExplorationContextualAction;
   discoveries: BiomeId[];
@@ -614,6 +665,13 @@ export interface HudSnapshot {
   eggs: BreedingEgg[];
   shelterTier: number;
   home: HomeState;
+  mecha: MechaState;
+  trainingRecords: Record<string, TrainingRecord>;
+  clearedTournaments: string[];
+  raceRecords: Record<string, RaceRecord>;
+  journalEntries: string[];
+  completedDialogues: string[];
+  discoveredSecrets: string[];
   rooms: RoomValidationInfo[];
   nearbyHomeSlug: HomeSlugEntry | null;
   stats: GameState['stats'];
@@ -623,6 +681,13 @@ export interface HudSnapshot {
   storyState: StoryProgressState;
   options: GameOptions;
   battle: BattleState | null;
+  activeDialogueId: string | null;
+  activeTournament: {
+    tournamentId: string;
+    name: string;
+    roundIndex: number;
+    totalRounds: number;
+  } | null;
   toast: string;
   hasV4Save: boolean;
   hasV3Save: boolean;

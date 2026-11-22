@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BattleModal } from './components/BattleModal';
 import { CinematicDirector } from './components/CinematicDirector';
+import { DialogueModal } from './components/DialogueModal';
 import { ExpeditionModal, type ExpeditionTabKey } from './components/ExpeditionModal';
 import { FullMapModal } from './components/FullMapModal';
 import { GameHUD } from './components/GameHUD';
@@ -11,7 +12,7 @@ import type { HudSnapshot } from './game/types';
 
 export default function App() {
   const [snap, setSnap] = useState<HudSnapshot>(() => gameEngine.getSnapshot());
-  const [expeditionTab, setExpeditionTab] = useState<ExpeditionTabKey>('taller');
+  const [expeditionTab, setExpeditionTab] = useState<ExpeditionTabKey>('campana');
   const [battleIntroActive, setBattleIntroActive] = useState(false);
   const [osReducedMotion, setOsReducedMotion] = useState<boolean>(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -109,7 +110,7 @@ export default function App() {
           onSelectHotbar={(idx) => gameEngine.setHotbar(idx)}
           onSelectParty={(idx) => gameEngine.setActivePartyIndex(idx)}
           onOpenExpedition={() => {
-            setExpeditionTab('taller');
+            setExpeditionTab('campana');
             gameEngine.setScreen('EXPEDITION');
           }}
           onOpenHome={() => {
@@ -121,6 +122,7 @@ export default function App() {
           onToggleSound={() =>
             gameEngine.updateOptions({ soundEnabled: !snap.options.soundEnabled })
           }
+          onToggleMecha={() => gameEngine.toggleMecha()}
           onAction={() => gameEngine.performPrimaryAction()}
           onPulse={() => gameEngine.triggerExplorationPulse()}
           onPetHomeSlug={(uid) => gameEngine.petHomeSlug(uid)}
@@ -163,6 +165,14 @@ export default function App() {
           snap={snap}
           onResume={() => gameEngine.setScreen('PLAYING')}
           onTitle={() => gameEngine.setScreen('TITLE')}
+        />
+      )}
+
+      {snap.activeDialogueId && !snap.battle && (
+        <DialogueModal
+          dialogueId={snap.activeDialogueId}
+          snap={snap}
+          onClose={() => gameEngine.closeDialogue()}
         />
       )}
 

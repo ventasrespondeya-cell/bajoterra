@@ -128,6 +128,14 @@ export function getQuestMetricFromState(state: GameState, metric: QuestMetric): 
       return Array.isArray(state.defeatedBosses) ? state.defeatedBosses.length : 0;
     case 'megaUnlocked':
       return state.stats?.megaUnlocked ?? 0;
+    case 'challengesCleared':
+      return state.clearedChallenges?.length ?? 0;
+    case 'dialoguesDone':
+      return state.completedDialogues?.length ?? 0;
+    case 'tournamentsWon':
+      return state.clearedTournaments?.length ?? 0;
+    case 'racesWon':
+      return Object.values(state.raceRecords || {}).filter((r) => r.cleared).length;
     default:
       return 0;
   }
@@ -368,11 +376,37 @@ function grantStoryRewards(
         }
       }
     }
+    if (typeof reward.cavernTokens === 'number' && reward.cavernTokens > 0) {
+      state.cavernTokens = (state.cavernTokens || 0) + reward.cavernTokens;
+    }
     if (reward.perk && !state.player.perks.includes(reward.perk)) {
       state.player.perks.push(reward.perk);
     }
     if (typeof reward.xp === 'number' && reward.xp > 0) {
       xpGained = reward.xp;
+    }
+  }
+
+  if (reward.unlockMecha) {
+    if (!state.mecha) {
+      state.mecha = {
+        unlocked: true,
+        active: false,
+        name: 'Meca Shane M1',
+        tier: 1,
+        theme: 'shane_blue',
+        unlockedThemes: ['shane_blue'],
+        upgrades: ['chasis_m1'],
+      };
+    } else {
+      state.mecha.unlocked = true;
+    }
+  }
+
+  if (reward.unlockJournalIds) {
+    if (!Array.isArray(state.journalEntries)) state.journalEntries = [];
+    for (const jId of reward.unlockJournalIds) {
+      pushUnique(state.journalEntries, jId);
     }
   }
 
@@ -848,6 +882,9 @@ export function migrateLegacyProgressToStory(state: GameState): StoryProgressSta
       if (ch.rewards.unlockFlags) {
         for (const f of ch.rewards.unlockFlags) story.storyFlags[f] = true;
       }
+      if (ch.rewards.unlockMecha && state.mecha) {
+        state.mecha.unlocked = true;
+      }
       if (ch.rewards.unlockScenarioIds) {
         for (const sc of ch.rewards.unlockScenarioIds) pushUnique(story.unlockedScenarioIds, sc);
       }
@@ -945,6 +982,10 @@ export function buildStoryHudSummary(state: GameState, recentChapterAlert: strin
     connectedRoutes[0] ||
     null;
 
+  const postGameUnlocked =
+    story.chapterStates['cap_06_ciudadela_blakk'] === 'completed' ||
+    Boolean(story.storyFlags['postgame_unlocked']);
+
   return {
     currentChapterId: currentChapter.id,
     currentChapterOrder: currentChapter.order,
@@ -956,6 +997,7 @@ export function buildStoryHudSummary(state: GameState, recentChapterAlert: strin
     mainObjectiveText,
     chapterProgressPct,
     completedChaptersCount,
+    postGameUnlocked,
     activeMissions: visibleMissions,
     availableMissionsCount,
     nextRoute: forwardCandidate,

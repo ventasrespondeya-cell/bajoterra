@@ -51,7 +51,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           <span>Expedición Subterránea 2D</span>
         </div>
         <div className="text-slate-300/80 tabular-nums">
-          320 × 320 Sectores · 4 Biomas · 15 Especies · Hogar Viviente
+          6 Capítulos · 20 Especies · Mecas y Torneos · Hogar Viviente
         </div>
       </div>
 
@@ -119,8 +119,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </svg>
 
           <p className="text-sm sm:text-base text-slate-200/95 max-w-xl leading-relaxed mb-5">
-            Excava cavernas procedurales, ilumina pasadizos ocultos, construye habitaciones en tu refugio para convivir con tus babosas y domina el combate híbrido con{' '}
-            <span className="text-teal-300 font-semibold">Pulso Rápido</span> y evolución{' '}
+            Vive la campaña lineal por las 99 Cavernas junto a la Banda de Shane: pilota tu Meca, entrena y bautiza a tus 20 especies de babosas, vence en Torneos de Blásteres y despierta la evolución{' '}
             <span className="text-amber-300 font-semibold">Megamorph</span>.
           </p>
 
@@ -134,15 +133,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 <SlugPortrait speciesId="aetherion" size={38} mega mood="idle" />
               </div>
               <div className="text-xs leading-tight ml-1">
-                <div className="font-bold text-white">15 Especies · Crianza · Vínculo y Maestría</div>
+                <div className="font-bold text-white">20 Especies · Crianza · Personalidad y Maestría</div>
                 <div className="text-[11px] text-slate-400">
-                  Tus babosas exploran a tu lado, descansan en el refugio y desbloquean técnicas maestras.
+                  Ponles nombre único, críalas en tu Refugio Viviente y supera desafíos con Pulso Rápido.
                 </div>
               </div>
             </div>
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-300">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Edición Autónoma</span>
+              <span>RPG de Aventura</span>
             </div>
           </div>
 
@@ -234,7 +233,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         <span><strong className="text-cyan-200">E / Clic</strong> Acción contextual</span>
         <span><strong className="text-cyan-200">Q</strong> Cambiar babosa</span>
         <span><strong className="text-cyan-200">Espacio</strong> Pulso Escáner</span>
-        <span><strong className="text-cyan-200">I</strong> Estuche y Taller</span>
+        <span><strong className="text-cyan-200">I</strong> Campaña y Estuche</span>
         <span><strong className="text-cyan-200">M</strong> Mapa</span>
         <span><strong className="text-cyan-200">Esc</strong> Pausa</span>
       </div>

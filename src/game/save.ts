@@ -17,15 +17,27 @@ import {
   getSpecies,
   isSpeciesCompatibleWithHabitat,
 } from './data';
+import {
+  MECHA_THEMES,
+  createDefaultMechaState,
+} from './activities';
 import { createDefaultHomeState, isInShelterZone } from './home';
-import { MAX_MOVE_MASTERY, MAX_SLUG_LEVEL, getXpForNextLevel } from './progression';
+import {
+  MAX_MOVE_MASTERY,
+  MAX_SLUG_LEVEL,
+  MAX_SLUG_NICKNAME_LENGTH,
+  SLUG_PERSONALITIES,
+  getDeterministicPersonality,
+  getXpForNextLevel,
+  normalizeSlugNickname,
+} from './progression';
 import {
   STORY_CHAPTERS_BY_ID,
   STORY_MISSIONS_BY_ID,
   STORY_ROUTES,
   STORY_SCENARIOS,
 } from './storyData';
-import { createInitialStoryState, migrateLegacyProgressToStory } from './storyEngine';
+import { createInitialStoryState, migrateLegacyProgressToStory, reconcileStoryProgress } from './storyEngine';
 import type { StoryChapterStatus, StoryMissionLifecycleState, StoryProgressState } from './storyTypes';
 import {
   TileType,
@@ -41,9 +53,14 @@ import {
   type HomeSlugEntry,
   type HomeState,
   type InventoryKey,
+  type MechaState,
+  type MechaTheme,
   type POIKind,
+  type RaceRecord,
   type SaveMetadata,
   type SlugInstance,
+  type SlugPersonality,
+  type TrainingRecord,
 } from './types';
 
 export const V4_SAVE_KEY = 'bajoterra-v4-save';
@@ -74,6 +91,9 @@ const VALID_ROUTE_IDS = new Set<string>(Object.keys(STORY_ROUTES));
 const VALID_STORY_MISSION_IDS = new Set<string>(Object.keys(STORY_MISSIONS_BY_ID));
 const VALID_CHAPTER_STATUSES = new Set<StoryChapterStatus>(['locked', 'active', 'completed']);
 const VALID_MISSION_STATUSES = new Set<StoryMissionLifecycleState>(['locked', 'available', 'active', 'completed']);
+const VALID_PERSONALITIES = new Set<SlugPersonality>(SLUG_PERSONALITIES);
+const VALID_MECHA_THEMES = new Set<MechaTheme>(MECHA_THEMES.map((t) => t.id));
+const VALID_TRAINING_RANKS = new Set<TrainingRecord['bestRank']>(['B', 'A', 'S']);
 const VALID_STAT_KEYS = new Set<string>([
   'oreMined',
   'wins',
@@ -221,6 +241,14 @@ export function createInitialGameState(): GameState {
     },
     defeatedBosses: [],
     claimedQuests: [],
+    cavernTokens: 4,
+    mecha: createDefaultMechaState(),
+    trainingRecords: {},
+    clearedTournaments: [],
+    raceRecords: {},
+    journalEntries: ['j_cap1_descenso'],
+    completedDialogues: [],
+    discoveredSecrets: [],
     story: createInitialStoryState(),
     playTimeSec: 0,
     options: {
@@ -802,6 +830,29 @@ function validateSlug(
     return { ok: false, error: `Rasgo de babosa inválido en ${idxLabel}.` };
   }
 
+  let validNickname: string | undefined;
+  if (rawSlug.nickname !== undefined) {
+    if (typeof rawSlug.nickname !== 'string') {
+      return { ok: false, error: `Apodo inválido en ${idxLabel}.` };
+    }
+    const cleanRaw = rawSlug.nickname.replace(/\s+/g, ' ').trim();
+    if (cleanRaw.length > MAX_SLUG_NICKNAME_LENGTH) {
+      return {
+        ok: false,
+        error: `El apodo de babosa en ${idxLabel} supera ${MAX_SLUG_NICKNAME_LENGTH} caracteres.`,
+      };
+    }
+    validNickname = normalizeSlugNickname(cleanRaw);
+  }
+
+  let validPersonality: SlugPersonality = getDeterministicPersonality(rawSlug.uid);
+  if (rawSlug.personality !== undefined) {
+    if (typeof rawSlug.personality !== 'string' || !VALID_PERSONALITIES.has(rawSlug.personality as SlugPersonality)) {
+      return { ok: false, error: `Personalidad de babosa inválida en ${idxLabel}.` };
+    }
+    validPersonality = rawSlug.personality as SlugPersonality;
+  }
+
   let validMoveMastery: [number, number] = [0, 0];
   if (rawSlug.moveMastery !== undefined) {
     if (
@@ -826,6 +877,8 @@ function validateSlug(
       uid: rawSlug.uid,
       id: sp.id,
       name: rawSlug.name,
+      ...(validNickname ? { nickname: validNickname } : {}),
+      personality: validPersonality,
       type: sp.type,
       rarity: sp.rarity,
       icon: typeof rawSlug.icon === 'string' && rawSlug.icon.length > 0 ? rawSlug.icon : sp.icon,
@@ -1443,6 +1496,153 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     }
   }
 
+  // RPG extensions validation (backward compatible with older V4 saves)
+  let validCavernTokens = base.cavernTokens ?? 4;
+  if (raw.cavernTokens !== undefined) {
+    if (!isNonNegInt(raw.cavernTokens) || raw.cavernTokens > 1_000_000) {
+      return { ok: false, error: 'Cantidad de Fichas de Caverna inválida.' };
+    }
+    validCavernTokens = raw.cavernTokens;
+  }
+
+  let validMecha: MechaState = createDefaultMechaState();
+  if (raw.mecha !== undefined) {
+    if (!isPlainObject(raw.mecha)) {
+      return { ok: false, error: 'Estado del Meca inválido.' };
+    }
+    const rm = raw.mecha;
+    if (rm.unlocked !== undefined && typeof rm.unlocked !== 'boolean') {
+      return { ok: false, error: 'Propiedad mecha.unlocked inválida.' };
+    }
+    if (rm.active !== undefined && typeof rm.active !== 'boolean') {
+      return { ok: false, error: 'Propiedad mecha.active inválida.' };
+    }
+    const tier = rm.tier !== undefined ? rm.tier : 1;
+    if (!isNonNegInt(tier) || tier < 1 || tier > 3) {
+      return { ok: false, error: 'Nivel de Meca inválido (1..3).' };
+    }
+    const theme = rm.theme !== undefined ? rm.theme : 'shane_blue';
+    if (typeof theme !== 'string' || !VALID_MECHA_THEMES.has(theme as MechaTheme)) {
+      return { ok: false, error: 'Tema visual de Meca inválido.' };
+    }
+    const unlockedThemes: MechaTheme[] = [];
+    if (rm.unlockedThemes !== undefined) {
+      if (!Array.isArray(rm.unlockedThemes) || rm.unlockedThemes.length > 20) {
+        return { ok: false, error: 'Lista de temas de Meca inválida.' };
+      }
+      const seenT = new Set<MechaTheme>();
+      for (const th of rm.unlockedThemes) {
+        if (typeof th !== 'string' || !VALID_MECHA_THEMES.has(th as MechaTheme)) {
+          return { ok: false, error: `Tema de Meca desconocido: ${String(th)}.` };
+        }
+        if (!seenT.has(th as MechaTheme)) {
+          seenT.add(th as MechaTheme);
+          unlockedThemes.push(th as MechaTheme);
+        }
+      }
+    } else {
+      unlockedThemes.push('shane_blue');
+    }
+    if (!unlockedThemes.includes(theme as MechaTheme)) {
+      unlockedThemes.push(theme as MechaTheme);
+    }
+    const upgrades: string[] = [];
+    if (rm.upgrades !== undefined) {
+      if (!Array.isArray(rm.upgrades) || !rm.upgrades.every((u) => typeof u === 'string' && u.trim().length > 0)) {
+        return { ok: false, error: 'Mejoras de Meca inválidas.' };
+      }
+      upgrades.push(...Array.from(new Set(rm.upgrades as string[])));
+    }
+    const mechaName =
+      typeof rm.name === 'string' && rm.name.trim().length > 0 ? rm.name.trim() : 'Meca Shane M1';
+    validMecha = {
+      unlocked: Boolean(rm.unlocked),
+      active: Boolean(rm.unlocked && rm.active),
+      name: mechaName,
+      tier: tier as 1 | 2 | 3,
+      theme: theme as MechaTheme,
+      unlockedThemes,
+      upgrades,
+    };
+  }
+
+  const validTrainingRecords: Record<string, TrainingRecord> = {};
+  if (raw.trainingRecords !== undefined) {
+    if (!isPlainObject(raw.trainingRecords)) {
+      return { ok: false, error: 'Registros de entrenamiento inválidos.' };
+    }
+    for (const [k, rec] of Object.entries(raw.trainingRecords)) {
+      if (!isPlainObject(rec)) {
+        return { ok: false, error: `Registro de entrenamiento inválido (${k}).` };
+      }
+      if (!isFiniteNum(rec.bestScore) || rec.bestScore < 0) {
+        return { ok: false, error: `Puntuación de entrenamiento inválida (${k}).` };
+      }
+      if (typeof rec.bestRank !== 'string' || !VALID_TRAINING_RANKS.has(rec.bestRank as TrainingRecord['bestRank'])) {
+        return { ok: false, error: `Rango de entrenamiento inválido (${k}).` };
+      }
+      if (!isNonNegInt(rec.completions)) {
+        return { ok: false, error: `Contador de entrenamiento inválido (${k}).` };
+      }
+      validTrainingRecords[k] = {
+        bestScore: rec.bestScore,
+        bestRank: rec.bestRank as TrainingRecord['bestRank'],
+        completions: rec.completions,
+      };
+    }
+  }
+
+  const validRaceRecords: Record<string, RaceRecord> = {};
+  if (raw.raceRecords !== undefined) {
+    if (!isPlainObject(raw.raceRecords)) {
+      return { ok: false, error: 'Registros de carreras inválidos.' };
+    }
+    for (const [k, rec] of Object.entries(raw.raceRecords)) {
+      if (!isPlainObject(rec)) {
+        return { ok: false, error: `Registro de carrera inválido (${k}).` };
+      }
+      if (!isFiniteNum(rec.bestTimeSec) || rec.bestTimeSec < 0 || !isNonNegInt(rec.wins)) {
+        return { ok: false, error: `Datos de carrera inválidos (${k}).` };
+      }
+      if (rec.cleared !== undefined && typeof rec.cleared !== 'boolean') {
+        return { ok: false, error: `Estado cleared de carrera inválido (${k}).` };
+      }
+      validRaceRecords[k] = {
+        bestTimeSec: rec.bestTimeSec,
+        cleared: rec.cleared !== undefined ? rec.cleared : rec.wins > 0,
+        wins: rec.wins,
+      };
+    }
+  }
+
+  const validateOptionalIdArray = (val: unknown, label: string, fallback: string[] = []): ValidationResult<string[]> => {
+    if (val === undefined) return { ok: true, value: [...fallback] };
+    if (!Array.isArray(val) || val.length > 500) {
+      return { ok: false, error: `Lista inválida en ${label}.` };
+    }
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of val) {
+      if (typeof item !== 'string' || item.trim().length === 0) {
+        return { ok: false, error: `Entrada inválida en ${label}.` };
+      }
+      if (!seen.has(item)) {
+        seen.add(item);
+        out.push(item);
+      }
+    }
+    return { ok: true, value: out };
+  };
+
+  const tournRes = validateOptionalIdArray(raw.clearedTournaments, 'clearedTournaments');
+  if (!tournRes.ok || !tournRes.value) return { ok: false, error: tournRes.error };
+  const journalRes = validateOptionalIdArray(raw.journalEntries, 'journalEntries', ['j_cap1_descenso']);
+  if (!journalRes.ok || !journalRes.value) return { ok: false, error: journalRes.error };
+  const dlgRes = validateOptionalIdArray(raw.completedDialogues, 'completedDialogues');
+  if (!dlgRes.ok || !dlgRes.value) return { ok: false, error: dlgRes.error };
+  const secRes = validateOptionalIdArray(raw.discoveredSecrets, 'discoveredSecrets');
+  if (!secRes.ok || !secRes.value) return { ok: false, error: secRes.error };
+
   const assembledBaseState: GameState = {
     version: '4.0',
     ...(validSaveMeta ? { saveMeta: validSaveMeta } : {}),
@@ -1480,6 +1680,14 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     stats: mergedStats,
     defeatedBosses: validDefeatedBosses,
     claimedQuests: validClaimedQuests,
+    cavernTokens: validCavernTokens,
+    mecha: validMecha,
+    trainingRecords: validTrainingRecords,
+    clearedTournaments: tournRes.value,
+    raceRecords: validRaceRecords,
+    journalEntries: journalRes.value,
+    completedDialogues: dlgRes.value,
+    discoveredSecrets: secRes.value,
     playTimeSec,
     options: validOptions,
   };
@@ -1817,6 +2025,7 @@ export function validateAndMigrateV3(raw: unknown): ValidationResult<GameState> 
       inst.uid = `${inst.id}_${Math.random().toString(36).slice(2, 9)}`;
     }
     assignedUids.add(inst.uid);
+    inst.personality = getDeterministicPersonality(inst.uid);
     const sp = getSpecies(inst.id);
     const rawXp = Number.isFinite(s.xp) ? Math.max(0, Math.round(s.xp as number)) : 0;
     inst.xp =
@@ -1894,6 +2103,7 @@ export function validateAndMigrateV3(raw: unknown): ValidationResult<GameState> 
   }
 
   next.story = migrateLegacyProgressToStory(next);
+  reconcileStoryProgress(next, { skipRewards: true });
 
   return { ok: true, value: next };
 }

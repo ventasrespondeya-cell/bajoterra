@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { ELEMENT_CHART } from '../game/data';
+import { getSlugDisplayName } from '../game/progression';
 import type { SlugInstance } from '../game/types';
 import { SlugPortrait, type SlugPortraitMood } from './SlugPortrait';
 
@@ -68,6 +69,7 @@ export const SlugColumn: React.FC<SlugColumnProps> = ({
         const hpPct = Math.max(0, Math.min(100, (s.hp / Math.max(1, s.maxHp)) * 100));
         const enPct = Math.max(0, Math.min(100, (s.energy / Math.max(1, s.maxEnergy)) * 100));
         const elemColor = ELEMENT_CHART[s.type]?.color || '#38bdf8';
+        const displayName = getSlugDisplayName(s);
 
         return (
           <button
@@ -75,7 +77,7 @@ export const SlugColumn: React.FC<SlugColumnProps> = ({
             type="button"
             disabled={isDisabled}
             onClick={() => onSelectSlug(idx)}
-            title={`${s.name} · Nv.${s.level} (${s.type}) · ${s.hp}/${s.maxHp} PS${s.mega ? ' · Megamorph' : ''}`}
+            title={`${displayName} · Nv.${s.level} (${s.type}) · ${s.hp}/${s.maxHp} PS${s.mega ? ' · Megamorph' : ''}`}
             className={`relative group flex items-center gap-2 rounded-xl px-1.5 py-1.5 text-left cursor-pointer disabled:cursor-default min-h-[48px] ${
               compact ? 'justify-center' : 'justify-center sm:justify-start'
             } ${
@@ -160,7 +162,7 @@ export const SlugColumn: React.FC<SlugColumnProps> = ({
               <div className="hidden sm:flex flex-col min-w-0 flex-1 pr-0.5">
                 <div className="flex items-center justify-between gap-1">
                   <span className="text-[11px] font-extrabold text-white truncate">
-                    {s.name}
+                    {displayName}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[9px] text-slate-300 tabular-nums mt-0.5">

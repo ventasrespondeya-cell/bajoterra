@@ -17,7 +17,12 @@ export type TransformSilhouette =
   | 'glacier_lance' // Glaciomita: razor ice crystal spear
   | 'rail_viper' // Voltrix: twin-arc electromagnetic serpent
   | 'void_wraith' // Umbrospect: ghostly cloaked eclipse phantom
-  | 'celestial_nova'; // Aetherion: harmonic multi-ring star core
+  | 'celestial_nova' // Aetherion: harmonic multi-ring star core
+  | 'arachnid_spinner' // Arachnet: spined silk weaver silhouette
+  | 'bubble_dome' // Bubbaleone: pressurized hydro sphere
+  | 'granite_ram' // Rammstone: curved granite ram fists
+  | 'kinetic_orb' // Fandango: radiant harmonic dynamo
+  | 'armored_shell'; // Armashelt: heavy mortar carapace
 
 export interface SlugCombatProfile {
   speciesId: string;
@@ -308,6 +313,96 @@ export const SLUG_COMBAT_PROFILES: Record<string, SlugCombatProfile> = {
     silhouette: 'celestial_nova',
     trailStyle: 'halos',
     transformCallout: '¡Singularidad Viva!',
+  },
+  arachnet: {
+    speciesId: 'arachnet',
+    roleLabel: 'Tejedora Táctica',
+    weightClass: 'equilibrada',
+    baseLaunchSpeed: 565,
+    maxLaunchSpeed: 900,
+    gravityScale: 0.45,
+    transformDist: 126,
+    hitboxRadius: 15,
+    bounces: 1,
+    homing: 0.25,
+    phaseObstacles: false,
+    aoeRadius: 42,
+    reloadSec: 0.42,
+    silhouette: 'arachnid_spinner',
+    trailStyle: 'petals',
+    transformCallout: '¡Red Táctica!',
+  },
+  bubbaleone: {
+    speciesId: 'bubbaleone',
+    roleLabel: 'Escudo Hidrodinámico',
+    weightClass: 'equilibrada',
+    baseLaunchSpeed: 525,
+    maxLaunchSpeed: 840,
+    gravityScale: 0.62,
+    transformDist: 138,
+    hitboxRadius: 17,
+    bounces: 2,
+    homing: 0.1,
+    phaseObstacles: false,
+    aoeRadius: 48,
+    reloadSec: 0.46,
+    silhouette: 'bubble_dome',
+    trailStyle: 'bubbles',
+    transformCallout: '¡Cúpula Presión!',
+  },
+  rammstone: {
+    speciesId: 'rammstone',
+    roleLabel: 'Ariete Granítico',
+    weightClass: 'pesada',
+    baseLaunchSpeed: 485,
+    maxLaunchSpeed: 800,
+    gravityScale: 1.05,
+    transformDist: 152,
+    hitboxRadius: 19,
+    bounces: 0,
+    homing: 0,
+    phaseObstacles: false,
+    aoeRadius: 56,
+    reloadSec: 0.52,
+    silhouette: 'granite_ram',
+    trailStyle: 'shards',
+    transformCallout: '¡Impacto Granito!',
+  },
+  fandango: {
+    speciesId: 'fandango',
+    roleLabel: 'Dínamo Armónico',
+    weightClass: 'ligera',
+    baseLaunchSpeed: 640,
+    maxLaunchSpeed: 980,
+    gravityScale: 0.22,
+    transformDist: 108,
+    hitboxRadius: 14,
+    bounces: 1,
+    homing: 0.4,
+    phaseObstacles: false,
+    aoeRadius: 34,
+    reloadSec: 0.37,
+    silhouette: 'kinetic_orb',
+    trailStyle: 'sparks',
+    transformCallout: '¡Pulso Armónico!',
+  },
+  armashelt: {
+    speciesId: 'armashelt',
+    roleLabel: 'Artillería Blindada',
+    weightClass: 'pesada',
+    baseLaunchSpeed: 470,
+    maxLaunchSpeed: 785,
+    gravityScale: 1.12,
+    transformDist: 156,
+    hitboxRadius: 20,
+    bounces: 0,
+    homing: 0,
+    phaseObstacles: false,
+    aoeRadius: 62,
+    reloadSec: 0.55,
+    silhouette: 'armored_shell',
+    trailStyle: 'shards',
+    transformCallout: '¡Mortero Blindado!',
   },
 };
 

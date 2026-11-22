@@ -1,11 +1,166 @@
 import { MAX_SLUG_LEVEL, getSpecies } from './data';
 import { isMegamorphNarrativelyUnlocked } from './storyEngine';
-import type { GameState, SlugInstance } from './types';
+import type { GameState, SlugInstance, SlugPersonality } from './types';
 
 export { MAX_SLUG_LEVEL };
 export const MAX_MOVE_MASTERY = 100;
 export const MEGAMORPH_MIN_LEVEL = 5;
 export const MEGAMORPH_MIN_BOND = 60;
+export const MAX_SLUG_NICKNAME_LENGTH = 24;
+
+export const SLUG_PERSONALITIES: readonly SlugPersonality[] = [
+  'juguetona',
+  'calmada',
+  'curiosa',
+  'energetica',
+  'timida',
+  'orgullosa',
+  'traviesa',
+  'valiente',
+] as const;
+
+export interface SlugPersonalityInfo {
+  id: SlugPersonality;
+  label: string;
+  description: string;
+  reactionQuote: string;
+  walkSpeedMult: number;
+  restBias: number;
+  playBias: number;
+  greetingChance: number;
+  socialCooldown: number;
+}
+
+export const SLUG_PERSONALITY_CATALOG: Record<SlugPersonality, SlugPersonalityInfo> = {
+  juguetona: {
+    id: 'juguetona',
+    label: 'Juguetona',
+    description: 'Le encanta saltar por el Refugio y jugar con sus compañeras.',
+    reactionQuote: '¡Wiii! ♪',
+    walkSpeedMult: 1.15,
+    restBias: 0.75,
+    playBias: 1.45,
+    greetingChance: 0.88,
+    socialCooldown: 14,
+  },
+  calmada: {
+    id: 'calmada',
+    label: 'Calmada',
+    description: 'Prefiere descansar en su hábitat y observar con serenidad.',
+    reactionQuote: 'Paz total...',
+    walkSpeedMult: 0.82,
+    restBias: 1.45,
+    playBias: 0.7,
+    greetingChance: 0.65,
+    socialCooldown: 24,
+  },
+  curiosa: {
+    id: 'curiosa',
+    label: 'Curiosa',
+    description: 'Explora cada mueble y rincón del refugio y se acerca rápido a saludarte.',
+    reactionQuote: '¿Qué es eso?',
+    walkSpeedMult: 1.08,
+    restBias: 0.9,
+    playBias: 1.1,
+    greetingChance: 0.96,
+    socialCooldown: 16,
+  },
+  energetica: {
+    id: 'energetica',
+    label: 'Energética',
+    description: 'Siempre lista para correr y recargar baterías a máxima velocidad.',
+    reactionQuote: '¡A 100 MPH!',
+    walkSpeedMult: 1.28,
+    restBias: 0.65,
+    playBias: 1.35,
+    greetingChance: 0.85,
+    socialCooldown: 15,
+  },
+  timida: {
+    id: 'timida',
+    label: 'Tímida',
+    description: 'Necesita cariño gradual, pero es sumamente fiel cuando gana confianza.',
+    reactionQuote: 'Holita...',
+    walkSpeedMult: 0.88,
+    restBias: 1.25,
+    playBias: 0.85,
+    greetingChance: 0.48,
+    socialCooldown: 28,
+  },
+  orgullosa: {
+    id: 'orgullosa',
+    label: 'Orgullosa',
+    description: 'Mantiene porte firme y busca destacar en los duelos de bláster.',
+    reactionQuote: '¡Lista!',
+    walkSpeedMult: 0.96,
+    restBias: 1.05,
+    playBias: 0.9,
+    greetingChance: 0.6,
+    socialCooldown: 22,
+  },
+  traviesa: {
+    id: 'traviesa',
+    label: 'Traviesa',
+    description: 'Busca socializar y hacer piruetas impredecibles alrededor de otras babosas.',
+    reactionQuote: '¡Jeje!',
+    walkSpeedMult: 1.2,
+    restBias: 0.75,
+    playBias: 1.3,
+    greetingChance: 0.78,
+    socialCooldown: 12,
+  },
+  valiente: {
+    id: 'valiente',
+    label: 'Valiente',
+    description: 'Siempre en guardia cerca del portal para proteger el Refugio Shane.',
+    reactionQuote: '¡En guardia!',
+    walkSpeedMult: 1.05,
+    restBias: 0.85,
+    playBias: 1.15,
+    greetingChance: 0.9,
+    socialCooldown: 18,
+  },
+};
+
+export function getDeterministicPersonality(uid: string): SlugPersonality {
+  let hash = 2166136261;
+  for (let i = 0; i < uid.length; i++) {
+    hash ^= uid.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const idx = Math.abs(hash) % SLUG_PERSONALITIES.length;
+  return SLUG_PERSONALITIES[idx];
+}
+
+export function getSlugPersonality(slug: Pick<SlugInstance, 'uid' | 'personality'>): SlugPersonality {
+  if (slug.personality && slug.personality in SLUG_PERSONALITY_CATALOG) {
+    return slug.personality;
+  }
+  return getDeterministicPersonality(slug.uid);
+}
+
+export function getSlugPersonalityInfo(
+  slug: Pick<SlugInstance, 'uid' | 'personality'>
+): SlugPersonalityInfo {
+  return SLUG_PERSONALITY_CATALOG[getSlugPersonality(slug)];
+}
+
+export function normalizeSlugNickname(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const cleaned = raw.replace(/[\u0000-\u001F\u007F]/g, '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return undefined;
+  return cleaned.slice(0, MAX_SLUG_NICKNAME_LENGTH);
+}
+
+export function getSlugDisplayName(slug: Pick<SlugInstance, 'name' | 'nickname'>): string {
+  const nick = slug.nickname?.trim();
+  return nick && nick.length > 0 ? nick : slug.name;
+}
+
+export function getSlugSpeciesName(slug: Pick<SlugInstance, 'id' | 'name' | 'mega'>): string {
+  const sp = getSpecies(slug.id);
+  return slug.mega ? sp.evoName : sp.name;
+}
 
 export interface BondTierInfo {
   tier: 1 | 2 | 3 | 4 | 5;
@@ -146,6 +301,10 @@ export function ensureSlugProgressionFields(slug: SlugInstance): SlugInstance {
     slug.xp = 0;
   } else {
     slug.xp = Math.max(0, Math.round(Number.isFinite(slug.xp) ? slug.xp : 0));
+  }
+  slug.nickname = normalizeSlugNickname(slug.nickname);
+  if (!slug.personality || !(slug.personality in SLUG_PERSONALITY_CATALOG)) {
+    slug.personality = getDeterministicPersonality(slug.uid);
   }
   return slug;
 }
@@ -354,6 +513,7 @@ export function awardSlugExperience(
   opts?: ExperienceGrantOptions
 ): string[] {
   ensureSlugProgressionFields(slug);
+  const displayName = getSlugDisplayName(slug);
   const msgs: string[] = [];
   const narrativeGate = isMegamorphNarrativelyUnlocked(_state);
   const wasMegaEligible =
@@ -365,10 +525,10 @@ export function awardSlugExperience(
   if (opts?.bondDelta && opts.bondDelta > 0) {
     const bondRes = grantSlugBond(slug, opts.bondDelta, { allowTraitBonus: opts.allowTraitBonus });
     if (bondRes.tieredUp) {
-      msgs.push(`¡${slug.name} alcanza ${bondRes.newTier.label} (Amistad ${bondRes.newBond})!`);
+      msgs.push(`¡${displayName} alcanza ${bondRes.newTier.label} (Amistad ${bondRes.newBond})!`);
     }
     if (bondRes.grantedTrait) {
-      msgs.push(`¡${slug.name} desarrolla el rasgo ${bondRes.grantedTrait}!`);
+      msgs.push(`¡${displayName} desarrolla el rasgo ${bondRes.grantedTrait}!`);
     }
   }
 
@@ -385,10 +545,10 @@ export function awardSlugExperience(
       slug.atk += 3;
       slug.def += 2;
       slug.spd += 1;
-      msgs.push(`¡${slug.name} sube al nivel ${slug.level}!`);
+      msgs.push(`¡${displayName} sube al nivel ${slug.level}!`);
       const newTrait = maybeGrantProgressionTrait(slug);
       if (newTrait) {
-        msgs.push(`¡${slug.name} desarrolla el rasgo ${newTrait}!`);
+        msgs.push(`¡${displayName} desarrolla el rasgo ${newTrait}!`);
       }
     }
     if (slug.level >= MAX_SLUG_LEVEL) {
@@ -400,7 +560,7 @@ export function awardSlugExperience(
     }
     const newTrait = maybeGrantProgressionTrait(slug);
     if (newTrait) {
-      msgs.push(`¡${slug.name} desarrolla el rasgo ${newTrait}!`);
+      msgs.push(`¡${displayName} desarrolla el rasgo ${newTrait}!`);
     }
   }
 
@@ -410,7 +570,7 @@ export function awardSlugExperience(
     slug.level >= MEGAMORPH_MIN_LEVEL &&
     slug.bond >= MEGAMORPH_MIN_BOND;
   if (!wasMegaEligible && isNowMegaEligible) {
-    msgs.push(`¡${slug.name} ya puede evolucionar a Megamorph desde su ficha!`);
+    msgs.push(`¡${displayName} ya puede evolucionar a Megamorph desde su ficha!`);
   }
 
   return msgs;
@@ -483,6 +643,51 @@ export function findSlugByUidAnywhere(state: GameState, slugUid: string): SlugIn
   return homeRes ? homeRes.slug : null;
 }
 
+export function setSlugNickname(
+  state: GameState,
+  slugUid: string,
+  rawNickname: string
+): { ok: boolean; message: string; slug?: SlugInstance; displayName?: string } {
+  const slug = findSlugByUidAnywhere(state, slugUid);
+  if (!slug) {
+    return { ok: false, message: 'No se encontró la babosa seleccionada.' };
+  }
+  const trimmedRaw = typeof rawNickname === 'string' ? rawNickname.replace(/[\u0000-\u001F\u007F]/g, '').replace(/\s+/g, ' ').trim() : '';
+  if (trimmedRaw.length === 0) {
+    return clearSlugNickname(state, slugUid);
+  }
+  if (trimmedRaw.length > MAX_SLUG_NICKNAME_LENGTH) {
+    return {
+      ok: false,
+      message: `El apodo debe tener máximo ${MAX_SLUG_NICKNAME_LENGTH} caracteres.`,
+    };
+  }
+  slug.nickname = trimmedRaw;
+  const displayName = getSlugDisplayName(slug);
+  return {
+    ok: true,
+    slug,
+    displayName,
+    message: `Apodo guardado: ${displayName} (${slug.name}).`,
+  };
+}
+
+export function clearSlugNickname(
+  state: GameState,
+  slugUid: string
+): { ok: boolean; message: string; slug?: SlugInstance } {
+  const slug = findSlugByUidAnywhere(state, slugUid);
+  if (!slug) {
+    return { ok: false, message: 'No se encontró la babosa seleccionada.' };
+  }
+  delete slug.nickname;
+  return {
+    ok: true,
+    slug,
+    message: `Nombre restaurado al oficial de la especie (${slug.name}).`,
+  };
+}
+
 export function evolveSlugToMegamorph(
   state: GameState,
   slugUid: string
@@ -493,7 +698,7 @@ export function evolveSlugToMegamorph(
   }
   const check = checkMegamorphEligibility(state, slug);
   if (check.alreadyMega) {
-    return { ok: false, message: `${slug.name} ya evolucionó a Megamorph.` };
+    return { ok: false, message: `${getSlugDisplayName(slug)} ya evolucionó a Megamorph.` };
   }
   if (!check.eligible || !check.resourceKind) {
     return {
@@ -504,7 +709,7 @@ export function evolveSlugToMegamorph(
 
   state.inventory[check.resourceKind]--;
   const sp = getSpecies(slug.id);
-  const oldName = slug.name;
+  const oldDisplay = getSlugDisplayName(slug);
   slug.mega = true;
   slug.name = sp.evoName;
   slug.maxHp += 22;
@@ -522,9 +727,10 @@ export function evolveSlugToMegamorph(
       : check.resourceKind === 'evoStone'
       ? '1 Piedra Evolutiva'
       : '1 Reliquia Antigua';
+  const resultName = slug.nickname ? `${slug.nickname} (${slug.name})` : slug.name;
   return {
     ok: true,
     slug,
-    message: `¡EVOLUCIÓN MEGAMORPH! ${oldName} evolucionó a ${slug.name} usando ${resourceLabel}.`,
+    message: `¡EVOLUCIÓN MEGAMORPH! ${oldDisplay} evolucionó a ${resultName} usando ${resourceLabel}.`,
   };
 }

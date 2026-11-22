@@ -19,10 +19,13 @@ export type RouteKind =
   | 'puerta_sellada';
 
 export type StoryMissionCategory = 'principal' | 'secundaria' | 'personaje' | 'hogar';
+export type MissionType = StoryMissionCategory;
 
 export type StoryMissionLifecycleState = 'locked' | 'available' | 'active' | 'completed';
+export type MissionStatus = StoryMissionLifecycleState;
 
 export type StoryChapterStatus = 'locked' | 'active' | 'completed';
+export type ChapterStatus = StoryChapterStatus;
 
 export interface StoryMetricRequirement {
   metric: QuestMetric;
@@ -44,6 +47,8 @@ export interface StoryRequirement {
   description?: string;
 }
 
+export type StoryCondition = StoryRequirement;
+
 export interface StoryScenarioDef {
   id: string;
   name: string;
@@ -57,6 +62,8 @@ export interface StoryScenarioDef {
   encounterIds: string[];
   worldAnchor?: { x: number; y: number };
 }
+
+export type StoryLocation = StoryScenarioDef;
 
 export interface StoryRouteDef {
   id: string;
@@ -85,16 +92,23 @@ export interface StoryObjectiveDef {
   requiredMaxSlugBond?: number;
 }
 
+export type MissionObjective = StoryObjectiveDef;
+
 export interface StoryRewardDef {
   xp?: number;
   perk?: string;
+  cavernTokens?: number;
+  unlockMecha?: boolean;
   items?: Partial<Inventory>;
   unlockFlags?: string[];
   unlockRouteIds?: string[];
   unlockScenarioIds?: string[];
   unlockMissionIds?: string[];
+  unlockJournalIds?: string[];
   summaryText: string;
 }
+
+export type StoryReward = StoryRewardDef;
 
 export interface StoryMissionDef {
   id: string;
@@ -114,6 +128,8 @@ export interface StoryMissionDef {
   canonStatus: CanonSourceTag;
 }
 
+export type StoryMission = StoryMissionDef;
+
 export interface StoryCharacterRef {
   id: string;
   name: string;
@@ -121,7 +137,11 @@ export interface StoryCharacterRef {
   chapterIntroId: string;
   canonStatus: CanonSourceTag;
   summary: string;
+  specialty?: string;
+  signatureSlugId?: string;
 }
+
+export type StoryCharacter = StoryCharacterRef;
 
 export interface StoryEncounterRef {
   id: string;
@@ -157,6 +177,144 @@ export interface StoryChapterDef {
   completionConditions: StoryRequirement;
   rewards: StoryRewardDef;
   nextChapterId: string | null;
+}
+
+export type StoryChapter = StoryChapterDef;
+
+export interface StoryEvent {
+  id: string;
+  title: string;
+  chapterId: string;
+  summary: string;
+}
+
+export interface DialogueLine {
+  speakerId: string;
+  speakerName: string;
+  mood: 'neutral' | 'excited' | 'serious' | 'happy' | 'warning';
+  text: string;
+}
+
+export interface DialogueChoice {
+  id: string;
+  label: string;
+  replyText: string;
+  giftTokens?: number;
+  giftItems?: Partial<Inventory>;
+  unlockFlag?: string;
+}
+
+export interface DialogueNode {
+  id: string;
+  title: string;
+  chapterId: string;
+  scenarioId: string;
+  characterId: string;
+  canonStatus: CanonSourceTag;
+  lines: DialogueLine[];
+  choices?: DialogueChoice[];
+  onCompleteFlag?: string;
+  onCompleteJournalId?: string;
+  rewardTokens?: number;
+  rewardItems?: Partial<Inventory>;
+  rewardSummary?: string;
+}
+
+export interface AdventureJournalEntry {
+  id: string;
+  chapterId: string;
+  category: 'historia' | 'personaje' | 'descubrimiento' | 'torneo' | 'postgame';
+  title: string;
+  summary: string;
+  canonStatus: CanonSourceTag;
+}
+
+export interface RivalDuelDef {
+  id: string;
+  name: string;
+  title: string;
+  characterId: string;
+  speciesId: string;
+  level: number;
+  biome: BiomeId;
+  chapterId: string;
+  canonStatus: CanonSourceTag;
+  introQuote: string;
+  victoryQuote: string;
+  rewardTokens: number;
+  rewardItems?: Partial<Inventory>;
+}
+
+export interface TrainingChallengeDef {
+  id: string;
+  title: string;
+  kind: 'precision' | 'velocity' | 'interception';
+  subtitle: string;
+  description: string;
+  durationSec: number;
+  targetScoreA: number;
+  targetScoreS: number;
+  rewardTokens: number;
+  rewardMastery: number;
+  rewardBond: number;
+  rewardXp: number;
+}
+
+export interface TournamentRoundDef {
+  roundName: string;
+  opponentName: string;
+  speciesId: string;
+  level: number;
+  strategyNote: string;
+}
+
+export interface TournamentDef {
+  id: string;
+  name: string;
+  subtitle: string;
+  biome: BiomeId;
+  requiredChapterId: string;
+  canonStatus: CanonSourceTag;
+  rounds: TournamentRoundDef[];
+  rewardTokens: number;
+  rewardItems?: Partial<Inventory>;
+  rewardSummary: string;
+}
+
+export interface SlugRaceDef {
+  id: string;
+  name: string;
+  subtitle: string;
+  biome: BiomeId;
+  requiredMecha: boolean;
+  distanceMeters: number;
+  parTimeSec: number;
+  rewardTokens: number;
+  rewardSummary: string;
+}
+
+export interface HiddenDiscoveryDef {
+  id: string;
+  title: string;
+  biome: BiomeId;
+  minChapterOrder: number;
+  lore: string;
+  rewardTokens: number;
+  rewardItems?: Partial<Inventory>;
+  canonStatus: CanonSourceTag;
+}
+
+export interface PostGameChallengeDef {
+  id: string;
+  title: string;
+  subtitle: string;
+  bossName: string;
+  speciesId: string;
+  level: number;
+  biome: BiomeId;
+  rewardTokens: number;
+  rewardItems?: Partial<Inventory>;
+  rewardSummary: string;
 }
 
 export interface StoryProgressState {
@@ -210,6 +368,7 @@ export interface StoryHudSummary {
   mainObjectiveText: string;
   chapterProgressPct: number;
   completedChaptersCount: number;
+  postGameUnlocked: boolean;
   activeMissions: StoryMissionSnapshotItem[];
   availableMissionsCount: number;
   nextRoute: StoryRouteSnapshotItem | null;

@@ -7,12 +7,9 @@ import {
 } from './combatArenas';
 import { CombatManager } from './combat';
 import { ELEMENT_CHART, getSpecies } from './data';
-import {
-  getSlugDesignSheet,
-  sampleSlugAnimationFrame,
-  type SlugAnimationState,
-} from './slugArtDirection';
+import { getSlugDesignSheet, sampleSlugAnimationFrame, type SlugAnimationState } from './slugArtDirection';
 import { getSlugCombatProfile, type SlugCombatProfile, type TransformSilhouette } from './slugCombatProfiles';
+import { getSlugDisplayName } from './progression';
 import type {
   BattleState,
   BiomeId,
@@ -287,7 +284,7 @@ export class DuelArenaRenderer {
       ctx,
       battle,
       allySpecies.id,
-      ally.name,
+      getSlugDisplayName(ally),
       allyElColor,
       allySpecies.accent,
       ally.mega,
@@ -1634,6 +1631,41 @@ export class DuelArenaRenderer {
         ctx.lineTo(10, -ry - 4);
         ctx.stroke();
         break;
+      case 'arachnet':
+        ctx.beginPath();
+        ctx.moveTo(-4, -ry);
+        ctx.lineTo(-9, -ry - 6);
+        ctx.moveTo(4, -ry);
+        ctx.lineTo(9, -ry - 6);
+        ctx.moveTo(-4, ry);
+        ctx.lineTo(-9, ry + 5);
+        ctx.moveTo(4, ry);
+        ctx.lineTo(9, ry + 5);
+        ctx.stroke();
+        break;
+      case 'bubbaleone':
+        ctx.beginPath();
+        ctx.arc(0, -ry - 3, 4.2, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      case 'rammstone':
+        ctx.beginPath();
+        ctx.arc(4, -ry - 1, 5.2, Math.PI, Math.PI * 2);
+        ctx.stroke();
+        break;
+      case 'fandango':
+        ctx.beginPath();
+        ctx.moveTo(2, -ry);
+        ctx.lineTo(6, -ry - 7);
+        ctx.lineTo(9, -ry);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      case 'armashelt':
+        ctx.beginPath();
+        ctx.arc(0, -1, rx + 1.4, Math.PI, 0);
+        ctx.stroke();
+        break;
       case 'enigmo':
       default:
         ctx.beginPath();
@@ -1998,6 +2030,100 @@ export class DuelArenaRenderer {
         ctx.lineTo(-24, flap * 0.2);
         ctx.moveTo(-10, 7);
         ctx.lineTo(-23, 12 - flap * 0.4);
+        ctx.stroke();
+        break;
+      }
+      case 'arachnid_spinner': {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.ellipse(2, 0, 12, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(4, -7);
+        ctx.lineTo(-4, -17 + flap * 0.4);
+        ctx.moveTo(-4, -7);
+        ctx.lineTo(-14, -16 - flap * 0.3);
+        ctx.moveTo(4, 7);
+        ctx.lineTo(-4, 17 - flap * 0.4);
+        ctx.moveTo(-4, 7);
+        ctx.lineTo(-14, 16 + flap * 0.3);
+        ctx.stroke();
+        break;
+      }
+      case 'bubble_dome': {
+        ctx.fillStyle = `${color}aa`;
+        ctx.beginPath();
+        ctx.arc(0, 0, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#cffafe';
+        ctx.lineWidth = 2.4;
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(-5, -6, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case 'granite_ram': {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(24, 0);
+        ctx.lineTo(10, -14);
+        ctx.lineTo(-14, -12);
+        ctx.lineTo(-18, 0);
+        ctx.lineTo(-14, 12);
+        ctx.lineTo(10, 14);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#fef3c7';
+        ctx.lineWidth = 2.3;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(10, -11, 7, Math.PI * 0.6, Math.PI * 1.9);
+        ctx.stroke();
+        break;
+      }
+      case 'kinetic_orb': {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(22, 0);
+        ctx.lineTo(4, -11);
+        ctx.lineTo(-16, -6);
+        ctx.lineTo(-16, 6);
+        ctx.lineTo(4, 11);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#fef08a';
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.arc(4, 0, 5, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case 'armored_shell': {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(24, 0);
+        ctx.lineTo(12, -13);
+        ctx.lineTo(-12, -14);
+        ctx.lineTo(-20, 0);
+        ctx.lineTo(-12, 14);
+        ctx.lineTo(12, 13);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#fed7aa';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(2, -13);
+        ctx.lineTo(2, 13);
+        ctx.moveTo(-7, -12);
+        ctx.lineTo(-7, 12);
         ctx.stroke();
         break;
       }

@@ -1,16 +1,19 @@
-import React, { useState } from 'react';
-import { Heart, Sparkles, Star, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Heart, Pencil, RotateCcw, Sparkles, Star, X } from 'lucide-react';
 import { ELEMENT_CHART, getSpecies } from '../game/data';
 import { gameEngine } from '../game/engine';
 import {
   MAX_MOVE_MASTERY,
   MAX_SLUG_LEVEL,
+  MAX_SLUG_NICKNAME_LENGTH,
   MEGAMORPH_MIN_BOND,
   MEGAMORPH_MIN_LEVEL,
   checkMegamorphEligibility,
   getBondTierInfo,
   getEffectiveMoveEnergyCost,
   getMoveMasteryInfo,
+  getSlugDisplayName,
+  getSlugPersonalityInfo,
   getTraitInfo,
   getXpForNextLevel,
 } from '../game/progression';
@@ -47,9 +50,16 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
 }) => {
   const [previewMood, setPreviewMood] = useState<SlugPortraitMood>(slug.hp <= 0 ? 'ko' : 'happy');
   const [showSilhouette, setShowSilhouette] = useState(false);
+  const [nicknameDraft, setNicknameDraft] = useState<string>(slug.nickname || '');
+  useEffect(() => {
+    setNicknameDraft(slug.nickname || '');
+  }, [slug.uid, slug.nickname]);
+
   const sp = getSpecies(slug.id);
   const sheet = getSlugDesignSheet(slug.id);
   const bondTier = getBondTierInfo(slug.bond);
+  const personalityInfo = getSlugPersonalityInfo(slug);
+  const displayName = getSlugDisplayName(slug);
   const traitInfo = getTraitInfo(slug.bonusTrait);
   const nextXp = getXpForNextLevel(slug.level);
   const xpPct = slug.level >= MAX_SLUG_LEVEL ? 100 : Math.min(100, Math.round((slug.xp / nextXp) * 100));
@@ -76,7 +86,7 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-lg sm:text-xl font-extrabold text-white truncate">{slug.name}</h3>
+                <h3 className="text-lg sm:text-xl font-extrabold text-white truncate">{displayName}</h3>
                 {slug.mega && (
                   <span className="text-xs font-extrabold text-amber-300 flex items-center gap-1">
                     <Sparkles className="w-3.5 h-3.5" />
@@ -90,13 +100,19 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
                 )}
               </div>
               <div className="text-xs text-slate-300 mt-1">
-                Especie: <span className="text-white font-semibold">{sp.name}</span> ·{' '}
+                Especie: <span className="text-white font-semibold">{slug.mega ? sp.evoName : sp.name}</span> ·{' '}
                 <span className="font-bold" style={{ color: ELEMENT_CHART[slug.type]?.color }}>
                   {slug.type}
                 </span>{' '}
                 · {slug.rarity} · <span className="text-teal-300 font-semibold">{locationLabel}</span>
               </div>
-              <div className="text-[11px] text-slate-300/90 italic mt-1">{sheet.personalityQuote}</div>
+              <div className="text-[11px] text-slate-300/90 mt-1">
+                <span className="text-amber-300 font-semibold">
+                  Personalidad: {personalityInfo.label}
+                </span>{' '}
+                · {sp.canonStatus === 'serie_canon' ? 'Canon de serie' : 'Adaptación RPG'} ·{' '}
+                <span className="italic">{sheet.personalityQuote}</span>
+              </div>
             </div>
           </div>
           <button
@@ -108,11 +124,61 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
           </button>
         </div>
 
+        {/* Custom Persistent Slug Name + Individual Personality */}
+        <div className="bt-inset rounded-xl p-3 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label
+              htmlFor={`slug-nick-${slug.uid}`}
+              className="text-[11px] font-extrabold text-amber-300 uppercase tracking-wider flex items-center gap-1.5"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Apodo Personal (máx. {MAX_SLUG_NICKNAME_LENGTH} caracteres)
+            </label>
+            <span className="text-[11px] text-slate-400">
+              Especie oficial: <strong className="text-slate-200">{sp.name}</strong>
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id={`slug-nick-${slug.uid}`}
+              type="text"
+              maxLength={MAX_SLUG_NICKNAME_LENGTH}
+              value={nicknameDraft}
+              onChange={(e) => setNicknameDraft(e.target.value)}
+              placeholder={`Ej. ${sp.name} (dejar vacío usa nombre oficial)`}
+              className="bt-card flex-1 min-w-[180px] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500 min-h-[40px]"
+            />
+            <button
+              type="button"
+              onClick={() => gameEngine.setSlugNickname(slug.uid, nicknameDraft)}
+              className="bt-btn-primary px-3.5 py-2 rounded-xl text-xs font-extrabold cursor-pointer whitespace-nowrap min-h-[40px]"
+            >
+              Guardar nombre
+            </button>
+            {slug.nickname && (
+              <button
+                type="button"
+                onClick={() => {
+                  gameEngine.clearSlugNickname(slug.uid);
+                  setNicknameDraft('');
+                }}
+                className="bt-btn-secondary px-3 py-2 rounded-xl text-xs font-bold cursor-pointer whitespace-nowrap min-h-[40px] flex items-center gap-1"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Restablecer</span>
+              </button>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-300">
+            <strong className="text-teal-200">{personalityInfo.label}:</strong> {personalityInfo.description}
+          </div>
+        </div>
+
         {/* Live Expression Selector & Anatomy Profile */}
         <div className="bt-inset rounded-xl p-3 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-[11px] font-extrabold text-cyan-300 uppercase tracking-wider">
-              Expresión y Personalidad · {sheet.storyChapter}
+              Expresión y Anatomía · {sheet.storyChapter}
             </span>
             <button
               type="button"
@@ -273,7 +339,7 @@ export const SlugDetailPanel: React.FC<SlugDetailPanelProps> = ({
 
           {slug.mega ? (
             <p className="text-xs text-slate-300">
-              {slug.name} ya alcanzó su transformación Megamorph manteniendo toda su experiencia, vínculo y maestría.
+              {displayName} ya alcanzó su transformación Megamorph ({sp.evoName}) manteniendo toda su experiencia, apodo, vínculo y maestría.
             </p>
           ) : (
             <>

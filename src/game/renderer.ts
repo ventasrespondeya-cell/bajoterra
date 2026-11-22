@@ -1,4 +1,5 @@
 import { BIOME_INFO, BOSS_DEFINITIONS, FURNITURE_DEFS, HABITAT_DEFS, TILE_PX, WORLD_H, WORLD_W, getSpecies } from './data';
+import { getSlugDisplayName } from './progression';
 import { sampleSlugAnimationFrame, type SlugAnimationState } from './slugArtDirection';
 import { sprites, type SlugSpritePose } from './sprites';
 import { TileType, type BiomeId, type GameState, type RoamingEntity } from './types';
@@ -488,7 +489,7 @@ export class WorldRenderer {
           : isWalking
           ? 'walk'
           : 'idle';
-        const anim = sampleSlugAnimationFrame(res.slug.id, animKind, timeSec, reduced);
+        const anim = sampleSlugAnimationFrame(res.slug.id, animKind, visualTime, reduced);
         const bob = anim.offsetY;
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.36)';
@@ -557,21 +558,22 @@ export class WorldRenderer {
           ctx.stroke();
         }
 
+        const displayName = getSlugDisplayName(res.slug);
         const badge =
           res.reactionText ||
           (res.mood === 'hambrienta'
-            ? `${res.slug.name} · Hambre`
+            ? `${displayName} · Hambre`
             : isSleeping || res.mood === 'cansada'
-            ? `${res.slug.name} · Zzz`
+            ? `${displayName} · Zzz`
             : isEating
-            ? `${res.slug.name} · Comiendo`
+            ? `${displayName} · Comiendo`
             : isPlaying
-            ? `${res.slug.name} · Jugando`
+            ? `${displayName} · Jugando`
             : isLooking
-            ? `${res.slug.name} · Curiosa`
+            ? `${displayName} · Curiosa`
             : nearPlayer
-            ? `${res.slug.name} · ♥`
-            : res.slug.name);
+            ? `${displayName} · ♥`
+            : displayName);
 
         ctx.font = 'bold 10px sans-serif';
         ctx.textAlign = 'center';
@@ -601,7 +603,7 @@ export class WorldRenderer {
     const activeSlug = state.party[state.activePartyIndex] || state.party[0];
     if (activeSlug) {
       const sp = getSpecies(activeSlug.id);
-      const compAnim = sampleSlugAnimationFrame(activeSlug.id, 'walk', timeSec, reduced);
+      const compAnim = sampleSlugAnimationFrame(activeSlug.id, 'walk', visualTime, reduced);
       const csx = this.companionX - ox;
       const csy = this.companionY - oy + compAnim.offsetY;
       ctx.fillStyle = 'rgba(0,0,0,0.34)';
@@ -616,7 +618,7 @@ export class WorldRenderer {
       ctx.drawImage(sprites.getSpeciesSlugSprite(activeSlug.id, activeSlug.mega, 'walk', animFrame), -12, -12);
       ctx.restore();
       if (!reduced) {
-        this.drawSpeciesWorldMicroVfx(ctx, activeSlug.id, csx + 12 + compAnim.offsetX, csy + 12, timeSec);
+        this.drawSpeciesWorldMicroVfx(ctx, activeSlug.id, csx + 12 + compAnim.offsetX, csy + 12, visualTime);
       }
       if (activeSlug.mega) {
         lightSources.push({ sx: csx + 12, sy: csy + 12, r: 52, color: 'rgba(251, 191, 36, 0.55)' });
@@ -625,17 +627,28 @@ export class WorldRenderer {
       }
     }
 
-    // 5. Player Explorer
+    // 5. Player Explorer (+ mounted Mecha overlay when active)
     const psx = state.player.x * TILE_PX - ox;
     const psy = state.player.y * TILE_PX - oy;
+    const mechaMounted = Boolean(state.mecha?.unlocked && state.mecha?.active);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.beginPath();
-    ctx.ellipse(psx + 14, psy + 25, 9, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(psx + 14, psy + 25, mechaMounted ? 12 : 9, mechaMounted ? 5 : 4, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    if (mechaMounted && state.mecha) {
+      const mechaSpr = sprites.getMechaOverlaySprite(
+        state.mecha.theme,
+        state.mecha.tier,
+        state.player.facingX,
+        state.player.facingY
+      );
+      ctx.drawImage(mechaSpr, psx - 3, psy - 1);
+    }
 
     const walkFrame = Math.floor(state.stats.steps * 2.2);
     const playerSprite = sprites.getExplorerSprite(state.player.facingX, state.player.facingY, walkFrame);
-    ctx.drawImage(playerSprite, psx, psy);
+    ctx.drawImage(playerSprite, psx, mechaMounted ? psy - 4 : psy);
 
     // Player headlamp light
     lightSources.push({ sx: psx + 14, sy: psy + 14, r: 162, color: 'rgba(186, 230, 253, 0.94)' });

@@ -15,6 +15,8 @@ import {
 import {
   awardSlugExperience,
   ensureSlugProgressionFields,
+  getSlugDisplayName,
+  getSlugPersonalityInfo,
   grantMoveMastery,
   grantSlugBond,
 } from './progression';
@@ -492,10 +494,11 @@ export function assignSlugToHabitat(
   }
 
   const slug = state.storage[sIdx];
+  const displayName = getSlugDisplayName(slug);
   if (!isSpeciesCompatibleWithHabitat(slug.id, habitatId)) {
     return {
       ok: false,
-      message: `${slug.name} (${slug.type}) no es compatible con ${habDef.name}.`,
+      message: `${displayName} (${slug.type}) no es compatible con ${habDef.name}.`,
     };
   }
 
@@ -526,7 +529,7 @@ export function assignSlugToHabitat(
 
   return {
     ok: true,
-    message: `${moved.name} ahora vive en ${habDef.name}.`,
+    message: `${getSlugDisplayName(moved)} ahora vive en ${habDef.name}.`,
   };
 }
 
@@ -541,7 +544,7 @@ export function withdrawSlugFromHome(state: GameState, slugUid: string): HomeAct
   state.storage.push(removed.slug);
   return {
     ok: true,
-    message: `${removed.slug.name} regresó a la reserva en su cápsula.`,
+    message: `${getSlugDisplayName(removed.slug)} regresó a la reserva en su cápsula.`,
   };
 }
 
@@ -555,8 +558,9 @@ export function moveHomeSlugToHabitat(
   const resident = home.residents.find((r) => r.slug.uid === slugUid);
   if (!resident) return { ok: false, message: 'Babosa no encontrada en el hogar.' };
   const habDef = getHabitatDef(targetHabitatId);
+  const displayName = getSlugDisplayName(resident.slug);
   if (!isSpeciesCompatibleWithHabitat(resident.slug.id, targetHabitatId)) {
-    return { ok: false, message: `${resident.slug.name} no es compatible con ${habDef.name}.` };
+    return { ok: false, message: `${displayName} no es compatible con ${habDef.name}.` };
   }
   const count = home.residents.filter((r) => r.habitatId === targetHabitatId).length;
   if (resident.habitatId !== targetHabitatId && count >= MAX_SLUGS_PER_HABITAT) {
@@ -576,7 +580,7 @@ export function moveHomeSlugToHabitat(
   resident.targetY = spot.y;
   resident.reactionText = '¡Nuevo rincón!';
   resident.reactionTimer = 1.6;
-  return { ok: true, message: `${resident.slug.name} se mudó a ${habDef.name}.` };
+  return { ok: true, message: `${displayName} se mudó a ${habDef.name}.` };
 }
 
 export function placeHomeFurniture(
@@ -666,6 +670,8 @@ export function petHomeSlug(state: GameState, slugUid: string): HomeActionResult
   const home = ensureHomeState(state);
   const r = home.residents.find((e) => e.slug.uid === slugUid);
   if (!r) return { ok: false, message: 'Babosa no encontrada en el hogar.' };
+  ensureSlugProgressionFields(r.slug);
+  const displayName = getSlugDisplayName(r.slug);
 
   const now = state.playTimeSec;
   const cdLeft = Math.ceil(25 - (now - r.lastPetAt));
@@ -689,14 +695,14 @@ export function petHomeSlug(state: GameState, slugUid: string): HomeActionResult
     const extra = xpMsgs.length > 0 ? ` ${xpMsgs[0]}` : '';
     return {
       ok: true,
-      message: `Acariciaste a ${r.slug.name} (+${bondRes.gained} Amistad, +12 Alegría, +4 EXP).${extra}`,
+      message: `Acariciaste a ${displayName} (+${bondRes.gained} Amistad, +12 Alegría, +4 EXP).${extra}`,
     };
   }
 
   r.mood = computeHomeMood(r.hunger, r.energy, r.happiness);
   return {
     ok: true,
-    message: `${r.slug.name} ronronea feliz (próxima mejora de amistad en ${cdLeft}s).`,
+    message: `${displayName} ronronea feliz (próxima mejora de amistad en ${cdLeft}s).`,
   };
 }
 
@@ -704,6 +710,8 @@ export function playWithHomeSlug(state: GameState, slugUid: string): HomeActionR
   const home = ensureHomeState(state);
   const r = home.residents.find((e) => e.slug.uid === slugUid);
   if (!r) return { ok: false, message: 'Babosa no encontrada en el hogar.' };
+  ensureSlugProgressionFields(r.slug);
+  const displayName = getSlugDisplayName(r.slug);
 
   if (r.energy < 18) {
     r.behavior = 'descansar';
@@ -712,7 +720,7 @@ export function playWithHomeSlug(state: GameState, slugUid: string): HomeActionR
     r.reactionTimer = 1.5;
     return {
       ok: false,
-      message: `${r.slug.name} está cansada y prefiere descansar un poco primero.`,
+      message: `${displayName} está cansada y prefiere descansar un poco primero.`,
     };
   }
 
@@ -740,7 +748,7 @@ export function playWithHomeSlug(state: GameState, slugUid: string): HomeActionR
     const extra = xpMsgs.length > 0 ? ` ${xpMsgs[0]}` : '';
     return {
       ok: true,
-      message: `Jugaste con ${r.slug.name} (+${bondRes.gained} Amistad, +16 Alegría, +6 EXP).${extra}`,
+      message: `Jugaste con ${displayName} (+${bondRes.gained} Amistad, +16 Alegría, +6 EXP).${extra}`,
     };
   }
 
@@ -749,7 +757,7 @@ export function playWithHomeSlug(state: GameState, slugUid: string): HomeActionR
   r.mood = computeHomeMood(r.hunger, r.energy, r.happiness);
   return {
     ok: true,
-    message: `${r.slug.name} da saltos contigo (siguiente bono de amistad en ${cdLeft}s).`,
+    message: `${displayName} da saltos contigo (siguiente bono de amistad en ${cdLeft}s).`,
   };
 }
 
@@ -761,6 +769,8 @@ export function feedHomeSlug(
   const home = ensureHomeState(state);
   const r = home.residents.find((e) => e.slug.uid === slugUid);
   if (!r) return { ok: false, message: 'Babosa no encontrada en el hogar.' };
+  ensureSlugProgressionFields(r.slug);
+  const displayName = getSlugDisplayName(r.slug);
 
   const foodDef = HOME_FOOD_DEFS.find((f) => f.key === foodKey);
   if (!foodDef) return { ok: false, message: 'Alimento no compatible para el hogar.' };
@@ -810,7 +820,7 @@ export function feedHomeSlug(
 
   return {
     ok: true,
-    message: `${r.slug.name} disfrutó ${foodDef.label} (+${hungerGain} Saciedad${bondMsg}).${extraMsg}`,
+    message: `${displayName} disfrutó ${foodDef.label} (+${hungerGain} Saciedad${bondMsg}).${extraMsg}`,
   };
 }
 
@@ -867,6 +877,9 @@ export function updateHomeResidents(
   tickHomeNeeds(state, comfortAvg);
 
   for (const r of home.residents) {
+    ensureSlugProgressionFields(r.slug);
+    const pInfo = getSlugPersonalityInfo(r.slug);
+
     if (r.reactionTimer && r.reactionTimer > 0) {
       r.reactionTimer = Math.max(0, r.reactionTimer - dt);
       if (r.reactionTimer <= 0) r.reactionText = undefined;
@@ -895,19 +908,19 @@ export function updateHomeResidents(
 
     r.behaviorTimer -= dt;
 
-    // 1. Slug-to-slug spontaneous socialization in shelter
+    // 1. Slug-to-slug spontaneous socialization in shelter (cooldown modulated by personality)
     if (
       r.behavior !== 'descansar' &&
       r.visualActivity !== 'eat' &&
       r.visualActivity !== 'sleep' &&
-      (!r.lastSocialAt || state.playTimeSec - r.lastSocialAt >= 32)
+      (!r.lastSocialAt || state.playTimeSec - r.lastSocialAt >= pInfo.socialCooldown)
     ) {
       const peer = home.residents.find(
         (other) =>
           other.slug.uid !== r.slug.uid &&
           other.behavior !== 'descansar' &&
           other.visualActivity !== 'sleep' &&
-          (!other.lastSocialAt || state.playTimeSec - other.lastSocialAt >= 32) &&
+          (!other.lastSocialAt || state.playTimeSec - other.lastSocialAt >= getSlugPersonalityInfo(other.slug).socialCooldown) &&
           Math.hypot(other.x - r.x, other.y - r.y) <= 2.15
       );
       if (peer) {
@@ -928,18 +941,18 @@ export function updateHomeResidents(
         r.happiness = Math.min(100, r.happiness + 2);
         peer.happiness = Math.min(100, peer.happiness + 2);
         if (!r.reactionText) {
-          r.reactionText = '♥ ¡Hola!';
+          r.reactionText = pInfo.reactionQuote;
           r.reactionTimer = 1.8;
         }
         if (!peer.reactionText) {
-          peer.reactionText = '✨ ¡A jugar!';
+          peer.reactionText = getSlugPersonalityInfo(peer.slug).reactionQuote;
           peer.reactionTimer = 1.8;
         }
       }
     }
 
     const distToPlayer = Math.hypot(state.player.x - r.x, state.player.y - r.y);
-    const greetRadius = r.slug.bond >= 50 ? 4.4 : 3.4;
+    const greetRadius = (r.slug.bond >= 50 ? 4.4 : 3.4) * (0.85 + pInfo.greetingChance * 0.35);
     if (
       distToPlayer < greetRadius &&
       distToPlayer > 1.15 &&
@@ -970,11 +983,9 @@ export function updateHomeResidents(
         r.reactionText =
           r.slug.bond >= 75
             ? '♥ ¡Qué alegría verte!'
-            : r.slug.bond >= 50
-            ? '¡Hola, amigo!'
             : r.mood === 'hambrienta'
             ? '¿Tienes bayas?'
-            : '¡Hola!';
+            : pInfo.reactionQuote;
         r.reactionTimer = 1.7;
       }
     } else if (r.behaviorTimer <= 0) {
@@ -1039,7 +1050,10 @@ export function updateHomeResidents(
         }
       } else {
         const roll = Math.random();
-        if (roll < 0.16) {
+        const lookCutoff = 0.16;
+        const restCutoff = lookCutoff + 0.18 * pInfo.restBias;
+        const playCutoff = restCutoff + 0.16 * pInfo.playBias;
+        if (roll < lookCutoff) {
           // Curious looking around (flips facing direction smoothly)
           r.behavior = 'descansar';
           r.visualActivity = 'look';
@@ -1047,13 +1061,13 @@ export function updateHomeResidents(
           r.behaviorTimer = 1.9 + Math.random() * 1.4;
           r.targetX = r.x;
           r.targetY = r.y;
-        } else if (roll < 0.34) {
+        } else if (roll < restCutoff) {
           r.behavior = 'descansar';
           r.visualActivity = 'sleep';
           r.behaviorTimer = 2.6 + Math.random() * 2;
           r.targetX = r.x;
           r.targetY = r.y;
-        } else if (roll < 0.5 && r.energy > 45) {
+        } else if (roll < playCutoff && r.energy > 45) {
           r.behavior = 'jugar';
           r.visualActivity = 'play';
           r.behaviorTimer = 2.4 + Math.random() * 1.6;
@@ -1107,7 +1121,7 @@ export function updateHomeResidents(
       if (!r.visualActivity || r.visualActivity === 'sleep' || r.visualActivity === 'look') {
         r.visualActivity = r.behavior === 'jugar' ? 'play' : r.behavior === 'acercarse' ? 'greet' : 'walk';
       }
-      const baseSpeed = r.behavior === 'jugar' ? 2.1 : r.behavior === 'acercarse' ? 1.9 : 1.25;
+      const baseSpeed = (r.behavior === 'jugar' ? 2.1 : r.behavior === 'acercarse' ? 1.9 : 1.25) * pInfo.walkSpeedMult;
       const step = Math.min(distTarget, baseSpeed * dt);
       const vx = (dx / distTarget) * step;
       const vy = (dy / distTarget) * step;

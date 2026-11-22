@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { BIOME_INFO, HOME_FOOD_DEFS, HOTBAR_SLOTS, QUEST_LIST, getFavoriteFoodForSpecies } from '../game/data';
 import { getMoodLabel } from '../game/home';
-import { getBondTierInfo } from '../game/progression';
+import { getBondTierInfo, getSlugDisplayName } from '../game/progression';
 import type { ExplorationActionKind, HudSnapshot, InventoryKey } from '../game/types';
 import { ToolIcon } from './GameIcons';
 import { SlugColumn } from './SlugColumn';
@@ -37,6 +37,7 @@ interface GameHUDProps {
   onOpenMap: () => void;
   onOpenPause: () => void;
   onToggleSound: () => void;
+  onToggleMecha: () => void;
   onAction: () => void;
   onPulse: () => void;
   onPetHomeSlug: (uid: string) => void;
@@ -89,6 +90,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onOpenMap,
   onOpenPause,
   onToggleSound,
+  onToggleMecha,
   onAction,
   onPulse,
   onPetHomeSlug,
@@ -238,19 +240,19 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </span>
           </div>
 
-          {/* Minimal Resource Ticker */}
+          {/* Minimal Campaign & Supply Ticker */}
           <div className="grid grid-cols-4 gap-1 text-[10px] text-slate-200 border-t border-cyan-400/15 pt-1 tabular-nums">
-            <span title="Minerales">
-              <span className="text-amber-300 font-bold">M</span> {snap.inventory.ore}
+            <span title="Fichas de Caverna">
+              <span className="text-amber-300 font-bold">Fch</span> {snap.cavernTokens}
             </span>
-            <span title="Madera">
-              <span className="text-orange-300 font-bold">Md</span> {snap.inventory.wood}
-            </span>
-            <span title="Cristales">
-              <span className="text-teal-300 font-bold">Cr</span> {snap.inventory.crystal}
-            </span>
-            <span title="Cilindros">
+            <span title="Cilindros de Captura">
               <span className="text-sky-300 font-bold">Cil</span> {snap.inventory.capsules}
+            </span>
+            <span title="Bayas">
+              <span className="text-emerald-300 font-bold">Bay</span> {snap.inventory.berries}
+            </span>
+            <span title="Cristales de Energía">
+              <span className="text-teal-300 font-bold">Cr</span> {snap.inventory.crystal}
             </span>
           </div>
 
@@ -271,27 +273,40 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           <div className="bt-hud-panel rounded-xl p-1 flex items-center gap-0.5 min-[420px]:gap-1">
             <button
               onClick={onOpenExpedition}
-              title="Inventario, Taller y Babosas (I)"
-              aria-label="Estuche e Inventario"
-              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
+              title="Campaña, Estuche y Babosas (I)"
+              aria-label="Campaña y Estuche"
+              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap"
             >
               <Backpack className="w-4 h-4 text-amber-300" />
-              <span className="hidden md:inline">Estuche</span>
+              <span className="hidden md:inline">Campaña</span>
             </button>
             <button
               onClick={onOpenHome}
               title="Hogar y Hábitats"
               aria-label="Hogar y Hábitats"
-              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
+              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap"
             >
               <Home className="w-4 h-4 text-emerald-300" />
               <span className="hidden md:inline">Hogar</span>
             </button>
+            {snap.mecha.unlocked && (
+              <button
+                onClick={onToggleMecha}
+                title={snap.mecha.active ? 'Desmontar Meca' : 'Montar Meca'}
+                aria-label={snap.mecha.active ? 'Desmontar Meca' : 'Montar Meca'}
+                className={`w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap ${
+                  snap.mecha.active ? 'bt-btn-amber' : 'bt-btn-secondary'
+                }`}
+              >
+                <Zap className="w-4 h-4 shrink-0" />
+                <span className="hidden md:inline">{snap.mecha.active ? 'Meca ON' : 'Meca'}</span>
+              </button>
+            )}
             <button
               onClick={onOpenMap}
               title="Mapa del subsuelo (M)"
               aria-label="Mapa"
-              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
+              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap"
             >
               <Compass className="w-4 h-4 text-cyan-300" />
               <span className="hidden md:inline">Mapa</span>
@@ -372,7 +387,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   <SlugPortrait speciesId={near.slug.id} mega={near.slug.mega} mood="happy" size={32} />
                   <div className="leading-tight text-xs">
                     <div className="font-extrabold text-white flex items-center gap-1.5">
-                      <span>{near.slug.name}</span>
+                      <span>{getSlugDisplayName(near.slug)}</span>
                       <span className="text-[11px] font-semibold text-teal-300">
                         · {getMoodLabel(near.mood)}
                       </span>

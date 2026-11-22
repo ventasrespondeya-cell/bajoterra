@@ -1,5 +1,5 @@
 import { BIOME_INFO, TILE_PX, getSpecies } from './data';
-import { TileType, type BiomeId, type FurnitureKind } from './types';
+import { TileType, type BiomeId, type FurnitureKind, type MechaTheme } from './types';
 
 function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
@@ -769,6 +769,76 @@ class SpriteAtlas {
         break;
       }
 
+      case 'arachnet': {
+        bob(6, 9, 12, 12, outline);
+        bob(10, 4, 4, 5, '#34d399'); // spinneret crest
+        bob(7, 10, 10, 10, '#10b981');
+        bob(8, 11, 3, 2, '#ecfdf5');
+        bob(9, 15, 6, 5, '#d1fae5');
+        // 4 nimble spider legs
+        bob(3 + stepA, 14, 3, 2, '#065f46');
+        bob(2 + stepA, 16, 2, 3, '#065f46');
+        bob(18 + stepB, 14, 3, 2, '#065f46');
+        bob(20 + stepB, 16, 2, 3, '#065f46');
+        bob(4, 18, 3, 2, '#047857');
+        bob(17, 18, 3, 2, '#047857');
+        break;
+      }
+
+      case 'bubbaleone': {
+        bob(5, 8, 14, 13, outline);
+        bob(8, 3, 8, 5, '#a5f3fc'); // translucent dorsal bubble
+        bob(9, 4, 3, 2, '#ffffff');
+        bob(6, 9, 12, 11, '#06b6d4');
+        bob(7, 10, 3, 2, '#ffffff');
+        bob(8, 15, 8, 5, '#cffafe');
+        bob(5, 14, 2, 2, '#67e8f9'); // foamy cheek
+        bob(17, 14, 2, 2, '#67e8f9');
+        bob(3, 17, 3, 3, '#0891b2');
+        break;
+      }
+
+      case 'rammstone': {
+        bob(4, 9, 16, 13, outline);
+        // Twin curved granite ram horns
+        bob(4, 4, 3, 5, '#78350f');
+        bob(2, 6, 2, 3, '#fbbf24');
+        bob(17, 4, 3, 5, '#78350f');
+        bob(20, 6, 2, 3, '#fbbf24');
+        bob(5, 10, 14, 11, '#d97706');
+        bob(7, 11, 3, 2, '#fffbeb');
+        bob(8, 16, 8, 5, '#fef3c7');
+        // Heavy granite fists
+        bob(3, 17, 3, 3, '#92400e');
+        bob(18, 17, 3, 3, '#92400e');
+        break;
+      }
+
+      case 'fandango': {
+        bob(7, 7, 10, 14, outline);
+        bob(9, 2, 6, 4, '#fef08a'); // harmonic crown
+        bob(4, 12, 3, 4, '#fef08a'); // glowing wing-nodes
+        bob(17, 12, 3, 4, '#fef08a');
+        bob(8, 8, 8, 12, '#10b981');
+        bob(9, 9, 2, 3, '#ffffff');
+        bob(10, 14, 4, 6, '#fef9c3');
+        bob(4, 16, 3, 2, '#34d399');
+        break;
+      }
+
+      case 'armashelt': {
+        bob(4, 9, 16, 13, outline);
+        // Segmented bronze mortar shell plates
+        bob(5, 8, 14, 4, '#b45309');
+        bob(6, 7, 12, 2, '#fb923c');
+        bob(5, 11, 14, 10, '#92400e');
+        bob(7, 11, 3, 2, '#ffedd5');
+        bob(8, 16, 8, 5, '#fed7aa');
+        bob(2, 16, 3, 4, '#78350f');
+        bob(19, 16, 3, 4, '#78350f');
+        break;
+      }
+
       case 'aetherion':
       default: {
         bob(7, 7, 10, 14, outline);
@@ -783,13 +853,22 @@ class SpriteAtlas {
     }
 
     // Expressive eyes & mouth aligned cleanly per species proportions
-    const isLow = speciesId === 'frostcrawler' || speciesId === 'lariat' || speciesId === 'piroclasto';
+    const isLow =
+      speciesId === 'frostcrawler' ||
+      speciesId === 'lariat' ||
+      speciesId === 'piroclasto' ||
+      speciesId === 'rammstone' ||
+      speciesId === 'armashelt';
     const eyeY = isLow ? 13 : 11;
     const eyeLX = isLow ? 8 : 9;
     const eyeRX = isLow ? 14 : 13;
     const lookShift = pose === 'react' ? (f4 === 1 ? -1 : f4 === 3 ? 1 : 0) : 0;
     const eyeDark =
-      speciesId === 'darkfurnus' || speciesId === 'umbrospect' || speciesId === 'piroclasto' || speciesId === 'frostcrawler'
+      speciesId === 'darkfurnus' ||
+      speciesId === 'umbrospect' ||
+      speciesId === 'piroclasto' ||
+      speciesId === 'frostcrawler' ||
+      speciesId === 'armashelt'
         ? '#fde047'
         : '#060c14';
 
@@ -948,6 +1027,76 @@ class SpriteAtlas {
       p(6, 3, 1, 4, '#f0fdfa');
       p(4, 6, 1, 3, '#0d9488');
       p(9, 6, 1, 3, '#0d9488');
+    }
+
+    this.charCache.set(key, c);
+    return c;
+  }
+
+  public getMechaOverlaySprite(
+    theme: MechaTheme,
+    tier: number,
+    facingX: number,
+    facingY: number
+  ): HTMLCanvasElement {
+    const dir = Math.abs(facingX) > Math.abs(facingY) ? (facingX >= 0 ? 'R' : 'L') : facingY < 0 ? 'U' : 'D';
+    const safeTier = Math.max(1, Math.min(3, Math.floor(tier)));
+    const key = `mecha_${theme}_${safeTier}_${dir}`;
+    const existing = this.charCache.get(key);
+    if (existing) return existing;
+
+    const [c, g] = makeCanvas(34, 34);
+    const S = 2;
+    const p = (gx: number, gy: number, gw: number, gh: number, col: string) =>
+      px(g, gx * S, gy * S, gw * S, gh * S, col);
+
+    const chassis =
+      theme === 'molten_core'
+        ? '#b91c1c'
+        : theme === 'shadow_stealth'
+        ? '#581c87'
+        : theme === 'frost_pulse'
+        ? '#0284c7'
+        : '#1d4ed8';
+    const trim =
+      theme === 'molten_core'
+        ? '#fb923c'
+        : theme === 'shadow_stealth'
+        ? '#c084fc'
+        : theme === 'frost_pulse'
+        ? '#67e8f9'
+        : '#38bdf8';
+
+    // Mechanical legs & stabilizer claws
+    p(3, 12, 3, 4, '#0f172a');
+    p(11, 12, 3, 4, '#0f172a');
+    p(2, 15, 4, 1, trim);
+    p(11, 15, 4, 1, trim);
+
+    // Armored chassis platform beneath rider
+    p(4, 7, 9, 6, '#060c14');
+    p(5, 8, 7, 4, chassis);
+    p(5, 8, 7, 1, trim);
+
+    // Tier 2/3 shoulder thrusters & visor
+    if (safeTier >= 2) {
+      p(2, 9, 2, 3, '#334155');
+      p(13, 9, 2, 3, '#334155');
+    }
+    if (safeTier >= 3) {
+      p(1, 10, 1, 2, trim);
+      p(15, 10, 1, 2, trim);
+    }
+
+    // Directional headlight / thruster glow
+    if (dir === 'R') {
+      p(13, 10, 2, 1, '#fef08a');
+    } else if (dir === 'L') {
+      p(2, 10, 2, 1, '#fef08a');
+    } else if (dir === 'D') {
+      p(7, 12, 3, 1, '#fef08a');
+    } else {
+      p(7, 13, 3, 2, trim);
     }
 
     this.charCache.set(key, c);

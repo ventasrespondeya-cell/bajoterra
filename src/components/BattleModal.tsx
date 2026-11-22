@@ -15,7 +15,7 @@ import { ARENA_HEIGHT, ARENA_WIDTH } from '../game/combatArenas';
 import { CombatManager } from '../game/combat';
 import { DuelArenaRenderer } from '../game/combatRenderer';
 import { BIOME_INFO, getElementMultiplier, getSpecies } from '../game/data';
-import { getEffectiveMoveEnergyCost, getMoveMasteryInfo } from '../game/progression';
+import { getEffectiveMoveEnergyCost, getMoveMasteryInfo, getSlugDisplayName } from '../game/progression';
 import { getSlugCombatProfile } from '../game/slugCombatProfiles';
 import type { BattleState, BlasterShotMode, GameState } from '../game/types';
 import { SlugColumn } from './SlugColumn';
@@ -472,7 +472,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-1">
                 <span className="text-xs sm:text-sm font-extrabold text-white truncate">
-                  {ally.name} {ally.mega ? '★' : ''}
+                  {getSlugDisplayName(ally)} {ally.mega ? '★' : ''}
                 </span>
                 <div className="flex items-center gap-1 shrink-0">
                   <span
@@ -705,7 +705,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
             <div className="flex items-center justify-between border-b border-cyan-400/20 pb-2 mb-2.5">
               <span className="text-xs font-extrabold text-white flex items-center gap-1.5">
                 <Backpack className="w-4 h-4 text-amber-300" />
-                Menú Táctico · {ally.name}
+                Menú Táctico · {getSlugDisplayName(ally)}
               </span>
               <button
                 onClick={() => setActionsOpen(false)}

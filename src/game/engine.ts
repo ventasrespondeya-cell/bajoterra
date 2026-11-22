@@ -1,16 +1,27 @@
 import { sound } from './audio';
+import {
+  BLASTER_TOURNAMENTS,
+  HIDDEN_DISCOVERIES,
+  MECHA_THEMES,
+  MECHA_UPGRADES,
+  MERCHANT_EXCHANGE_OFFERS,
+  POSTGAME_CHALLENGES,
+  RIVAL_DUELS,
+  SLUG_RACES,
+  TRAINING_CHALLENGES,
+  ensureMechaState,
+  getMechaSpeedMultiplier,
+} from './activities';
 import { cinematicEvents } from './cinematicEvents';
 import { CombatManager } from './combat';
 import {
   BIOME_INFO,
   BOSS_DEFINITIONS,
   CHUNK_SIZE,
-  CRAFT_RECIPES,
   HOTBAR_SLOTS,
   QUEST_LIST,
   SPAWN_X,
   SPAWN_Y,
-  SPECIES_LIST,
   TILE_PX,
   WORLD_H,
   WORLD_W,
@@ -20,10 +31,20 @@ import {
 } from './data';
 import {
   awardSlugExperience,
+  clearSlugNickname as clearSlugNicknameHelper,
   evolveSlugToMegamorph as evolveSlugToMegamorphHelper,
   findSlugByUidAnywhere,
+  getSlugDisplayName,
+  grantMoveMastery,
   grantSlugBond,
+  setSlugNickname as setSlugNicknameHelper,
 } from './progression';
+import {
+  completeDialogue as completeDialogueHelper,
+  getDialogueById,
+  isPostGameUnlocked,
+  recordJournalEntry as recordJournalEntryHelper,
+} from './progressionManager';
 import { WorldRenderer } from './renderer';
 import {
   checkStorageCapabilities,
@@ -64,9 +85,11 @@ import {
   type HotbarSlot,
   type HudSnapshot,
   type InventoryKey,
+  type MechaTheme,
   type QuestDef,
   type RoamingEntity,
   type RoomValidationInfo,
+  type TrainingRecord,
   type UIScreen,
 } from './types';
 import {
@@ -130,6 +153,13 @@ export class BajoterraEngine {
   private roomsDirty = true;
   private recentChapterAlert: string | null = null;
   private recentChapterAlertTimer = 0;
+  private activeDialogueId: string | null = null;
+  private activeTournament: {
+    tournamentId: string;
+    name: string;
+    roundIndex: number;
+    totalRounds: number;
+  } | null = null;
 
   constructor() {
     ensureHomeState(this.state);
@@ -148,6 +178,28 @@ export class BajoterraEngine {
     }
     if (!Array.isArray(this.state.clearedChallenges)) {
       this.state.clearedChallenges = [];
+    }
+    if (typeof this.state.cavernTokens !== 'number' || !Number.isFinite(this.state.cavernTokens)) {
+      this.state.cavernTokens = 4;
+    }
+    ensureMechaState(this.state);
+    if (!this.state.trainingRecords || typeof this.state.trainingRecords !== 'object') {
+      this.state.trainingRecords = {};
+    }
+    if (!Array.isArray(this.state.clearedTournaments)) {
+      this.state.clearedTournaments = [];
+    }
+    if (!this.state.raceRecords || typeof this.state.raceRecords !== 'object') {
+      this.state.raceRecords = {};
+    }
+    if (!Array.isArray(this.state.journalEntries)) {
+      this.state.journalEntries = ['j_cap1_descenso'];
+    }
+    if (!Array.isArray(this.state.completedDialogues)) {
+      this.state.completedDialogues = [];
+    }
+    if (!Array.isArray(this.state.discoveredSecrets)) {
+      this.state.discoveredSecrets = [];
     }
   }
 
@@ -252,6 +304,7 @@ export class BajoterraEngine {
       })),
       activePartyIndex: this.state.activePartyIndex,
       inventory: { ...this.state.inventory },
+      cavernTokens: this.state.cavernTokens ?? 0,
       selectedHotbar: this.state.selectedHotbar,
       contextualAction: this.getContextualExplorationAction(),
       discoveries: [...this.state.discoveries],
@@ -262,6 +315,24 @@ export class BajoterraEngine {
       eggs: this.state.eggs.map((e) => ({ ...e })),
       shelterTier: this.state.shelterTier,
       home: cloneHomeState(this.state.home),
+      mecha: (() => {
+        const m = ensureMechaState(this.state);
+        return {
+          ...m,
+          unlockedThemes: [...m.unlockedThemes],
+          upgrades: [...m.upgrades],
+        };
+      })(),
+      trainingRecords: Object.fromEntries(
+        Object.entries(this.state.trainingRecords || {}).map(([k, v]) => [k, { ...v }])
+      ),
+      clearedTournaments: [...(this.state.clearedTournaments || [])],
+      raceRecords: Object.fromEntries(
+        Object.entries(this.state.raceRecords || {}).map(([k, v]) => [k, { ...v }])
+      ),
+      journalEntries: [...(this.state.journalEntries || [])],
+      completedDialogues: [...(this.state.completedDialogues || [])],
+      discoveredSecrets: [...(this.state.discoveredSecrets || [])],
       rooms: this.getRoomValidations(false),
       nearbyHomeSlug: nearHome
         ? {
@@ -294,6 +365,8 @@ export class BajoterraEngine {
             effects: [...this.combat.battle.effects],
           }
         : null,
+      activeDialogueId: this.activeDialogueId,
+      activeTournament: this.activeTournament ? { ...this.activeTournament } : null,
       toast: this.toastText,
       hasV4Save: this.hasV4,
       hasV3Save: this.hasV3,
@@ -365,6 +438,8 @@ export class BajoterraEngine {
 
   public startNewGame(): void {
     this.state = createInitialGameState();
+    this.activeDialogueId = null;
+    this.activeTournament = null;
     ensureHomeState(this.state);
     this.ensureExplorationFields();
     ensureStoryState(this.state);
@@ -586,7 +661,7 @@ export class BajoterraEngine {
     if (index < 0 || index >= this.state.party.length) return;
     this.state.activePartyIndex = index;
     sound.playUi();
-    this.notify(`Babosa activa: ${this.state.party[index].name}`);
+    this.notify(`Babosa activa: ${getSlugDisplayName(this.state.party[index])}`);
   }
 
   public updateOptions(patch: Partial<GameOptions>): void {
@@ -817,7 +892,8 @@ export class BajoterraEngine {
       Math.floor(this.state.player.y + 0.5)
     );
     const iceBoost = tileStanding === TileType.ICE_FLOOR ? 1.24 : 1;
-    const speedTilesPerSec = (isSprinting ? 7.6 : 4.9) * iceBoost;
+    const mechaMult = getMechaSpeedMultiplier(this.state);
+    const speedTilesPerSec = (isSprinting ? 7.6 : 4.9) * iceBoost * mechaMult;
 
     const stepX = nxDir * speedTilesPerSec * dt;
     const stepY = nyDir * speedTilesPerSec * dt;
@@ -1013,7 +1089,7 @@ export class BajoterraEngine {
       Magma: 'piroclasto',
       Heladas: 'glaciomita',
       Sombrias: 'umbrospect',
-      Verdes: 'thorny',
+      Verdes: 'musgacorn',
     };
     const levelMap: Record<BiomeId, number> = {
       Verdes: 5,
@@ -1066,7 +1142,7 @@ export class BajoterraEngine {
       this.state.storage.push(baby);
     }
     sound.playCapture();
-    this.notify(`¡Huevo eclosionado! Nació ${baby.name} (${baby.bonusTrait}).`);
+    this.notify(`¡Huevo eclosionado! Nació ${getSlugDisplayName(baby)} (${baby.bonusTrait}).`);
     this.emitHud(true);
   }
 
@@ -1259,7 +1335,7 @@ export class BajoterraEngine {
           contextual: {
             kind: 'interact_slug',
             label: 'Interactuar',
-            detail: nearHome.slug.name,
+            detail: getSlugDisplayName(nearHome.slug),
             canAct: true,
           },
           execute: () => {
@@ -1477,7 +1553,7 @@ export class BajoterraEngine {
     };
     const invKey = keyMap[kind];
     if (this.state.inventory[invKey] <= 0) {
-      this.notify('Sin existencias. Fabrica más en el Taller (I).');
+      this.notify('Sin existencias. Canjea más en el Mercado de Fichas (I).');
       return;
     }
 
@@ -1599,7 +1675,7 @@ export class BajoterraEngine {
       const msgs = awardSlugExperience(this.state, active, 25, { bondDelta: 10 });
       sound.playPulse();
       this.renderer.spawnBurst(tx, ty, '#2dd4bf', 16);
-      this.notify(msgs[0] || `${active.name} absorbe energía del altar (+25 EXP, +10 Amistad).`);
+      this.notify(msgs[0] || `${getSlugDisplayName(active)} absorbe energía del altar (+25 EXP, +10 Amistad).`);
       this.emitHud(true);
     } else {
       this.notify('Altar Antiguo: ofrece 1 Cristal de Energía para fortalecer a tu babosa activa.');
@@ -1619,7 +1695,7 @@ export class BajoterraEngine {
       active.hp = Math.min(active.maxHp, active.hp + 25);
       const bondRes = grantSlugBond(active, 4);
       if (bondRes.tieredUp) {
-        extra = ` ¡${active.name} alcanza ${bondRes.newTier.label}!`;
+        extra = ` ¡${getSlugDisplayName(active)} alcanza ${bondRes.newTier.label}!`;
       }
     }
     sound.playHeal();
@@ -1685,16 +1761,52 @@ export class BajoterraEngine {
   }
 
   private tradeWithMerchant(): void {
-    if (this.state.inventory.ore >= 4) {
-      this.state.inventory.ore -= 4;
-      this.state.inventory.capsules += 2;
-      this.state.inventory.berries += 1;
-      sound.playPickup();
-      this.notify('Mercader: Intercambiaste 4 minerales por 2 Cilindros y 1 Baya.');
-      this.emitHud(true);
-    } else {
-      this.notify('Mercader Subterráneo: "Tráeme 4 minerales y te daré 2 Cilindros y 1 Baya."');
+    const tokens = this.state.cavernTokens ?? 0;
+    this.notify(
+      `Mercader Subterráneo: "Tienes ${tokens} Fichas de Caverna. Abre el Mercado de Fichas en Campaña (I) para canjear suministros y mejoras."`
+    );
+    sound.playUi();
+    this.emitHud(true);
+  }
+
+  public buyMerchantOffer(offerId: string): boolean {
+    this.ensureExplorationFields();
+    const offer = MERCHANT_EXCHANGE_OFFERS.find((o) => o.id === offerId);
+    if (!offer) return false;
+    if (offer.requiredChapterOrder) {
+      const story = ensureStoryState(this.state);
+      const curCh = STORY_CHAPTERS_BY_ID[story.currentChapterId];
+      const maxUnlockedOrder = Object.entries(story.chapterStates).reduce((maxO, [cid, st]) => {
+        if (st === 'active' || st === 'completed') {
+          const ch = STORY_CHAPTERS_BY_ID[cid];
+          return ch ? Math.max(maxO, ch.order) : maxO;
+        }
+        return maxO;
+      }, curCh?.order || 1);
+      if (maxUnlockedOrder < offer.requiredChapterOrder) {
+        this.notify(`Disponible a partir del Capítulo ${offer.requiredChapterOrder}.`);
+        return false;
+      }
     }
+    const tokens = this.state.cavernTokens ?? 0;
+    if (tokens < offer.costTokens) {
+      this.notify(`Necesitas ${offer.costTokens} Fichas de Caverna.`);
+      return false;
+    }
+    if (offer.costRelics && this.state.inventory.relics < offer.costRelics) {
+      this.notify(`Necesitas ${offer.costRelics} Reliquia(s) Antigua(s).`);
+      return false;
+    }
+    this.state.cavernTokens = tokens - offer.costTokens;
+    if (offer.costRelics) {
+      this.state.inventory.relics -= offer.costRelics;
+    }
+    this.state.inventory[offer.outputKey] =
+      (this.state.inventory[offer.outputKey] || 0) + offer.outputQty;
+    sound.playPickup();
+    this.notify(`Canjeado: ${offer.name}`);
+    this.emitHud(true);
+    return true;
   }
 
   private seedInitialEntities(): void {
@@ -1877,7 +1989,7 @@ export class BajoterraEngine {
       enemyKind: ent.kind === 'boss' ? 'boss' : ent.kind === 'mercenary' ? 'mercenary' : 'wild',
       enemyLevel: ent.level,
       allySpeciesId: ally?.id,
-      allyName: ally?.name,
+      allyName: ally ? getSlugDisplayName(ally) : undefined,
       allyMega: ally?.mega,
       loreLine: rivalLore,
       audioCue: ent.kind === 'boss' ? 'boss_ominous' : 'duel_tension',
@@ -1950,24 +2062,27 @@ export class BajoterraEngine {
     this.emitHud(true);
   }
 
-  // Crafting, Breeding, Shelter Upgrades, Quests
-  public craftItem(recipeId: string): boolean {
-    const rec = CRAFT_RECIPES.find((r) => r.id === recipeId);
-    if (!rec) return false;
-    for (const [k, amt] of Object.entries(rec.cost)) {
-      if ((this.state.inventory[k as InventoryKey] || 0) < (amt || 0)) {
-        this.notify('Materiales insuficientes para fabricar.');
-        return false;
-      }
-    }
-    for (const [k, amt] of Object.entries(rec.cost)) {
-      this.state.inventory[k as InventoryKey] -= amt || 0;
-    }
-    this.state.inventory[rec.outputKey] += rec.outputQty;
-    sound.playPickup();
-    this.notify(`Fabricado: ${rec.name}`);
+  // Nicknames, Retired Crafting, Breeding, Shelter Upgrades, RPG Activities & Quests
+  public setSlugNickname(slugUid: string, rawNickname: string): boolean {
+    const res = setSlugNicknameHelper(this.state, slugUid, rawNickname);
+    sound.playUi();
+    this.notify(res.message);
     this.emitHud(true);
-    return true;
+    return res.ok;
+  }
+
+  public clearSlugNickname(slugUid: string): boolean {
+    const res = clearSlugNicknameHelper(this.state, slugUid);
+    sound.playUi();
+    this.notify(res.message);
+    this.emitHud(true);
+    return res.ok;
+  }
+
+  public craftItem(_recipeId: string): boolean {
+    this.notify('La fabricación por minería fue sustituida por Fichas de Caverna y recompensas de Campaña.');
+    sound.playUi();
+    return false;
   }
 
   public useElixirOnSlug(slugUid: string): boolean {
@@ -1980,7 +2095,7 @@ export class BajoterraEngine {
     this.state.inventory.elixirs--;
     const msgs = awardSlugExperience(this.state, slug, 35, { bondDelta: 25, allowTraitBonus: false });
     sound.playCapture();
-    this.notify(msgs[0] || `${slug.name} recibió Elixir (+25 Amistad, +35 EXP).`);
+    this.notify(msgs[0] || `${getSlugDisplayName(slug)} recibió Elixir (+25 Amistad, +35 EXP).`);
     this.emitHud(true);
     return true;
   }
@@ -1991,12 +2106,13 @@ export class BajoterraEngine {
       sound.playMegamorphFanfare();
       const evolved = findSlugByUidAnywhere(this.state, slugUid);
       const sp = evolved ? getSpecies(evolved.id) : null;
+      const displayTitle = evolved ? getSlugDisplayName(evolved) : 'Megamorph';
       cinematicEvents.emit({
         type: 'megamorph_awakened',
-        title: evolved?.name || 'Megamorph',
+        title: displayTitle,
         subtitle: sp?.evoName || 'Forma Megamorph',
         speciesId: evolved?.id,
-        slugName: evolved?.name,
+        slugName: displayTitle,
         slugElement: evolved?.type,
         slugRarity: evolved?.rarity,
         loreLine: sp?.lore,
@@ -2055,8 +2171,8 @@ export class BajoterraEngine {
 
     this.state.eggs.push({
       id: `egg_${Date.now()}`,
-      parentAName: a.name,
-      parentBName: b.name,
+      parentAName: getSlugDisplayName(a),
+      parentBName: getSlugDisplayName(b),
       speciesId,
       stepsRemaining: steps,
       totalSteps: steps,
@@ -2069,25 +2185,20 @@ export class BajoterraEngine {
   }
 
   public upgradeShelter(): boolean {
+    this.ensureExplorationFields();
     if (this.state.shelterTier >= 3) {
       this.notify('Tu refugio ya está al nivel máximo (Nivel 3).');
       return false;
     }
-    const needOre = this.state.shelterTier === 1 ? 10 : 18;
-    const needWood = this.state.shelterTier === 1 ? 8 : 14;
-    const needCrystal = this.state.shelterTier === 1 ? 2 : 5;
-    if (
-      this.state.inventory.ore < needOre ||
-      this.state.inventory.wood < needWood ||
-      this.state.inventory.crystal < needCrystal
-    ) {
-      this.notify(`Necesitas ${needOre} mineral, ${needWood} madera y ${needCrystal} cristal.`);
+    const needTokens = this.state.shelterTier === 1 ? 6 : 10;
+    const tokens = this.state.cavernTokens ?? 0;
+    if (tokens < needTokens) {
+      this.notify(`Necesitas ${needTokens} Fichas de Caverna para mejorar el Refugio.`);
       return false;
     }
-    this.state.inventory.ore -= needOre;
-    this.state.inventory.wood -= needWood;
-    this.state.inventory.crystal -= needCrystal;
+    this.state.cavernTokens = tokens - needTokens;
     this.state.shelterTier++;
+    this.syncStoryProgress();
     sound.playVictory();
     this.notify(
       this.state.shelterTier === 2
@@ -2110,6 +2221,453 @@ export class BajoterraEngine {
     sound.playPulse();
     this.setScreen('PLAYING');
     this.notify('Teletransportado al Refugio Central.');
+  }
+
+  // Mecha System
+  public toggleMecha(): boolean {
+    this.ensureExplorationFields();
+    const mecha = ensureMechaState(this.state);
+    if (!mecha.unlocked) {
+      this.notify('Desbloquea tu Meca Shane completando la misión inicial de Exploración (Cap. 2).');
+      sound.playUi();
+      return false;
+    }
+    mecha.active = !mecha.active;
+    sound.playPulse();
+    this.notify(
+      mecha.active
+        ? `${mecha.name} (Nv.${mecha.tier}) activado · +${Math.round((getMechaSpeedMultiplier(this.state) - 1) * 100)}% velocidad.`
+        : `${mecha.name} guardado en el hangar.`
+    );
+    this.emitHud(true);
+    return true;
+  }
+
+  public selectMechaTheme(themeId: MechaTheme): boolean {
+    this.ensureExplorationFields();
+    const mecha = ensureMechaState(this.state);
+    const theme = MECHA_THEMES.find((t) => t.id === themeId);
+    if (!theme) return false;
+    if (mecha.unlockedThemes.includes(themeId)) {
+      mecha.theme = themeId;
+      sound.playUi();
+      this.notify(`Pintura equipada: ${theme.name}.`);
+      this.emitHud(true);
+      return true;
+    }
+    const tokens = this.state.cavernTokens ?? 0;
+    if (tokens < theme.costTokens) {
+      this.notify(`Necesitas ${theme.costTokens} Fichas para desbloquear ${theme.name}.`);
+      sound.playUi();
+      return false;
+    }
+    this.state.cavernTokens = tokens - theme.costTokens;
+    mecha.unlockedThemes.push(themeId);
+    mecha.theme = themeId;
+    sound.playPickup();
+    this.notify(`Tema ${theme.name} desbloqueado y equipado.`);
+    this.emitHud(true);
+    return true;
+  }
+
+  public upgradeMecha(upgradeId?: string): boolean {
+    this.ensureExplorationFields();
+    const mecha = ensureMechaState(this.state);
+    if (!mecha.unlocked) {
+      this.notify('Desbloquea tu Meca primero en la historia.');
+      return false;
+    }
+    const nextUpgrade = upgradeId
+      ? MECHA_UPGRADES.find((u) => u.id === upgradeId)
+      : MECHA_UPGRADES.find((u) => u.tier === mecha.tier + 1);
+    if (!nextUpgrade) {
+      this.notify('Tu Meca ya cuenta con todas las mejoras disponibles.');
+      return false;
+    }
+    if (mecha.tier >= nextUpgrade.tier) {
+      this.notify(`Tu Meca ya tiene nivel ${mecha.tier}.`);
+      return false;
+    }
+    const story = ensureStoryState(this.state);
+    const maxChOrder = Object.entries(story.chapterStates).reduce((m, [cid, st]) => {
+      if (st === 'active' || st === 'completed') {
+        const ch = STORY_CHAPTERS_BY_ID[cid];
+        return ch ? Math.max(m, ch.order) : m;
+      }
+      return m;
+    }, 1);
+    if (maxChOrder < nextUpgrade.requiredChapterOrder) {
+      this.notify(`Requiere alcanzar el Capítulo ${nextUpgrade.requiredChapterOrder}.`);
+      return false;
+    }
+    const tokens = this.state.cavernTokens ?? 0;
+    if (tokens < nextUpgrade.costTokens) {
+      this.notify(`Necesitas ${nextUpgrade.costTokens} Fichas de Caverna.`);
+      return false;
+    }
+    this.state.cavernTokens = tokens - nextUpgrade.costTokens;
+    mecha.tier = nextUpgrade.tier;
+    mecha.name = nextUpgrade.tier === 2 ? 'Meca Shane M2' : 'Meca Shane M3';
+    if (!mecha.upgrades.includes(nextUpgrade.id)) {
+      mecha.upgrades.push(nextUpgrade.id);
+    }
+    sound.playVictory();
+    this.notify(`¡Meca mejorado a ${nextUpgrade.name}!`);
+    this.emitHud(true);
+    return true;
+  }
+
+  // Dialogues & Journal
+  public openDialogue(dialogueId: string): boolean {
+    const dlg = getDialogueById(dialogueId);
+    if (!dlg) return false;
+    const story = ensureStoryState(this.state);
+    const st = story.chapterStates[dlg.chapterId];
+    if (st !== 'active' && st !== 'completed') {
+      this.notify('Este diálogo pertenece a un capítulo aún bloqueado.');
+      return false;
+    }
+    this.activeDialogueId = dialogueId;
+    sound.playUi();
+    this.emitHud(true);
+    return true;
+  }
+
+  public closeDialogue(): void {
+    this.activeDialogueId = null;
+    this.emitHud(true);
+  }
+
+  public submitDialogueChoice(dialogueId: string, choiceId?: string): boolean {
+    this.ensureExplorationFields();
+    const res = completeDialogueHelper(this.state, dialogueId, choiceId);
+    if (!res.ok) {
+      this.notify(res.message);
+      return false;
+    }
+    this.syncStoryProgress();
+    sound.playPickup();
+    this.notify(res.replyText ? `${res.message} — ${res.replyText}` : res.message);
+    this.emitHud(true);
+    return true;
+  }
+
+  public recordJournalEntry(entryId: string): boolean {
+    this.ensureExplorationFields();
+    const added = recordJournalEntryHelper(this.state, entryId);
+    if (added) this.emitHud(true);
+    return added;
+  }
+
+  // Rivals, Tournaments & Post-Game Battles
+  public startRivalDuel(rivalId: string): boolean {
+    if (this.combat.battle) return false;
+    const rival = RIVAL_DUELS.find((r) => r.id === rivalId);
+    if (!rival) return false;
+    const story = ensureStoryState(this.state);
+    const st = story.chapterStates[rival.chapterId];
+    if (st !== 'active' && st !== 'completed') {
+      this.notify(`Este duelo rival se desbloquea en ${STORY_CHAPTERS_BY_ID[rival.chapterId]?.title || rival.chapterId}.`);
+      return false;
+    }
+    const ally = this.state.party[this.state.activePartyIndex] || this.state.party[0];
+    const sp = getSpecies(rival.speciesId);
+    cinematicEvents.emit({
+      type: 'encounter_intro',
+      title: rival.name,
+      subtitle: `${rival.title} · Nv.${rival.level}`,
+      biome: rival.biome,
+      speciesId: rival.speciesId,
+      slugName: sp.name,
+      slugElement: sp.type,
+      slugRarity: sp.rarity,
+      enemyKind: 'mercenary',
+      enemyLevel: rival.level,
+      allySpeciesId: ally?.id,
+      allyName: ally ? getSlugDisplayName(ally) : undefined,
+      allyMega: ally?.mega,
+      loreLine: rival.introQuote,
+      audioCue: 'duel_tension',
+      skippable: true,
+      priority: 'highlight',
+      dedupeKey: `rival_${rival.id}_${Date.now()}`,
+    });
+    this.screen = 'PLAYING';
+    this.combat.startBattle(this.state, {
+      kind: 'mercenary',
+      speciesId: rival.speciesId,
+      level: rival.level,
+      biome: rival.biome,
+      nameOverride: rival.name,
+      onStateChange: () => this.emitHud(true),
+      onEnd: (ended) => {
+        if (ended?.outcome === 'victory' || ended?.outcome === 'captured') {
+          this.ensureExplorationFields();
+          this.state.cavernTokens = (this.state.cavernTokens ?? 0) + rival.rewardTokens;
+          if (rival.rewardItems) {
+            for (const [k, rawAmt] of Object.entries(rival.rewardItems)) {
+              const amt = typeof rawAmt === 'number' ? rawAmt : 0;
+              if (amt > 0 && k in this.state.inventory) {
+                this.state.inventory[k as InventoryKey] =
+                  (this.state.inventory[k as InventoryKey] || 0) + amt;
+              }
+            }
+          }
+          if (!this.state.clearedChallenges!.includes(rival.id)) {
+            this.state.clearedChallenges!.push(rival.id);
+          }
+          this.notify(`¡Victoria ante ${rival.name}! +${rival.rewardTokens} Fichas. "${rival.victoryQuote}"`);
+        }
+        this.syncStoryProgress();
+        void this.runBackgroundSave('battle');
+        this.emitHud(true);
+      },
+    });
+    this.emitHud(true);
+    return true;
+  }
+
+  public startTournament(tournamentId: string): boolean {
+    if (this.combat.battle) return false;
+    const tour = BLASTER_TOURNAMENTS.find((t) => t.id === tournamentId);
+    if (!tour) return false;
+    const story = ensureStoryState(this.state);
+    const reqState = story.chapterStates[tour.requiredChapterId];
+    const reqOk =
+      tour.requiredChapterId === 'cap_06_ciudadela_blakk'
+        ? isPostGameUnlocked(this.state)
+        : reqState === 'active' || reqState === 'completed';
+    if (!reqOk) {
+      this.notify(`Este torneo requiere avanzar en ${STORY_CHAPTERS_BY_ID[tour.requiredChapterId]?.title || tour.requiredChapterId}.`);
+      return false;
+    }
+    this.screen = 'PLAYING';
+    this.launchTournamentRound(tour.id, 0);
+    return true;
+  }
+
+  private launchTournamentRound(tournamentId: string, roundIndex: number): void {
+    const tour = BLASTER_TOURNAMENTS.find((t) => t.id === tournamentId);
+    if (!tour) {
+      this.activeTournament = null;
+      return;
+    }
+    const round = tour.rounds[roundIndex];
+    if (!round) {
+      this.activeTournament = null;
+      return;
+    }
+    this.activeTournament = {
+      tournamentId: tour.id,
+      name: tour.name,
+      roundIndex,
+      totalRounds: tour.rounds.length,
+    };
+    const isFinal = roundIndex === tour.rounds.length - 1;
+    this.combat.startBattle(this.state, {
+      kind: isFinal ? 'boss' : 'mercenary',
+      speciesId: round.speciesId,
+      level: round.level,
+      biome: tour.biome,
+      nameOverride: `${round.roundName}: ${round.opponentName}`,
+      onStateChange: () => this.emitHud(true),
+      onEnd: (ended) => {
+        const won = ended?.outcome === 'victory' || ended?.outcome === 'captured';
+        if (!won) {
+          this.activeTournament = null;
+          this.notify(`Eliminado en ${round.roundName} de ${tour.name}.`);
+          this.emitHud(true);
+          return;
+        }
+        if (roundIndex + 1 < tour.rounds.length) {
+          this.notify(`¡Superaste ${round.roundName}! Preparando siguiente combate...`);
+          this.launchTournamentRound(tour.id, roundIndex + 1);
+          return;
+        }
+        this.activeTournament = null;
+        this.ensureExplorationFields();
+        if (!this.state.clearedTournaments!.includes(tour.id)) {
+          this.state.clearedTournaments!.push(tour.id);
+        }
+        this.state.cavernTokens = (this.state.cavernTokens ?? 0) + tour.rewardTokens;
+        if (tour.rewardItems) {
+          for (const [k, rawAmt] of Object.entries(tour.rewardItems)) {
+            const amt = typeof rawAmt === 'number' ? rawAmt : 0;
+            if (amt > 0 && k in this.state.inventory) {
+              this.state.inventory[k as InventoryKey] =
+                (this.state.inventory[k as InventoryKey] || 0) + amt;
+            }
+          }
+        }
+        this.awardPlayerXp(45);
+        sound.playVictory();
+        this.notify(`¡Campeón de ${tour.name}! ${tour.rewardSummary}`);
+        this.syncStoryProgress();
+        void this.runBackgroundSave('battle');
+        this.emitHud(true);
+      },
+    });
+    this.emitHud(true);
+  }
+
+  public startPostGameChallenge(challengeId: string): boolean {
+    if (this.combat.battle) return false;
+    if (!isPostGameUnlocked(this.state)) {
+      this.notify('Completa el Capítulo 6 (Ciudadela del Comandante Blakk) para desbloquear el Post-Game.');
+      return false;
+    }
+    const chal = POSTGAME_CHALLENGES.find((c) => c.id === challengeId);
+    if (!chal) return false;
+    this.screen = 'PLAYING';
+    this.combat.startBattle(this.state, {
+      kind: 'boss',
+      speciesId: chal.speciesId,
+      level: chal.level,
+      biome: chal.biome,
+      nameOverride: chal.bossName,
+      onStateChange: () => this.emitHud(true),
+      onEnd: (ended) => {
+        if (ended?.outcome === 'victory' || ended?.outcome === 'captured') {
+          this.ensureExplorationFields();
+          this.state.cavernTokens = (this.state.cavernTokens ?? 0) + chal.rewardTokens;
+          if (chal.rewardItems) {
+            for (const [k, rawAmt] of Object.entries(chal.rewardItems)) {
+              const amt = typeof rawAmt === 'number' ? rawAmt : 0;
+              if (amt > 0 && k in this.state.inventory) {
+                this.state.inventory[k as InventoryKey] =
+                  (this.state.inventory[k as InventoryKey] || 0) + amt;
+              }
+            }
+          }
+          if (!this.state.clearedChallenges!.includes(chal.id)) {
+            this.state.clearedChallenges!.push(chal.id);
+          }
+          sound.playVictory();
+          this.notify(`¡Desafío Post-Game superado: ${chal.title}! ${chal.rewardSummary}`);
+        }
+        this.syncStoryProgress();
+        void this.runBackgroundSave('battle');
+        this.emitHud(true);
+      },
+    });
+    this.emitHud(true);
+    return true;
+  }
+
+  // Training Drills, Races & Hidden Discoveries
+  public completeTrainingChallenge(
+    challengeId: string,
+    score: number
+  ): { ok: boolean; rank: TrainingRecord['bestRank']; message: string; tokensGained: number } {
+    this.ensureExplorationFields();
+    const def = TRAINING_CHALLENGES.find((c) => c.id === challengeId);
+    if (!def) {
+      return { ok: false, rank: 'B', message: 'Desafío no encontrado.', tokensGained: 0 };
+    }
+    const cleanScore = Math.max(0, Math.round(score));
+    const rank: TrainingRecord['bestRank'] =
+      cleanScore >= def.targetScoreS ? 'S' : cleanScore >= def.targetScoreA ? 'A' : 'B';
+
+    const prev = this.state.trainingRecords![challengeId];
+    const rankOrder: Record<TrainingRecord['bestRank'], number> = { B: 1, A: 2, S: 3 };
+    const firstClear = !prev;
+    const firstRankS = rank === 'S' && prev?.bestRank !== 'S';
+
+    this.state.trainingRecords![challengeId] = {
+      bestScore: Math.max(prev?.bestScore || 0, cleanScore),
+      bestRank: prev && rankOrder[prev.bestRank] > rankOrder[rank] ? prev.bestRank : rank,
+      completions: (prev?.completions || 0) + 1,
+    };
+    if (!this.state.clearedChallenges!.includes(challengeId) && (rank === 'A' || rank === 'S')) {
+      this.state.clearedChallenges!.push(challengeId);
+    }
+
+    let tokensGained = 0;
+    if (firstClear) tokensGained += def.rewardTokens;
+    else if (firstRankS) tokensGained += Math.ceil(def.rewardTokens / 2);
+    else if (rank === 'A' || rank === 'S') tokensGained += 1;
+
+    this.state.cavernTokens = (this.state.cavernTokens ?? 0) + tokensGained;
+    const active = this.state.party[this.state.activePartyIndex] || this.state.party[0];
+    if (active) {
+      grantMoveMastery(active, 0, Math.round(def.rewardMastery * 0.6));
+      grantMoveMastery(active, 1, Math.round(def.rewardMastery * 0.4));
+      awardSlugExperience(this.state, active, def.rewardXp, { bondDelta: def.rewardBond });
+    }
+    this.syncStoryProgress();
+    sound.playVictory();
+    const msg = `Entrenamiento "${def.title}" · Rango ${rank} (${cleanScore} pts)${
+      tokensGained > 0 ? ` · +${tokensGained} Fichas` : ''
+    }`;
+    this.notify(msg);
+    this.emitHud(true);
+    return { ok: true, rank, message: msg, tokensGained };
+  }
+
+  public completeSlugRace(
+    raceId: string,
+    timeSec: number,
+    won: boolean
+  ): { ok: boolean; message: string; tokensGained: number } {
+    this.ensureExplorationFields();
+    const race = SLUG_RACES.find((r) => r.id === raceId);
+    if (!race) {
+      return { ok: false, message: 'Circuito no encontrado.', tokensGained: 0 };
+    }
+    const mecha = ensureMechaState(this.state);
+    if (race.requiredMecha && !mecha.unlocked) {
+      this.notify('Necesitas desbloquear tu Meca Shane antes de competir en carreras.');
+      return { ok: false, message: 'Meca bloqueado.', tokensGained: 0 };
+    }
+    const cleanTime = Math.max(1, Math.round(timeSec * 10) / 10);
+    const prev = this.state.raceRecords![raceId];
+    const firstWin = won && !prev?.cleared;
+    this.state.raceRecords![raceId] = {
+      bestTimeSec: prev && prev.bestTimeSec > 0 ? Math.min(prev.bestTimeSec, cleanTime) : cleanTime,
+      cleared: Boolean(prev?.cleared || won),
+      wins: (prev?.wins || 0) + (won ? 1 : 0),
+    };
+    const tokensGained = won ? (firstWin ? race.rewardTokens : 2) : 1;
+    this.state.cavernTokens = (this.state.cavernTokens ?? 0) + tokensGained;
+    if (won) {
+      this.awardPlayerXp(25);
+      sound.playVictory();
+    } else {
+      sound.playUi();
+    }
+    this.syncStoryProgress();
+    const msg = won
+      ? `¡Victoria en ${race.name}! Tiempo ${cleanTime}s · +${tokensGained} Fichas.`
+      : `Carrera completada en ${cleanTime}s (Meta: ${race.parTimeSec}s) · +1 Ficha de práctica.`;
+    this.notify(msg);
+    this.emitHud(true);
+    return { ok: true, message: msg, tokensGained };
+  }
+
+  public discoverSecret(secretId: string): boolean {
+    this.ensureExplorationFields();
+    const sec = HIDDEN_DISCOVERIES.find((s) => s.id === secretId);
+    if (!sec) return false;
+    if (this.state.discoveredSecrets!.includes(secretId)) {
+      this.notify(`Ya registraste "${sec.title}".`);
+      return false;
+    }
+    this.state.discoveredSecrets!.push(secretId);
+    this.state.cavernTokens = (this.state.cavernTokens ?? 0) + sec.rewardTokens;
+    if (sec.rewardItems) {
+      for (const [k, rawAmt] of Object.entries(sec.rewardItems)) {
+        const amt = typeof rawAmt === 'number' ? rawAmt : 0;
+        if (amt > 0 && k in this.state.inventory) {
+          this.state.inventory[k as InventoryKey] =
+            (this.state.inventory[k as InventoryKey] || 0) + amt;
+        }
+      }
+    }
+    this.awardPlayerXp(20);
+    sound.playDiscovery(true);
+    this.notify(`¡Secreto descubierto: ${sec.title}! +${sec.rewardTokens} Fichas.`);
+    this.emitHud(true);
+    return true;
   }
 
   public getQuestMetricValue(metric: QuestDef['metric']): number {
@@ -2136,6 +2694,14 @@ export class BajoterraEngine {
         return this.state.defeatedBosses.length;
       case 'megaUnlocked':
         return this.state.stats.megaUnlocked;
+      case 'challengesCleared':
+        return (this.state.clearedChallenges || []).length + Object.keys(this.state.trainingRecords || {}).length;
+      case 'dialoguesDone':
+        return (this.state.completedDialogues || []).length;
+      case 'tournamentsWon':
+        return (this.state.clearedTournaments || []).length;
+      case 'racesWon':
+        return Object.values(this.state.raceRecords || {}).filter((r) => r.cleared || r.wins > 0).length;
       default:
         return 0;
     }

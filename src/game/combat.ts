@@ -20,6 +20,7 @@ import {
   ensureSlugProgressionFields,
   getEffectiveMoveEnergyCost,
   getMoveMasteryInfo,
+  getSlugDisplayName,
   grantMoveMastery,
 } from './progression';
 import { getSlugCombatProfile } from './slugCombatProfiles';
@@ -379,7 +380,7 @@ export class CombatManager {
     const ally = state.party[state.activePartyIndex];
     if (!ally || ally.hp <= 0) return;
     if (this.battle.allyStatus.stunTimer > 0) {
-      this.pushLog(`${ally.name} aturdida brevemente.`);
+      this.pushLog(`${getSlugDisplayName(ally)} aturdida brevemente.`);
       return;
     }
     this.battle.playerDuelist.charging = true;
@@ -503,7 +504,7 @@ export class CombatManager {
           y: pd.y - 38,
         });
         this.pushShockwave(pd.x, pd.y, 76, '#4ade80', 'heal', mv.name);
-        this.pushLog(`${ally.name}: ${mv.name} (+${healAmt} PS).`);
+        this.pushLog(`${getSlugDisplayName(ally)}: ${mv.name} (+${healAmt} PS).`);
       } else if (mv.effect === 'shield') {
         this.battle.allyStatus.shieldTimer = 4.2;
         this.allyShieldTurns = 2;
@@ -550,7 +551,7 @@ export class CombatManager {
       id: projSeq++,
       owner: 'ally',
       speciesId: sp.id,
-      slugName: ally.name,
+      slugName: getSlugDisplayName(ally),
       element: ally.type,
       mega: ally.mega,
       mode: actualMode,
@@ -781,7 +782,7 @@ export class CombatManager {
     this.allyChillTurns = 0;
     sound.playBlasterSelect();
     this.pushShockwave(this.battle.playerDuelist.x, this.battle.playerDuelist.y, 48, '#2dd4bf', 'transform');
-    this.pushLog(`¡Cámara cargada con ${target.name}!`);
+    this.pushLog(`¡Cámara cargada con ${getSlugDisplayName(target)}!`);
     this.onStateChangeCallback?.();
     return true;
   }
@@ -815,7 +816,7 @@ export class CombatManager {
         x: this.battle.playerDuelist.x,
         y: this.battle.playerDuelist.y - 36,
       });
-      this.pushLog(`${ally.name} recupera ${heal} PS.`);
+      this.pushLog(`${getSlugDisplayName(ally)} recupera ${heal} PS.`);
       this.onStateChangeCallback?.();
       return true;
     }
@@ -833,7 +834,7 @@ export class CombatManager {
         x: this.battle.playerDuelist.x,
         y: this.battle.playerDuelist.y - 36,
       });
-      this.pushLog(`+8 Energía para ${ally.name}.`);
+      this.pushLog(`+8 Energía para ${getSlugDisplayName(ally)}.`);
       this.onStateChangeCallback?.();
       return true;
     }
@@ -1754,7 +1755,7 @@ export class CombatManager {
         b.allyStatus.burnTimer = 0;
         b.allyStatus.chillTimer = 0;
         b.allyStatus.stunTimer = 0;
-        this.pushLog(`¡${ally.name} entra al bláster!`);
+        this.pushLog(`¡${getSlugDisplayName(ally)} entra al bláster!`);
       } else {
         sound.stopDuelMusic();
         state.player.hp = Math.max(20, Math.round(state.player.maxHp * 0.5));
@@ -1828,7 +1829,7 @@ export class CombatManager {
 
     state.player.xp += Math.round(xpGain * 0.5);
 
-    let rewardText = ally ? `+${xpGain} EXP para ${ally.name}.` : `+${xpGain} EXP.`;
+    let rewardText = ally ? `+${xpGain} EXP para ${getSlugDisplayName(ally)}.` : `+${xpGain} EXP.`;
     if (enemy.isBoss && enemy.bossId) {
       if (!state.defeatedBosses.includes(enemy.bossId)) {
         state.defeatedBosses.push(enemy.bossId);
@@ -1837,14 +1838,15 @@ export class CombatManager {
       state.inventory.relics += 2;
       state.inventory.masterCapsules += 1;
       state.inventory.crystal += 3;
-      rewardText = `¡Jefe derrotado! +2 Reliquias, +1 Cilindro Maestro, +3 Cristales.`;
+      state.cavernTokens = (state.cavernTokens || 0) + 4;
+      rewardText = `¡Jefe derrotado! +4 Fichas, +2 Reliquias, +1 Cilindro Maestro.`;
     } else if (enemy.isMercenary) {
-      state.inventory.ore += 5;
+      state.cavernTokens = (state.cavernTokens || 0) + 2;
       state.inventory.capsules += 1;
-      rewardText = `¡Mercenario derrotado! +5 Minerales, +1 Cilindro.`;
+      rewardText = `¡Rival derrotado! +2 Fichas de Caverna, +1 Cilindro.`;
     } else {
-      state.inventory.ore += 2;
-      rewardText = `¡Victoria! +2 Minerales y ${xpGain} EXP.`;
+      state.cavernTokens = (state.cavernTokens || 0) + 1;
+      rewardText = `¡Victoria! +1 Ficha de Caverna y ${xpGain} EXP.`;
     }
 
     if (levelMsgs.length > 0) {

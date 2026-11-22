@@ -1,0 +1,1641 @@
+BAJOTERRA 4.0 — MEGA IMPLEMENTATION PROMPT
+
+Complete Linear Story RPG Transformation, Slug Collection Expansion, Personalization, Living Home, Content Systems and Gameplay Enrichment
+
+You are the lead gameplay engineer, RPG systems architect, technical designer, and implementation agent for Bajoterra 4.0.
+
+Your task is to transform the existing game into a substantial, polished, story-driven Bajoterra RPG inspired by the animated series, while preserving the systems that already work.
+
+This is an implementation task, not merely a proposal or architecture document. Inspect the existing repository, understand the current codebase, implement the systems described below, integrate them into the game, and validate the results.
+
+Do not assume the current architecture matches this prompt exactly. Inspect the actual implementation first and adapt these requirements to existing models, components, save formats, and engine conventions.
+
+Work directly with the existing project. Do not replace functioning systems unnecessarily.
+
+1. CORE CREATIVE DIRECTION
+
+The new identity of Bajoterra 4.0 is:
+
+A classic top-down, linear, story-driven RPG set in the world of Slugterra, with real-time blaster combat, a personal slug collection, a living home base, training, mecha, and substantial narrative content.
+
+The game must no longer feel like a Minecraft/Terraria-style survival, crafting, or sandbox game.
+
+The main experience should be about:
+
+Following a structured story inspired by the animated series.
+
+Exploring interconnected but intentionally gated locations.
+
+Meeting characters, rivals, allies, and antagonists.
+
+Discovering, capturing, collecting, naming, caring for, and training slugs.
+
+Using the existing real-time blaster combat system.
+
+Returning to a personal home base.
+
+Unlocking new areas, slugs, story events, and challenges through progression.
+
+Eventually reaching advanced evolution and Megamorph content.
+
+The game should feel cohesive, memorable, visually rich, and substantial.
+
+Non-negotiable design rules
+
+The main campaign is linear and chapter-based.
+
+The game is not an unrestricted open-world survival sandbox.
+
+Do not convert combat into turn-based combat.
+
+Preserve the existing real-time blaster combat.
+
+Preserve the home/base and slug-care systems.
+
+Preserve training and mecha-related gameplay.
+
+Remove unnecessary resource gathering and crafting loops.
+
+Add persistent custom names for individual slugs.
+
+Make slug species visually and mechanically distinctive.
+
+Evolution and Megamorph must be gated by late-game story progression.
+
+Preserve existing save compatibility and player progress.
+
+Do not invent official canon events, character relationships, slug species, or powers.
+
+2. FIRST: REPOSITORY AUDIT AND IMPLEMENTATION PLAN
+
+Before changing code:
+
+Inspect the current main branch state and project structure.
+
+Review the game engine, state models, save system, progression, inventory, crafting, home, slug collection, combat, mecha, maps, renderer, UI, and tests.
+
+Identify the existing implementations of chapter-like progression, missions, unlock conditions, quests, and events.
+
+Reuse existing functionality whenever possible.
+
+Identify duplicated or conflicting systems before introducing new files.
+
+Review the current V3/V4 save compatibility mechanisms.
+
+Identify every dependency on crafting, gathered resources, recipes, and inventory materials.
+
+Produce a concise internal implementation plan and then proceed with implementation. Do not stop after producing the plan.
+
+Do not blindly overwrite files or replace the engine architecture.
+
+3. LINEAR STORY RPG ARCHITECTURE
+
+Implement a modular chapter-based progression system.
+
+The game should follow the broad chronological progression of the animated series, starting at the beginning and advancing through story chapters.
+
+Use story chapters, missions, locations, events, encounters, and unlock conditions.
+
+The player must have a clear sense of:
+
+Current chapter.
+
+Current mission.
+
+Main objective.
+
+Completed objectives.
+
+Available optional missions.
+
+Locked and unlocked locations.
+
+Story progress.
+
+Important discoveries.
+
+Upcoming story milestones.
+
+The player should not be able to skip essential story chapters accidentally.
+
+Allow backtracking to previously visited locations when appropriate, but do not allow unrestricted access to future story areas.
+
+Optional missions should never block the main story unless explicitly designed as a required prerequisite.
+
+3.1 Required file: src/game/storyTypes.ts
+
+Create:
+
+src/game/storyTypes.ts
+
+Define the core story data structures and related types.
+
+At minimum, include:
+
+StoryChapter
+
+StoryCondition
+
+MissionType
+
+StoryMission
+
+MissionObjective
+
+StoryLocation
+
+StoryReward
+
+StoryCharacter
+
+StoryEvent
+
+ChapterStatus
+
+MissionStatus
+
+Suggested conceptual structure:
+
+export type MissionType =
+  | 'main'
+  | 'side'
+  | 'discovery'
+  | 'capture'
+  | 'training'
+  | 'combat'
+  | 'boss'
+  | 'collection'
+  | 'character';
+
+export type ChapterStatus =
+  | 'locked'
+  | 'available'
+  | 'active'
+  | 'completed';
+
+export type MissionStatus =
+  | 'locked'
+  | 'available'
+  | 'active'
+  | 'completed';
+
+export interface StoryCondition {
+  type: string;
+  targetId?: string;
+  value?: string | number | boolean;
+}
+
+export interface StoryChapter {
+  id: string;
+  title: string;
+  description: string;
+  order: number;
+  prerequisites?: StoryCondition[];
+  missionIds: string[];
+  locationIds: string[];
+  status?: ChapterStatus;
+}
+
+export interface StoryMission {
+  id: string;
+  chapterId: string;
+  title: string;
+  description: string;
+  type: MissionType;
+  prerequisites?: StoryCondition[];
+  objectives: MissionObjective[];
+  rewards?: StoryReward[];
+  optional?: boolean;
+}
+
+These are conceptual examples, not mandatory final schemas.
+
+Adapt them to the project's actual data models, naming conventions, and serialization approach.
+
+Requirements:
+
+Use strongly typed IDs and unions where useful.
+
+Avoid unnecessary any.
+
+Keep story definitions separate from runtime progression state.
+
+Keep static content separate from player save data.
+
+Avoid circular dependencies with the engine.
+
+Do not duplicate existing types if equivalent models already exist.
+
+Make the types extensible for future chapters and missions.
+
+3.2 Required file: src/game/progressionManager.ts
+
+Create:
+
+src/game/progressionManager.ts
+
+This module must manage:
+
+Active chapter.
+
+Chapter locking and unlocking.
+
+Chapter completion.
+
+Mission availability.
+
+Mission activation.
+
+Objective progress.
+
+Mission completion.
+
+Mission rewards.
+
+Prerequisite evaluation.
+
+Story event triggers.
+
+Location unlocking.
+
+Optional mission progression.
+
+Late-game evolution and Megamorph story conditions.
+
+Suggested responsibilities:
+
+getActiveChapter()
+getChapterStatus(chapterId)
+getMissionStatus(missionId)
+evaluateStoryCondition(condition, state)
+canUnlockChapter(chapterId, state)
+unlockAvailableChapters(state)
+activateMission(missionId, state)
+updateMissionObjective(objectiveId, progress, state)
+completeMission(missionId, state)
+getAvailableMissions(state)
+isStoryMilestoneReached(milestoneId, state)
+
+These are conceptual APIs. Match the actual project conventions.
+
+Requirements:
+
+Keep the module modular and testable.
+
+Do not make it depend directly on React components.
+
+Do not place all story logic inside App.tsx.
+
+Do not introduce a second competing progression system.
+
+Integrate with the existing engine state safely.
+
+Use deterministic state transitions.
+
+Make repeated event delivery safe and idempotent.
+
+Avoid granting rewards more than once.
+
+Ensure chapter completion and mission completion persist correctly.
+
+4. REMOVE SURVIVAL-STYLE CRAFTING AND RESOURCE GRIND
+
+The game must no longer depend on Minecraft/Terraria-style resource gathering and crafting loops.
+
+Remove or disable the gameplay loops involving:
+
+Repeated wood gathering.
+
+Stone and mineral gathering for basic construction.
+
+Mining resources just to manufacture everyday objects.
+
+Recipe-based production chains.
+
+Crafting tools and equipment as a central progression requirement.
+
+Repetitive material collection unrelated to the story.
+
+Do not replace one grind system with another.
+
+4.1 Preserve meaningful rewards
+
+Important items and upgrades should instead come from:
+
+Story chapter rewards.
+
+Side missions.
+
+Character rewards.
+
+Exploration discoveries.
+
+Shops and merchants.
+
+Tournament prizes.
+
+Boss rewards.
+
+Collection milestones.
+
+Training achievements.
+
+4.2 Home customization
+
+Keep the home base.
+
+The player should still be able to personalize the home through:
+
+Unlocked furniture.
+
+Decorative rewards.
+
+Habitat upgrades.
+
+Story rewards.
+
+Purchases using an appropriate existing currency, if one already exists.
+
+Special collectibles.
+
+Do not require gathering raw materials and crafting furniture.
+
+Do not remove the current home, resident slugs, habitat, or furniture systems.
+
+If the existing crafting system is deeply connected to saves or other features, implement a safe deprecation or migration strategy instead of deleting data structures abruptly.
+
+4.3 Inventory and legacy save safety
+
+Preserve existing inventory items that have meaningful gameplay value.
+
+Preserve unique equipment and quest items.
+
+Safely migrate or archive obsolete crafting materials.
+
+Do not silently delete player resources.
+
+Do not invalidate existing furniture, home upgrades, or collection rewards.
+
+Remove obsolete crafting UI and gameplay entry points when safe.
+
+Keep the inventory interface focused on useful items, slug-related resources, quest objects, equipment, and rewards.
+
+5. PERSONAL SLUG NAMES
+
+Implement a complete custom slug naming system.
+
+Every individual slug instance must be independently nameable.
+
+A slug must have:
+
+Its species identity.
+
+Its unique instance UID.
+
+Its official species name.
+
+Its player-customized nickname, if set.
+
+Its existing stats, bonds, mastery, progression, and other attributes.
+
+The custom name must never replace the species ID or official species name.
+
+5.1 Naming behavior
+
+Players should be able to:
+
+Give a slug a custom name when appropriate.
+
+Rename it later.
+
+Clear the custom name and restore the official display name.
+
+Use different names for two slugs of the same species.
+
+See their custom names throughout the game.
+
+Provide a clean naming interface in:
+
+Slug detail view.
+
+Collection.
+
+Home/habitat view.
+
+Slug selection.
+
+Battle team selection.
+
+Combat HUD where appropriate.
+
+Babosapedia or slug encyclopedia, where individual ownership is relevant.
+
+5.2 Persistence and identity
+
+Custom names must be stored on the individual slug instance and associated with its stable UID.
+
+They must survive:
+
+Saving and loading.
+
+Game restarts.
+
+Changing active team.
+
+Moving slugs between habitats.
+
+Moving slugs into or out of the home.
+
+Evolution.
+
+Megamorph transformations.
+
+Collection sorting.
+
+Save migration.
+
+Do not store custom names only by species ID.
+
+Do not create duplicate slug instances when renaming.
+
+Do not break existing slug UIDs, stats, bonds, mastery, or progression.
+
+5.3 Validation and UX
+
+Trim leading and trailing whitespace.
+
+Reject empty names when a name is required.
+
+Set a reasonable maximum character limit.
+
+Prevent invalid control characters.
+
+Handle duplicate names gracefully without forcing uniqueness.
+
+Preserve accented characters and supported languages.
+
+Avoid inappropriate or offensive names only if the project already has a suitable validation policy.
+
+Make the rename interaction simple and quick.
+
+Do not add unnecessary confirmation screens.
+
+6. COMPLETE SLUG COLLECTION AND VISUAL CONTENT
+
+The slug collection is one of the main pillars of Bajoterra 4.0.
+
+The goal is to progressively include all relevant slugs from the animated series, with recognizable designs and distinctive gameplay.
+
+Do not fill the collection with recolored versions of the same generic template.
+
+6.1 Canon and content verification
+
+Before adding new species:
+
+Inspect the existing slug catalog.
+
+Identify which species are already implemented.
+
+Identify missing species.
+
+Check names, powers, designs, transformations, and appearances against reliable official or well-supported references when available.
+
+Separate animated-series canon from official video-game-only content.
+
+Separate Ghoul variants and Megamorph forms from ordinary species.
+
+Mark uncertain or unverified information internally.
+
+Never present fan-created material as official canon.
+
+Never invent powers and claim they are official.
+
+If a reference cannot be verified, label the content as unverified or defer it rather than fabricating details.
+
+Respect intellectual property. Create original implementation assets and do not extract copyrighted game files or copy proprietary source assets.
+
+6.2 Individual species identity
+
+Every slug species should have:
+
+Unique silhouette.
+
+Distinct anatomy.
+
+Recognizable colors.
+
+Individual facial features.
+
+Species-specific visual effects.
+
+Unique projectile appearance.
+
+Distinct attack behavior.
+
+Unique transformation presentation.
+
+Appropriate animations.
+
+Collection portrait.
+
+Home behavior.
+
+Combat rendering.
+
+Sound identity where appropriate.
+
+Do not create a single generic slug sprite and merely change its color.
+
+Use the existing art direction and sprite infrastructure.
+
+6.3 Animation requirements
+
+Support appropriate states using the project's existing animation architecture.
+
+Potential states include:
+
+Idle.
+
+Walk.
+
+Happy.
+
+Play.
+
+Eat.
+
+Rest.
+
+Sleep.
+
+React.
+
+Charge.
+
+Fire.
+
+Flight.
+
+Transform.
+
+Attack.
+
+Hit.
+
+KO.
+
+Victory.
+
+Each species should use only states that make sense for its anatomy and abilities.
+
+Use the existing reduced-motion system and respect accessibility preferences.
+
+6.4 Prioritize existing species
+
+Use the already implemented species as quality references.
+
+Do not destabilize existing designs.
+
+Prioritize completing missing official species before adding large amounts of optional content.
+
+Do not invent a final species count until the catalog audit is complete.
+
+7. SLUG PERSONALITY, BONDS, AND DEVELOPMENT
+
+Make owned slugs feel like companions.
+
+Build upon the existing bond, mastery, training, and home systems.
+
+Possible personality traits:
+
+Playful.
+
+Calm.
+
+Curious.
+
+Energetic.
+
+Shy.
+
+Proud.
+
+Mischievous.
+
+Brave.
+
+Personality must not be a superficial random label.
+
+Use it to influence small, coherent behaviors:
+
+Idle animations.
+
+Reactions to the player.
+
+Home interactions.
+
+Training reactions.
+
+Victory behavior.
+
+Occasional social interactions with other slugs.
+
+Keep personality data deterministic and persistent when appropriate.
+
+Do not make every slug require constant maintenance.
+
+The player should feel rewarded for caring for slugs, not punished by repetitive chores.
+
+7.1 Bond development
+
+Build on existing bond progression.
+
+Bond may improve through:
+
+Training.
+
+Successful combat.
+
+Home interactions.
+
+Feeding.
+
+Story moments.
+
+Species-appropriate activities.
+
+Avoid excessive grinding.
+
+Preserve existing bond values and progression.
+
+7.2 Training
+
+Create meaningful training challenges:
+
+Aim and precision.
+
+Projectile timing.
+
+Charge control.
+
+Speed and reaction.
+
+Species-specific ability exercises.
+
+Combat practice.
+
+Training should develop skills and provide rewards without replacing normal story progression.
+
+8. HOME BASE: A LIVING SLUG SANCTUARY
+
+Preserve the current home system and make it feel more alive.
+
+The home is a place to return to between story chapters.
+
+Features:
+
+Slug habitats.
+
+Feeding.
+
+Resting.
+
+Playing.
+
+Social interactions.
+
+Training spaces.
+
+Display areas.
+
+Furniture and decorations.
+
+Slug detail interactions.
+
+Personalized names.
+
+Bond and personality displays.
+
+Visual reactions to the player.
+
+Home improvements should come from progression, rewards, merchants, and discoveries, not raw-material crafting.
+
+Keep existing home limits and save invariants unless there is a clear, safe reason to change them.
+
+Do not introduce excessive simulation or performance-heavy background processes.
+
+Home behavior should respect active game time and existing simulation rules.
+
+9. MECHA AND VEHICLES
+
+Preserve existing mecha functionality.
+
+Expand it where the current architecture supports it.
+
+Potential content:
+
+Story-unlocked mecha.
+
+Vehicle or mecha customization.
+
+Performance upgrades.
+
+Visual upgrades.
+
+Specific story sequences involving mecha.
+
+Optional challenges or races.
+
+Traversal through designated story locations.
+
+Do not introduce a completely separate vehicle simulation engine unless absolutely necessary.
+
+Do not make mecha progression dependent on repetitive crafting.
+
+10. STORY CHARACTERS, RIVALS, AND BOSSES
+
+Build a story content architecture capable of supporting:
+
+Main characters.
+
+Allies.
+
+Recurring rivals.
+
+Merchants.
+
+Quest characters.
+
+Antagonists.
+
+Boss encounters.
+
+Characters should have:
+
+Stable IDs.
+
+Display names.
+
+Descriptions.
+
+Chapter availability.
+
+Dialogue references.
+
+Encounter locations.
+
+Story conditions.
+
+Relevant rewards.
+
+Optional relationship or reputation data if appropriate.
+
+Rivals may reappear later with different slug teams, combat behavior, dialogue, and difficulty.
+
+Bosses should have:
+
+Distinct introductions.
+
+Unique combat patterns.
+
+Multiple phases when appropriate.
+
+Arena mechanics.
+
+Appropriate visual and audio feedback.
+
+Story consequences and rewards.
+
+Do not invent canonical events or character relationships.
+
+When official story details are unavailable, use clearly identified original side content that does not contradict established canon.
+
+11. MISSIONS AND OPTIONAL CONTENT
+
+Create a mission system that supports:
+
+Main story missions.
+
+Side missions.
+
+Discovery missions.
+
+Slug capture missions.
+
+Character missions.
+
+Training missions.
+
+Combat challenges.
+
+Boss missions.
+
+Collection milestones.
+
+Every mission should have:
+
+Clear objective.
+
+Clear completion conditions.
+
+Optional or required status.
+
+Appropriate rewards.
+
+Progress tracking.
+
+Save persistence.
+
+UI representation.
+
+Avoid generic filler missions such as collecting hundreds of identical materials.
+
+Optional content should provide meaningful discoveries, character moments, slug encounters, rewards, and gameplay variety.
+
+12. ADDITIONAL CONTENT SYSTEMS
+
+Implement the foundations for the following activities, prioritizing reuse of existing systems.
+
+12.1 Blaster tournaments
+
+Optional combat competitions.
+
+Increasing difficulty.
+
+Different rival teams.
+
+Distinct arenas.
+
+Reward progression.
+
+Replayability.
+
+12.2 Slug races
+
+Timed courses.
+
+Obstacles.
+
+Speed challenges.
+
+Species-appropriate presentation.
+
+Records and rewards.
+
+Do not create an unrelated racing game engine if a lighter implementation can use existing movement and timing systems.
+
+12.3 Hidden discoveries
+
+Hidden caves.
+
+Secret rooms.
+
+Story documents.
+
+Collectibles.
+
+Rare slug encounters.
+
+Character-related discoveries.
+
+Optional rewards.
+
+12.4 Training challenges
+
+Precision.
+
+Timing.
+
+Charge control.
+
+Speed.
+
+Ability-specific challenges.
+
+Performance ratings.
+
+12.5 Post-game challenges
+
+Create the architecture for optional content after the main campaign:
+
+Rematches against bosses.
+
+Stronger rivals.
+
+Advanced tournaments.
+
+Special slug challenges.
+
+Rare discoveries.
+
+High-level training.
+
+Optional advanced rewards.
+
+Do not unlock late-game content prematurely.
+
+13. BABOSAPEDIA AND COLLECTION JOURNAL
+
+Build on the existing Babosapedia or encyclopedia if available.
+
+It should become a useful in-game reference.
+
+For each species, show:
+
+Official species name.
+
+Player nickname when displaying an owned individual.
+
+Design and portrait.
+
+Description.
+
+Powers and abilities.
+
+Rarity or discovery status.
+
+Known transformations.
+
+Discovery history.
+
+Ownership status.
+
+Relevant story chapter.
+
+Available animation or detail preview where supported.
+
+Also consider a separate adventure journal containing:
+
+Completed chapters.
+
+Missions.
+
+Characters met.
+
+Bosses defeated.
+
+Locations visited.
+
+Discoveries.
+
+Important story milestones.
+
+Do not duplicate the same data in multiple save structures.
+
+14. EVOLUTION AND MEGAMORPH: LATE-GAME CONTENT
+
+Evolution and Megamorph must be treated as advanced story milestones.
+
+The existing level and bond requirements may remain as additional requirements, but they must not be sufficient by themselves if the story has not reached the appropriate milestone.
+
+Implement a story progression gate for advanced transformations.
+
+Requirements:
+
+Preserve existing level requirements.
+
+Preserve bond requirements.
+
+Preserve resource requirements if still appropriate.
+
+Add an explicit story milestone or chapter condition.
+
+Prevent premature transformation.
+
+Show clear locked-state feedback.
+
+Trigger cinematic presentation at the correct moment.
+
+Preserve slug identity, custom name, UID, stats, and progression.
+
+Avoid resetting existing slug data.
+
+Do not invent an exact chapter number without verifying the story structure.
+
+Do not grant Megamorph to every species automatically.
+
+Only support species and forms that have an established basis in the project's verified content catalog.
+
+15. LINEAR TOP-DOWN WORLD AND LOCATIONS
+
+Implement the foundations for a chapter-based world.
+
+The structure should support:
+
+Towns.
+
+Caves.
+
+Underground routes.
+
+Installations.
+
+Arenas.
+
+Character locations.
+
+Story-specific environments.
+
+Secret areas.
+
+Return routes to previously visited places.
+
+Each location should have:
+
+Stable ID.
+
+Chapter association.
+
+Unlock requirements.
+
+Entry and exit connections.
+
+Relevant NPCs.
+
+Encounters.
+
+Missions.
+
+Discoveries.
+
+Visual environment metadata.
+
+Use the existing renderer, collision system, and map infrastructure.
+
+Do not generate a huge procedural open world.
+
+Prioritize handcrafted, curated, story-driven locations.
+
+The player should understand where to go next without excessive map clutter.
+
+16. STORY PRESENTATION AND CINEMATICS
+
+Build upon the existing CinematicDirector and event infrastructure.
+
+Support:
+
+Chapter introductions.
+
+Mission introductions.
+
+Character meetings.
+
+Rival encounters.
+
+Boss introductions.
+
+Slug discoveries.
+
+Important capture moments.
+
+Transformation milestones.
+
+Chapter conclusions.
+
+Use existing cinematic infrastructure wherever possible.
+
+Requirements:
+
+Queue priority.
+
+Event deduplication.
+
+Skip support.
+
+Reduced-motion support.
+
+Mobile and desktop compatibility.
+
+Audio transitions.
+
+No duplicate cinematics after loading a save.
+
+No interruption of critical combat interactions.
+
+Dialogues should support:
+
+Speaker.
+
+Portrait.
+
+Text.
+
+Optional expression.
+
+Optional animation.
+
+Story event triggers.
+
+Choice support only where appropriate.
+
+Do not turn every interaction into a long dialogue sequence.
+
+17. UI AND PLAYER EXPERIENCE
+
+Integrate the new systems into the existing interface.
+
+The player should easily access:
+
+Current chapter and mission.
+
+Story objectives.
+
+Slug collection.
+
+Individual slug detail.
+
+Custom naming.
+
+Active slug team.
+
+Babosapedia.
+
+Home base.
+
+Training.
+
+Map and discovered locations.
+
+Journal.
+
+Optional challenges.
+
+Do not create an excessively cluttered interface.
+
+Keep the current compact controls and keyboard movement.
+
+Preserve:
+
+Existing keyboard controls.
+
+Mobile joystick and touch combat controls.
+
+Existing slug sidebar.
+
+Existing combat HUD.
+
+Responsive layout.
+
+Reduced-motion behavior.
+
+Use contextual actions rather than adding unnecessary permanent buttons.
+
+The interface should communicate progression clearly and consistently.
+
+18. SAVE SYSTEM, MIGRATION, AND REGRESSION SAFETY
+
+This section is mandatory and has higher priority than adding new content.
+
+Preserve existing save compatibility, including V3/V4 formats and all currently supported migration paths.
+
+Do not perform destructive save migrations.
+
+Preserve:
+
+Player UID.
+
+Slug UIDs.
+
+Slug species IDs.
+
+Slug stats.
+
+Bonds.
+
+Mastery.
+
+Evolution state.
+
+Inventory.
+
+Collection.
+
+Home.
+
+Residents.
+
+Furniture.
+
+Currency.
+
+Story progress, where present.
+
+Combat progress.
+
+Existing player settings.
+
+Existing achievements and discoveries.
+
+New data should use safe defaults when loading older saves.
+
+Custom slug names must migrate safely.
+
+Story progression must initialize correctly for old saves without accidentally marking all chapters complete or locking existing progress.
+
+Obsolete crafting resources must not be silently discarded.
+
+Make migrations:
+
+Additive where possible.
+
+Idempotent.
+
+Version-aware.
+
+Validated.
+
+Safe against malformed data.
+
+Do not change stable IDs.
+
+Do not regenerate UIDs.
+
+Do not replace existing player progress with default data.
+
+19. PERFORMANCE, ACCESSIBILITY, AND QUALITY
+
+Preserve the existing reduced-motion implementation.
+
+Support:
+
+OS reduced-motion preference.
+
+In-game reduced-motion option.
+
+Responsive mobile layout.
+
+Desktop layout.
+
+Keyboard navigation where appropriate.
+
+Clear focus states.
+
+Readable text.
+
+Efficient rendering.
+
+Cleanup of event listeners and animation loops.
+
+Avoid:
+
+Excessive React re-renders.
+
+Large unnecessary asset payloads.
+
+Repeated state serialization.
+
+Unbounded event queues.
+
+Duplicate story events.
+
+Expensive per-frame story evaluation.
+
+Unnecessary global state.
+
+20. IMPLEMENTATION STRATEGY
+
+Implement this large task in coordinated internal stages, without stopping after each stage.
+
+Stage A — Audit and architecture
+
+Inspect existing systems.
+
+Identify dependencies and risks.
+
+Implement or adapt storyTypes.ts.
+
+Implement or adapt progressionManager.ts.
+
+Connect story progression to the existing engine state.
+
+Stage B — Story and mission foundation
+
+Add chapter and mission definitions.
+
+Implement chapter state and unlock conditions.
+
+Implement objective progress.
+
+Implement mission completion and rewards.
+
+Implement location unlock conditions.
+
+Integrate the journal and current objective UI.
+
+Stage C — Crafting removal
+
+Audit crafting and resource dependencies.
+
+Remove survival-style gathering and crafting loops.
+
+Replace important progression rewards with story rewards, merchants, missions, and discoveries.
+
+Preserve legacy save data.
+
+Stage D — Individual slug naming
+
+Add per-instance custom names.
+
+Integrate naming into collection, detail, home, team selection, and combat UI.
+
+Add persistence and migration.
+
+Validate identity across transformations.
+
+Stage E — Slug collection and personality
+
+Audit existing species.
+
+Identify missing verified content.
+
+Improve species identity and animations.
+
+Add personality and behavior using existing systems.
+
+Preserve performance.
+
+Stage F — Home, training, and mecha
+
+Improve home interactions.
+
+Integrate slug training.
+
+Improve mecha progression where appropriate.
+
+Remove crafting dependencies from these systems.
+
+Stage G — Story content and activities
+
+Integrate NPCs, rivals, bosses, dialogue, and cinematic events.
+
+Add foundations for tournaments, races, discoveries, and post-game challenges.
+
+Ensure all optional content is properly gated.
+
+Stage H — Evolution and Megamorph gating
+
+Integrate chapter milestone requirements.
+
+Preserve existing requirements.
+
+Test early-game and late-game behavior.
+
+Stage I — UI integration and validation
+
+Integrate all new systems.
+
+Test desktop and mobile layouts.
+
+Test save migrations.
+
+Run tests, type checking, linting, and production build.
+
+Fix regressions before completion.
+
+21. REQUIRED TESTS
+
+Add or update automated tests for at least:
+
+Story architecture
+
+Chapter ordering.
+
+Locked chapters.
+
+Chapter unlocking.
+
+Chapter completion.
+
+Mission prerequisites.
+
+Main and optional mission behavior.
+
+Objective progress.
+
+Duplicate event handling.
+
+Duplicate reward prevention.
+
+Location unlocking.
+
+Custom slug names
+
+Rename a slug.
+
+Clear a nickname.
+
+Two same-species slugs with different names.
+
+Save and reload.
+
+UID preservation.
+
+Team changes.
+
+Home relocation.
+
+Evolution.
+
+Megamorph.
+
+Legacy save migration.
+
+Crafting removal
+
+Obsolete crafting UI is inaccessible.
+
+Important rewards remain obtainable.
+
+Existing furniture and home data remain intact.
+
+Existing inventory survives migration.
+
+Legacy materials are not silently lost.
+
+Slug systems
+
+Species ID integrity.
+
+Distinct species identity.
+
+Personality persistence.
+
+Existing bonds and mastery.
+
+Existing capture and collection behavior.
+
+Megamorph
+
+Locked before the story milestone.
+
+Locked when level requirements fail.
+
+Locked when bond requirements fail.
+
+Available when all conditions are satisfied.
+
+Existing slug data remains intact.
+
+Regression
+
+Existing real-time combat.
+
+Blaster controls.
+
+Keyboard movement.
+
+Mobile controls.
+
+Home.
+
+Collection.
+
+Inventory.
+
+Save/load.
+
+Existing V3/V4 migrations.
+
+Reduced motion.
+
+Cinematic event handling.
+
+22. FINAL ACCEPTANCE CRITERIA
+
+The task is complete only when:
+
+The project has a coherent linear RPG progression architecture.
+
+storyTypes.ts exists or its equivalent is correctly integrated.
+
+progressionManager.ts exists or its equivalent is correctly integrated.
+
+Chapters and missions have real runtime state and persistence.
+
+The survival-style crafting loop has been removed or safely deprecated.
+
+Important items and upgrades remain obtainable through meaningful game activities.
+
+Every individual slug can have a persistent custom name.
+
+Custom names are visible throughout the relevant game interfaces.
+
+Existing slugs retain their unique identities and progression.
+
+Slug species remain visually distinct.
+
+The home remains functional and more companion-focused.
+
+Training and mecha remain functional.
+
+Existing real-time blaster combat is preserved.
+
+Evolution and Megamorph require the appropriate late-game story milestone.
+
+Optional content has a coherent architecture.
+
+Old saves remain compatible.
+
+Automated tests cover the new systems and critical regressions.
+
+TypeScript, lint, and production build complete successfully, if available in the environment.
+
+23. STRICT SCOPE AND SAFETY RULES
+
+Do not:
+
+Convert combat to turn-based.
+
+Rebuild the existing combat system unnecessarily.
+
+Remove the home base.
+
+Remove slug care or training.
+
+Remove mecha functionality.
+
+Reset existing saves.
+
+Change slug UIDs.
+
+Replace species IDs with nicknames.
+
+Delete existing inventory data without a safe migration.
+
+Unlock Megamorph too early.
+
+Generate an unrestricted procedural open world.
+
+Add generic crafting loops under a different name.
+
+Fill the catalog with generic recolored slug sprites.
+
+Invent official canon content.
+
+Copy protected game assets or proprietary source code.
+
+Claim tests passed if they were not executed.
+
+If an existing feature conflicts with this prompt, preserve data and core gameplay first, then implement a safe transition.
+
+If a feature cannot be completed reliably because required canon information or assets are unavailable, implement the correct extensible architecture and clearly document the missing content rather than fabricating it.
+
+24. FINAL REPORT REQUIRED
+
+When implementation is complete, provide a detailed report with:
+
+Repository state and files inspected.
+
+Architecture implemented.
+
+Story progression implementation.
+
+storyTypes.ts and progressionManager.ts details.
+
+Crafting systems removed, disabled, or deprecated.
+
+Custom slug naming implementation.
+
+Slug species added or improved.
+
+Personality and home improvements.
+
+Training and mecha changes.
+
+NPC, mission, boss, and optional-content implementation.
+
+Megamorph story gating.
+
+Save compatibility and migration details.
+
+Tests added and their actual results.
+
+TypeScript, lint, and build results.
+
+Known limitations and incomplete content.
+
+Any manual visual or gameplay QA still required.
+
+Recommended next development priorities.
+
+Distinguish clearly between:
+
+Implemented and verified.
+
+Implemented but not manually verified.
+
+Partially implemented.
+
+Planned but not implemented.
+
+Do not report a test, build, or visual validation as successful unless it was actually executed.
+
+FINAL CREATIVE GOAL
+
+Bajoterra 4.0 should feel like a complete, polished, memorable RPG adventure.
+
+The player should become attached to their slugs, give them personal names, recognize their individual personalities, explore a carefully structured underground world, experience a compelling story, return to a living home, master real-time blaster combat, and gradually unlock the most powerful transformations.
+
+The game should prioritize meaningful content, character, exploration, visual identity, and emotional connection over repetitive grinding.
+
+Build a cohesive game, not a collection of disconnected features.

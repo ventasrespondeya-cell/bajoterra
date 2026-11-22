@@ -249,15 +249,22 @@ const {
 } = await import('../src/game/home.ts');
 const {
   MAX_SLUG_LEVEL,
+  MAX_SLUG_NICKNAME_LENGTH,
+  SLUG_PERSONALITIES,
   awardSlugExperience,
   checkMegamorphEligibility,
+  clearSlugNickname,
   evolveSlugToMegamorph,
   getBondTierInfo,
+  getDeterministicPersonality,
   getEffectiveMoveEnergyCost,
   getMoveMasteryInfo,
+  getSlugDisplayName,
+  getSlugPersonalityInfo,
   getXpForNextLevel,
   grantMoveMastery,
   grantSlugBond,
+  setSlugNickname,
 } = await import('../src/game/progression.ts');
 const { TileType } = await import('../src/game/types.ts');
 const {
@@ -296,6 +303,23 @@ const {
   setStoryFlag,
   travelToScenario,
 } = await import('../src/game/storyEngine.ts');
+const {
+  getAvailableDialogues,
+  getUnlockedJournalEntries,
+  isPostGameUnlocked,
+} = await import('../src/game/progressionManager.ts');
+const {
+  BLASTER_TOURNAMENTS,
+  HIDDEN_DISCOVERIES,
+  MECHA_THEMES,
+  MECHA_UPGRADES,
+  MERCHANT_EXCHANGE_OFFERS,
+  POSTGAME_CHALLENGES,
+  RIVAL_DUELS,
+  SLUG_RACES,
+  TRAINING_CHALLENGES,
+  getMechaSpeedMultiplier,
+} = await import('../src/game/activities.ts');
 
 beforeEach(() => {
   mockLs.clear();
@@ -886,28 +910,21 @@ describe('Bajoterra 4.0 — Regresión permanente de FASE 1 (7 comprobaciones)',
     assert.ok(bmSrc.includes('[handleKeyDown, handleKeyUp, combat]'));
   });
 
-  test('FASE 1.5: Misiones multicondición q_main_1 y q_main_2', () => {
+  test('FASE 1.5: Misiones RPG multicondición q_main_1 y q_main_2', () => {
     gameEngine.startNewGame();
-    const q1 = QUEST_LIST.find((q) => q.id === 'q_main_1')!;
-    const q2 = QUEST_LIST.find((q) => q.id === 'q_main_2')!;
 
-    gameEngine.state.stats.oreMined = 10;
-    gameEngine.state.stats.torchesPlaced = 1;
-    assert.equal(gameEngine.isQuestComplete(q1), false);
+    // q_main_1 -> m_cap1_primeros_pasos requires esc_caverna_descenso visited + 1 duel win
+    gameEngine.state.stats.wins = 1;
     assert.equal(gameEngine.claimQuest('q_main_1'), false);
-
-    gameEngine.state.stats.torchesPlaced = 2;
-    assert.equal(gameEngine.isQuestComplete(q1), true);
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
     assert.equal(gameEngine.claimQuest('q_main_1'), true);
 
-    gameEngine.state.stats.structuresBuilt = 4;
-    gameEngine.state.shelterTier = 1;
-    assert.equal(gameEngine.isQuestComplete(q2), false);
+    // q_main_2 -> m_cap2_constructor_refugio requires esc_pueblo_valle_verde + 2 duel wins -> unlocks Mecha
     assert.equal(gameEngine.claimQuest('q_main_2'), false);
-
-    gameEngine.state.shelterTier = 2;
-    assert.equal(gameEngine.isQuestComplete(q2), true);
+    assert.equal(gameEngine.travelToStoryScenario('esc_pueblo_valle_verde'), true);
+    gameEngine.state.stats.wins = 2;
     assert.equal(gameEngine.claimQuest('q_main_2'), true);
+    assert.equal(gameEngine.state.mecha?.unlocked, true);
   });
 
   test('FASE 1.6 y 1.7: Errata Cañón Estático corregida y soporte file:// en PauseModal', () => {
@@ -1887,17 +1904,28 @@ describe('Bajoterra 4.0 — FASE 5: Expansión del Mundo Subterráneo', () => {
     assert.equal(gameEngine.chunks.getTile(rx, ry + 1), TileType.CHEST_OPEN);
   });
 
-  test('F5.5 Recetas con recursos de bioma y Piedra Evolutiva para Megamorph', () => {
+  test('F5.5 Retiro de crafteo por minería, Mercado de Fichas de Caverna y Piedra Evolutiva para Megamorph', () => {
     gameEngine.startNewGame();
-    // Test biome crafting recipe (masterCapsules_quartz: 2 blueQuartz + 2 darkIron)
-    gameEngine.state.inventory.blueQuartz = 2;
-    gameEngine.state.inventory.darkIron = 2;
-    const mcBefore = gameEngine.state.inventory.masterCapsules;
-    assert.equal(CRAFT_RECIPES.some((r) => r.id === 'masterCapsules_quartz'), true);
-    assert.equal(gameEngine.craftItem('masterCapsules_quartz'), true);
-    assert.equal(gameEngine.state.inventory.masterCapsules, mcBefore + 1);
-    assert.equal(gameEngine.state.inventory.blueQuartz, 0);
-    assert.equal(gameEngine.state.inventory.darkIron, 0);
+    // Survival crafting via mining recipes is retired
+    assert.equal(CRAFT_RECIPES.length, 0);
+    gameEngine.state.inventory.blueQuartz = 4;
+    gameEngine.state.inventory.darkIron = 4;
+    assert.equal(gameEngine.craftItem('masterCapsules_quartz'), false);
+    // Legacy inventory materials remain intact
+    assert.equal(gameEngine.state.inventory.blueQuartz, 4);
+    assert.equal(gameEngine.state.inventory.darkIron, 4);
+
+    // Merchant exchange uses cavernTokens cleanly
+    gameEngine.state.cavernTokens = 10;
+    const capsBefore = gameEngine.state.inventory.capsules;
+    assert.equal(gameEngine.buyMerchantOffer('offer_capsules_pack'), true);
+    assert.equal(gameEngine.state.inventory.capsules, capsBefore + 3);
+    assert.equal(gameEngine.state.cavernTokens, 7);
+
+    // Shelter upgrades use cavernTokens (6 tokens for Tier 2)
+    assert.equal(gameEngine.upgradeShelter(), true);
+    assert.equal(gameEngine.state.shelterTier, 2);
+    assert.equal(gameEngine.state.cavernTokens, 1);
 
     // Test Megamorph using evoStone when elixirs & relics are 0 (with narrative milestone unlocked)
     setStoryFlag(gameEngine.state, MEGAMORPH_NARRATIVE_FLAG, true);
@@ -2038,7 +2066,7 @@ describe('Bajoterra 4.0 — FASE 5: Expansión del Mundo Subterráneo', () => {
 
 describe('Bajoterra 4.0 — FASE 6: Dirección Artística, Sprites de Especies y Renderizado', () => {
   test('F6.1 Sprites por especie, poses y variantes de bioma sin pérdida ni corrupción de datos', () => {
-    assert.equal(SPECIES_LIST.length, 15);
+    assert.equal(SPECIES_LIST.length, 20);
     for (const sp of SPECIES_LIST) {
       const idle = sprites.getSpeciesSlugSprite(sp.id, false, 'idle');
       const rest = sprites.getSpeciesSlugSprite(sp.id, false, 'rest');
@@ -2107,8 +2135,8 @@ describe('Bajoterra 4.0 — FASE 6: Dirección Artística, Sprites de Especies y
 });
 
 describe('Bajoterra 4.0 — FASE 7: Renacimiento Total del Combate (Blásteres, Transformación y Duelos)', () => {
-  test('F7.1 Perfiles físicos y siluetas de transformación diferenciadas para las 15 especies', () => {
-    assert.equal(SPECIES_LIST.length, 15);
+  test('F7.1 Perfiles físicos y siluetas de transformación diferenciadas para las 20 especies', () => {
+    assert.equal(SPECIES_LIST.length, 20);
     const seenSilhouettes = new Set<string>();
     for (const sp of SPECIES_LIST) {
       const p = getSlugCombatProfile(sp);
@@ -2117,9 +2145,9 @@ describe('Bajoterra 4.0 — FASE 7: Renacimiento Total del Combate (Blásteres, 
       assert.ok(p.transformDist >= 80 && p.transformDist <= 200);
       seenSilhouettes.add(p.silhouette);
     }
-    // All 15 species map cleanly to distinct transformation silhouettes
-    assert.equal(seenSilhouettes.size, 15);
-    assert.equal(Object.keys(SLUG_COMBAT_PROFILES).length, 15);
+    // All 20 species map cleanly to distinct transformation silhouettes
+    assert.equal(seenSilhouettes.size, 20);
+    assert.equal(Object.keys(SLUG_COMBAT_PROFILES).length, 20);
     // Light/rail species (Voltrix/Tazerling) must be substantially faster than heavy seismic Lariat
     assert.ok(getSlugCombatProfile('voltrix').maxLaunchSpeed > getSlugCombatProfile('lariat').maxLaunchSpeed + 250);
   });
@@ -2233,7 +2261,7 @@ describe('Bajoterra 4.0 — FASE 7: Renacimiento Total del Combate (Blásteres, 
     cm.closeBattle();
   });
 
-  test('F7.5 Movimiento 2D libre, apuntado simultáneo, acción contextual, 15 especies y 4 arenas', () => {
+  test('F7.5 Movimiento 2D libre, apuntado simultáneo, acción contextual, 20 especies y 4 arenas', () => {
     const state = createInitialGameState();
     const megaInf = createSlugInstance('infurnus', 5);
     megaInf.mega = true;
@@ -3082,7 +3110,7 @@ describe('Bajoterra 4.0 — FASE 10: Dirección Artística Principal, Anatomía 
     }
   });
 
-  test('F10.4 Transformación Velocimorph progresiva y renderizado de combate de las 15 especies en high y eco', () => {
+  test('F10.4 Transformación Velocimorph progresiva y renderizado de combate de las 20 especies en high y eco', () => {
     const cm = new CombatManager();
     const dr = new DuelArenaRenderer();
     const ctx = canvasStub().getContext() as unknown as CanvasRenderingContext2D;
@@ -3422,30 +3450,33 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
     assert.equal(s.chapterStates.cap_03_sombra_agua_oscura, 'locked');
 
     // Cannot claim Cap. 2 mission while Cap. 1 is not completed even if metrics are met
-    gameEngine.state.stats.structuresBuilt = 6;
-    gameEngine.state.shelterTier = 2;
+    gameEngine.state.stats.wins = 2;
     assert.equal(gameEngine.claimStoryMission('m_cap2_constructor_refugio'), false);
     assert.equal(s.chapterStates.cap_02_refugio_banda, 'locked');
 
-    // Complete Cap. 1 main mission -> unlocks Cap. 2 cleanly and awards torches/capsules once
-    const torchesBefore = gameEngine.state.inventory.torches;
+    // Complete Cap. 1 main mission -> unlocks Cap. 2 cleanly and awards tokens/capsules once
     const capsulesBefore = gameEngine.state.inventory.capsules;
-    gameEngine.state.stats.oreMined = 10;
-    gameEngine.state.stats.torchesPlaced = 2;
+    const tokensBefore = gameEngine.state.cavernTokens ?? 0;
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+    gameEngine.state.stats.wins = 1;
     assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
-    assert.equal(gameEngine.state.inventory.torches, torchesBefore + 3);
     assert.equal(gameEngine.state.inventory.capsules, capsulesBefore + 2);
+    // +5 from m_cap1_primeros_pasos +5 from cap_01_descenso chapter completion
+    assert.equal(gameEngine.state.cavernTokens, tokensBefore + 10);
     assert.equal(s.chapterStates.cap_01_descenso, 'completed');
     assert.equal(s.chapterStates.cap_02_refugio_banda, 'active');
     assert.equal(s.currentChapterId, 'cap_02_refugio_banda');
 
     // Duplicate claim fails cleanly and grants 0 extra resources
     assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), false);
-    assert.equal(gameEngine.state.inventory.torches, torchesBefore + 3);
+    assert.equal(gameEngine.state.inventory.capsules, capsulesBefore + 2);
 
-    // Now Cap. 2 mission is active and claimable
+    // Travel to Valle Verde and reach 2 duel wins -> Cap. 2 mission completes and unlocks Mecha
+    assert.equal(gameEngine.travelToStoryScenario('esc_pueblo_valle_verde'), true);
+    gameEngine.state.stats.wins = 2;
     assert.equal(s.missionStates.m_cap2_constructor_refugio, 'active');
     assert.equal(gameEngine.claimStoryMission('m_cap2_constructor_refugio'), true);
+    assert.equal(gameEngine.state.mecha?.unlocked, true);
     assert.equal(s.chapterStates.cap_02_refugio_banda, 'completed');
     assert.equal(s.chapterStates.cap_03_sombra_agua_oscura, 'active');
   });
@@ -3457,17 +3488,17 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
 
     const snap0 = gameEngine.getSnapshot();
     const burpyMission = snap0.story.activeMissions.find((m) => m.id === 'm_char_burpy_vinculo');
-    const sideTorchMission = snap0.story.activeMissions.find((m) => m.id === 'm_side_antorchas');
+    const sideChestMission = snap0.story.activeMissions.find((m) => m.id === 'm_side_antorchas');
     assert.ok(burpyMission && burpyMission.state === 'available');
-    assert.ok(sideTorchMission && sideTorchMission.state === 'available');
+    assert.ok(sideChestMission && sideChestMission.state === 'available');
 
     // Optional mission activation: available -> active -> completed
     assert.equal(activateMission(gameEngine.state, 'm_char_burpy_vinculo'), true);
     assert.equal(gameEngine.state.story!.missionStates.m_char_burpy_vinculo, 'active');
 
     // Complete Cap. 1 WITHOUT completing optional missions -> Cap. 1 advances without being blocked
-    gameEngine.state.stats.oreMined = 10;
-    gameEngine.state.stats.torchesPlaced = 2;
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+    gameEngine.state.stats.wins = 1;
     assert.equal(gameEngine.claimQuest('q_main_1'), true); // synced via legacyQuestId
     assert.equal(gameEngine.state.story!.missionStates.m_cap1_primeros_pasos, 'completed');
     assert.ok(gameEngine.state.claimedQuests.includes('q_main_1'));
@@ -3508,11 +3539,10 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
     assert.equal(gameEngine.state.story!.currentScenarioId, 'esc_refugio_shane');
 
     // Complete Cap. 1 -> unlocks ruta_valle_verde and esc_pueblo_valle_verde
-    gameEngine.state.stats.oreMined = 10;
-    gameEngine.state.stats.torchesPlaced = 2;
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+    gameEngine.state.stats.wins = 1;
     assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
     assert.equal(canAccessRoute(gameEngine.state, 'ruta_valle_verde').allowed, true);
-    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
     assert.equal(gameEngine.travelToStoryScenario('esc_pueblo_valle_verde'), true);
     assert.equal(gameEngine.state.story!.currentScenarioId, 'esc_pueblo_valle_verde');
 
@@ -3526,10 +3556,9 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
   test('12.4 Persistencia V4/V3 y compatibilidad con guardados previos a Fase 12', async () => {
     // 1. Fresh V4 save + reload preserves full story state
     gameEngine.startNewGame();
-    gameEngine.state.stats.oreMined = 10;
-    gameEngine.state.stats.torchesPlaced = 2;
-    assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
     assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+    gameEngine.state.stats.wins = 1;
+    assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
 
     const saveRes = await saveGameV4(gameEngine.state, { reason: 'manual' });
     assert.equal(saveRes.ok, true);
@@ -3555,7 +3584,7 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
     assert.equal(v4Check.value!.story!.chapterStates.cap_02_refugio_banda, 'active');
     assert.equal(v4Check.value!.story!.storyFlags[MEGAMORPH_NARRATIVE_FLAG], undefined);
 
-    // 3. Legacy V3 migration initializes coherent story state
+    // 3. Legacy V3 migration initializes coherent story state & deterministic personality
     const v3Raw = {
       player: { x: 56, y: 56, hp: 100, maxHp: 100, level: 2, xp: 15 },
       party: [{ id: 'infurnus', level: 3, friend: 40 }],
@@ -3567,6 +3596,7 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
     assert.equal(v3Res.ok, true);
     assert.ok(v3Res.value?.story);
     assert.equal(v3Res.value!.story!.currentChapterId, INITIAL_CHAPTER_ID);
+    assert.ok(SLUG_PERSONALITIES.includes(v3Res.value!.party[0].personality!));
 
     // 4. Corrupted `story` object in V4 is cleanly rejected
     const corrupt = createInitialGameState() as unknown as Record<string, unknown>;
@@ -3597,12 +3627,12 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
     assert.equal(slug.mega, false);
 
     // Advance sequentially through Cap 1..5
-    gameEngine.state.stats.oreMined = 10;
-    gameEngine.state.stats.torchesPlaced = 2;
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+    gameEngine.state.stats.wins = 1;
     assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
 
-    gameEngine.state.stats.structuresBuilt = 4;
-    gameEngine.state.shelterTier = 2;
+    assert.equal(gameEngine.travelToStoryScenario('esc_pueblo_valle_verde'), true);
+    gameEngine.state.stats.wins = 2;
     assert.equal(gameEngine.claimStoryMission('m_cap2_constructor_refugio'), true);
 
     gameEngine.state.stats.wins = 3;
@@ -3657,6 +3687,178 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
     assert.equal(snap.party.length, 3);
   });
 });
+
+describe('Bajoterra 4.0 — FASE 13: Nombres Propios, 20 Especies, Personalidad, Mecas y Actividades RPG', () => {
+  test('13.1 Apodo persistente por UID sin alterar SlugSpecies, conservado en Megamorph y validado en V4', async () => {
+    gameEngine.startNewGame();
+    const burpy = gameEngine.state.party[0];
+    const origSpeciesName = getSpecies(burpy.id).name;
+
+    // Default display matches official species name
+    assert.equal(getSlugDisplayName(burpy), origSpeciesName);
+
+    // Set nickname & enforce max length 24
+    assert.equal(gameEngine.setSlugNickname(burpy.uid, '  Burpy   Llamarada  '), true);
+    assert.equal(burpy.nickname, 'Burpy Llamarada');
+    assert.equal(getSlugDisplayName(burpy), 'Burpy Llamarada');
+    assert.equal(getSpecies(burpy.id).name, origSpeciesName);
+    assert.equal(burpy.name, origSpeciesName);
+
+    const tooLong = 'X'.repeat(MAX_SLUG_NICKNAME_LENGTH + 4);
+    assert.equal(gameEngine.setSlugNickname(burpy.uid, tooLong), false);
+    assert.equal(burpy.nickname, 'Burpy Llamarada');
+
+    // Nickname persists through Megamorph evolution
+    setStoryFlag(gameEngine.state, MEGAMORPH_NARRATIVE_FLAG, true);
+    burpy.level = 6;
+    burpy.bond = 75;
+    gameEngine.state.inventory.elixirs = 1;
+    assert.equal(gameEngine.evolveSlugToMegamorph(burpy.uid), true);
+    assert.equal(burpy.mega, true);
+    assert.equal(burpy.nickname, 'Burpy Llamarada');
+    assert.equal(getSlugDisplayName(burpy), 'Burpy Llamarada');
+
+    // Persists across V4 save/load round-trip
+    await saveGameV4(gameEngine.state, { reason: 'manual' });
+    const loaded = await loadGameV4();
+    assert.ok(loaded);
+    assert.equal(loaded.party[0].nickname, 'Burpy Llamarada');
+
+    // Clear nickname restores species display name cleanly
+    assert.equal(clearSlugNickname(gameEngine.state, burpy.uid).ok, true);
+    assert.equal(burpy.nickname, undefined);
+    assert.equal(getSlugDisplayName(burpy), burpy.name);
+  });
+
+  test('13.2 Catálogo ampliado a 20 especies con canonStatus honesto, fichas de arte, sprites y combate', () => {
+    assert.equal(SPECIES_LIST.length, 20);
+    assert.equal(STORY_ORDERED_SPECIES_IDS.length, 20);
+    assert.equal(Object.keys(SLUG_DESIGN_SHEETS).length, 20);
+    assert.equal(Object.keys(SLUG_COMBAT_PROFILES).length, 20);
+
+    const addedIds = ['arachnet', 'bubbaleone', 'rammstone', 'fandango', 'armashelt'] as const;
+    for (const id of addedIds) {
+      const sp = getSpecies(id);
+      assert.equal(sp.id, id);
+      assert.equal(sp.canonStatus, 'serie_canon');
+      assert.equal(sp.specialMoves.length, 2);
+      const sheet = getSlugDesignSheet(id);
+      assert.equal(sheet.speciesId, id);
+      assert.equal(sprites.getSpeciesSlugSprite(id, false, 'idle').width, 24);
+      assert.equal(sprites.getSpeciesSlugSprite(id, true, 'idle').width, 24);
+      const profile = getSlugCombatProfile(sp);
+      assert.equal(profile.speciesId, id);
+    }
+
+    assert.equal(getSpecies('umbrospect').canonStatus, 'adaptacion_juego');
+    assert.equal(getSpecies('aetherion').canonStatus, 'adaptacion_juego');
+  });
+
+  test('13.3 Personalidad persistente y determinista en creación, migración y Hogar Viviente', () => {
+    const init = createInitialGameState();
+    for (const s of init.party) {
+      assert.ok(s.personality && SLUG_PERSONALITIES.includes(s.personality));
+      assert.equal(s.personality, getDeterministicPersonality(s.uid));
+      const pInfo = getSlugPersonalityInfo(s);
+      assert.ok(pInfo.label.length > 0 && pInfo.walkSpeedMult > 0);
+    }
+
+    // Legacy V4 save without personality gets deterministic assignment
+    const legacy = createInitialGameState();
+    delete legacy.party[0].personality;
+    const expected = getDeterministicPersonality(legacy.party[0].uid);
+    const validated = validateV4State(legacy);
+    assert.equal(validated.ok, true);
+    assert.equal(validated.value!.party[0].personality, expected);
+  });
+
+  test('13.4 Progresión de Meca Shane: desbloqueo Cap. 2, montaje, mejoras M2/M3 y multiplicador de velocidad', () => {
+    gameEngine.startNewGame();
+    assert.equal(gameEngine.state.mecha?.unlocked, false);
+    assert.equal(gameEngine.toggleMecha(), false);
+    assert.equal(getMechaSpeedMultiplier(gameEngine.state), 1);
+
+    // Complete Cap. 1 & Cap. 2 -> unlocks Meca Shane M1
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+    gameEngine.state.stats.wins = 1;
+    assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
+    assert.equal(gameEngine.travelToStoryScenario('esc_pueblo_valle_verde'), true);
+    gameEngine.state.stats.wins = 2;
+    assert.equal(gameEngine.claimStoryMission('m_cap2_constructor_refugio'), true);
+
+    assert.equal(gameEngine.state.mecha?.unlocked, true);
+    assert.equal(gameEngine.toggleMecha(), true);
+    assert.equal(gameEngine.state.mecha?.active, true);
+    assert.equal(getMechaSpeedMultiplier(gameEngine.state), 1.18);
+
+    // Advance to Cap. 3+ and upgrade M1 -> M2 -> Cap. 5 M3
+    gameEngine.state.stats.wins = 3;
+    assert.equal(gameEngine.claimStoryMission('m_cap3_rastro_oscuro'), true);
+    gameEngine.state.cavernTokens = 50;
+    assert.equal(gameEngine.upgradeMecha('turbina_caverna_t2'), true);
+    assert.equal(gameEngine.state.mecha?.tier, 2);
+    assert.equal(getMechaSpeedMultiplier(gameEngine.state), 1.32);
+
+    assert.equal(gameEngine.selectMechaTheme(MECHA_THEMES[1].id), true);
+    assert.equal(gameEngine.state.mecha?.theme, MECHA_THEMES[1].id);
+    assert.ok(MECHA_UPGRADES.length >= 2);
+  });
+
+  test('13.5 Entrenamiento, Carreras, Diálogos, Diario, Vestigios y bloqueo Post-Game', async () => {
+    gameEngine.startNewGame();
+
+    // Training drills award B/A/S rank, tokens & mastery
+    const drill = TRAINING_CHALLENGES[0];
+    const rB = gameEngine.completeTrainingChallenge(drill.id, 3);
+    assert.equal(rB.ok, true);
+    assert.equal(rB.rank, 'B');
+    const rS = gameEngine.completeTrainingChallenge(drill.id, drill.targetScoreS + 2);
+    assert.equal(rS.ok, true);
+    assert.equal(rS.rank, 'S');
+    assert.equal(gameEngine.state.trainingRecords?.[drill.id]?.bestRank, 'S');
+
+    // Slug races require Mecha
+    const race = SLUG_RACES[0];
+    assert.equal(gameEngine.completeSlugRace(race.id, 15, true).ok, false);
+    gameEngine.state.mecha!.unlocked = true;
+    const raceRes = gameEngine.completeSlugRace(race.id, 14.5, true);
+    assert.equal(raceRes.ok, true);
+    assert.equal(gameEngine.state.raceRecords?.[race.id]?.cleared, true);
+
+    // Dialogues & Journal
+    const availDlgs = getAvailableDialogues(gameEngine.state);
+    assert.ok(availDlgs.length >= 1);
+    const d0 = availDlgs[0].dialogue;
+    const choiceId = d0.choices?.[0]?.id;
+    assert.equal(gameEngine.submitDialogueChoice(d0.id, choiceId), true);
+    assert.ok(gameEngine.state.completedDialogues?.includes(d0.id));
+    assert.ok(getUnlockedJournalEntries(gameEngine.state).length >= 1);
+
+    // Hidden discoveries
+    const sec0 = HIDDEN_DISCOVERIES[0];
+    assert.equal(gameEngine.discoverSecret(sec0.id), true);
+    assert.equal(gameEngine.discoverSecret(sec0.id), false);
+
+    // Post-Game locked until Cap. 6 completed
+    assert.equal(isPostGameUnlocked(gameEngine.state), false);
+    assert.equal(gameEngine.startPostGameChallenge(POSTGAME_CHALLENGES[0].id), false);
+    assert.equal(gameEngine.startTournament(BLASTER_TOURNAMENTS[2].id), false);
+    assert.ok(RIVAL_DUELS.length >= 3);
+    assert.ok(MERCHANT_EXCHANGE_OFFERS.length >= 10);
+
+    gameEngine.state.story!.chapterStates.cap_06_ciudadela_blakk = 'completed';
+    assert.equal(isPostGameUnlocked(gameEngine.state), true);
+
+    // V4 save/load retains all RPG activity records
+    await saveGameV4(gameEngine.state, { reason: 'manual' });
+    const reloaded = await loadGameV4();
+    assert.ok(reloaded);
+    assert.equal(reloaded.trainingRecords?.[drill.id]?.bestRank, 'S');
+    assert.equal(reloaded.raceRecords?.[race.id]?.cleared, true);
+    assert.ok(reloaded.discoveredSecrets?.includes(sec0.id));
+  });
+});
+
 
 
 

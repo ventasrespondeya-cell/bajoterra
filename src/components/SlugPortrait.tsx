@@ -243,6 +243,71 @@ function getAnatomyGeometry(speciesId: string): AnatomySpec {
         mouthY: 17.2,
         shadowRx: 7.2,
       };
+    case 'arachnet':
+      return {
+        torsoPath:
+          'M10.2 15.8 C10.0 10.8 12.6 9.0 16.0 9.0 C19.4 9.0 22.0 10.8 21.8 15.8 C22.0 20.6 20.6 25.4 18.0 26.3 L14.0 26.3 C11.4 25.4 10.0 20.6 10.2 15.8 Z',
+        bellyPath:
+          'M12.8 18.4 C13.2 16.8 18.8 16.8 19.2 18.4 C19.2 22.4 17.8 25.2 16.0 25.2 C14.2 25.2 12.8 22.4 12.8 18.4 Z',
+        tailPath: 'M11.6 22.6 Q6.4 21.2 7.2 24.4 Q10.0 26.6 13.0 25.4 Z',
+        rimHighlight: 'M11.8 13.0 C12.4 10.8 14.0 10.0 15.8 10.0',
+        eyeLeft: [13.6, 14.2],
+        eyeRight: [18.4, 14.2],
+        mouthY: 16.8,
+        shadowRx: 9.0,
+      };
+    case 'bubbaleone':
+      return {
+        torsoPath:
+          'M8.6 16.4 C8.4 11.0 11.4 9.2 16.0 9.2 C20.6 9.2 23.6 11.0 23.4 16.4 C23.6 21.6 21.8 25.8 18.8 26.6 C17.0 27.0 15.0 27.0 13.2 26.6 C10.2 25.8 8.4 21.6 8.6 16.4 Z',
+        bellyPath:
+          'M11.2 18.4 C11.6 16.6 20.4 16.6 20.8 18.4 C20.8 22.8 19.0 25.8 16.0 25.8 C13.0 25.8 11.2 22.8 11.2 18.4 Z',
+        tailPath: 'M10.4 22.8 Q6.2 21.8 6.6 24.8 Q9.0 26.8 12.6 25.6 Z',
+        rimHighlight: 'M10.4 13.4 C11.2 11.0 13.2 10.2 15.8 10.2',
+        eyeLeft: [13.2, 14.4],
+        eyeRight: [18.8, 14.4],
+        mouthY: 17.0,
+        shadowRx: 9.6,
+      };
+    case 'rammstone':
+      return {
+        torsoPath:
+          'M8.0 16.8 C8.0 11.2 11.2 9.4 16.0 9.4 C20.8 9.4 24.0 11.2 24.0 16.8 C24.0 22.0 22.4 26.0 19.4 26.8 L12.6 26.8 C9.6 26.0 8.0 22.0 8.0 16.8 Z',
+        bellyPath:
+          'M11.0 18.8 L21.0 18.8 L19.8 25.8 L12.2 25.8 Z',
+        tailPath: 'M9.4 22.8 L5.8 24.4 L7.4 26.4 L11.8 25.6 Z',
+        rimHighlight: 'M10.2 13.4 C11.0 11.2 13.0 10.4 15.8 10.4',
+        eyeLeft: [13.2, 14.6],
+        eyeRight: [18.8, 14.6],
+        mouthY: 17.4,
+        shadowRx: 10.4,
+      };
+    case 'fandango':
+      return {
+        torsoPath:
+          'M11.2 15.0 C11.0 10.2 13.2 8.6 16.0 8.6 C18.8 8.6 21.0 10.2 20.8 15.0 C20.8 19.8 20.0 24.4 18.0 26.0 L14.0 26.0 C12.0 24.4 11.2 19.8 11.2 15.0 Z',
+        bellyPath:
+          'M13.2 17.8 C13.4 16.0 18.6 16.0 18.8 17.8 C18.8 22.0 17.7 25.0 16.0 25.0 C14.3 25.0 13.2 22.0 13.2 17.8 Z',
+        tailPath: 'M12.2 22.4 Q7.4 21.4 7.8 24.6 Q10.6 26.4 13.6 25.0 Z',
+        rimHighlight: 'M12.4 12.6 C12.9 10.4 14.2 9.6 16.0 9.6',
+        eyeLeft: [13.8, 13.9],
+        eyeRight: [18.2, 13.9],
+        mouthY: 16.4,
+        shadowRx: 7.6,
+      };
+    case 'armashelt':
+      return {
+        torsoPath:
+          'M7.4 17.4 L9.0 11.2 L13.0 9.4 L19.0 9.4 L23.0 11.2 L24.6 17.4 L22.8 25.6 L19.6 26.8 L12.4 26.8 L9.2 25.6 Z',
+        bellyPath:
+          'M11.2 18.8 L20.8 18.8 L19.6 25.8 L12.4 25.8 Z',
+        tailPath: 'M8.8 22.8 L4.6 23.4 L6.0 26.2 L10.8 25.8 Z',
+        rimHighlight: 'M9.8 13.8 L11.0 11.0 L15.2 10.4',
+        eyeLeft: [13.0, 14.8],
+        eyeRight: [19.0, 14.8],
+        mouthY: 17.4,
+        shadowRx: 10.8,
+      };
     case 'aetherion':
     default:
       return {
@@ -280,7 +345,11 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
   const belly = sheet.palette.belly;
   const shadow = sheet.palette.shadow;
   const highlight = sheet.palette.highlight;
-  const isShadowType = speciesId === 'darkfurnus' || speciesId === 'umbrospect' || speciesId === 'piroclasto';
+  const isShadowType =
+    speciesId === 'darkfurnus' ||
+    speciesId === 'umbrospect' ||
+    speciesId === 'piroclasto' ||
+    speciesId === 'arachnet';
   const irisColor = isShadowType ? sheet.palette.eyeIris : '#061018';
   const uid = `${speciesId}_${mega ? 'm' : 'n'}_${reactId.replace(/:/g, '')}`;
 
@@ -686,6 +755,49 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
           </g>
         )}
 
+        {speciesId === 'arachnet' && (
+          <g>
+            <path d="M10.4 15.0 L5.8 13.2 L4.8 18.2" fill="none" stroke={silOutline} strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M21.6 15.0 L26.2 13.2 L27.2 18.2" fill="none" stroke={silOutline} strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M10.0 18.8 L5.6 18.8 L4.8 23.0" fill="none" stroke={silhouette ? silOutline : secondary} strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M22.0 18.8 L26.4 18.8 L27.2 23.0" fill="none" stroke={silhouette ? silOutline : secondary} strokeWidth="1.5" strokeLinecap="round" />
+            <polygon points="13.8,9.6 16,4.2 18.2,9.6" fill={silhouette ? silInk : secondary} stroke={silOutline} strokeWidth="0.9" />
+          </g>
+        )}
+
+        {speciesId === 'bubbaleone' && (
+          <g>
+            <circle cx="16" cy="6.6" r="3.4" fill={silhouette ? silInk : '#a5f3fc'} fillOpacity="0.82" stroke={silOutline} strokeWidth="0.95" />
+            {!silhouette && <circle cx="14.8" cy="5.4" r="1.0" fill="#ffffff" />}
+            <circle cx="8.8" cy="18.0" r="1.8" fill={silhouette ? silInk : secondary} stroke={silOutline} strokeWidth="0.8" />
+            <circle cx="23.2" cy="18.0" r="1.8" fill={silhouette ? silInk : secondary} stroke={silOutline} strokeWidth="0.8" />
+          </g>
+        )}
+
+        {speciesId === 'rammstone' && (
+          <g>
+            <path d="M11.6 11.4 Q7.2 8.0 6.2 11.6 Q7.8 13.8 9.8 12.6" fill={silhouette ? silInk : '#78350f'} stroke={silOutline} strokeWidth="1.15" strokeLinejoin="round" />
+            <path d="M20.4 11.4 Q24.8 8.0 25.8 11.6 Q24.2 13.8 22.2 12.6" fill={silhouette ? silInk : '#78350f'} stroke={silOutline} strokeWidth="1.15" strokeLinejoin="round" />
+            <circle cx="7.6" cy="20.4" r="2.2" fill={silhouette ? silInk : '#b45309'} stroke={silOutline} strokeWidth="0.95" />
+            <circle cx="24.4" cy="20.4" r="2.2" fill={silhouette ? silInk : '#b45309'} stroke={silOutline} strokeWidth="0.95" />
+          </g>
+        )}
+
+        {speciesId === 'fandango' && (
+          <g>
+            <polygon points="12.8,9.2 16,3.0 19.2,9.2" fill={silhouette ? silInk : '#fef08a'} stroke={silOutline} strokeWidth="0.95" />
+            <ellipse cx="7.8" cy="16.4" rx="2.0" ry="3.2" fill={silhouette ? silInk : '#fef08a'} stroke={silOutline} strokeWidth="0.9" />
+            <ellipse cx="24.2" cy="16.4" rx="2.0" ry="3.2" fill={silhouette ? silInk : '#fef08a'} stroke={silOutline} strokeWidth="0.9" />
+          </g>
+        )}
+
+        {speciesId === 'armashelt' && (
+          <g>
+            <path d="M8.6 12.6 Q16 6.8 23.4 12.6 L21.6 14.4 L10.4 14.4 Z" fill={silhouette ? silInk : '#b45309'} stroke={silOutline} strokeWidth="1.05" strokeLinejoin="round" />
+            <polygon points="14.2,9.2 16,5.2 17.8,9.2" fill={silhouette ? silInk : secondary} stroke={silOutline} strokeWidth="0.9" />
+          </g>
+        )}
+
         {/* Main Differentiated Anatomical Body */}
         <path
           d={geo.torsoPath}
@@ -797,6 +909,18 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
             stroke="#ffffff"
             strokeWidth="0.55"
           />
+        )}
+        {!silhouette && speciesId === 'arachnet' && (
+          <path d="M12.5 21.4 L19.5 21.4 M16 18.8 L16 24.0" stroke="#064e3b" strokeWidth="0.9" strokeLinecap="round" />
+        )}
+        {!silhouette && speciesId === 'bubbaleone' && (
+          <>
+            <circle cx="10.8" cy="17.0" r="1.4" fill="#a5f3fc" opacity="0.9" />
+            <circle cx="21.2" cy="17.0" r="1.4" fill="#a5f3fc" opacity="0.9" />
+          </>
+        )}
+        {!silhouette && speciesId === 'armashelt' && (
+          <path d="M9.6 19.6 L22.4 19.6 M10.6 22.8 L21.4 22.8" stroke="#451a03" strokeWidth="1.05" strokeLinecap="round" />
         )}
 
         {/* Expressive Eyes & Brows (Hidden during silhouette check) */}
