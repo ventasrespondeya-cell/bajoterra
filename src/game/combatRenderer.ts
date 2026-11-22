@@ -220,8 +220,8 @@ export class DuelArenaRenderer {
     this.updateParticles(battle, highLighting, reducedMotion);
 
     ctx.save();
-    // Bounded camera shake on heavy impacts (disabled under reducedMotion)
-    if (!reducedMotion && battle.cameraShake > 0.25) {
+    // Bounded camera shake on heavy impacts (disabled under reducedMotion or when screenShake === false)
+    if (!reducedMotion && options.screenShake !== false && battle.cameraShake > 0.25) {
       const mag = Math.min(4.2, battle.cameraShake);
       const sx = (Math.random() - 0.5) * mag;
       const sy = (Math.random() - 0.5) * mag;
@@ -1146,11 +1146,14 @@ export class DuelArenaRenderer {
       const isCrystalOracle = bossKey === 'boss_crystal' || lowerName.includes('oráculo') || lowerName.includes('prisma');
 
       const hitTint = ed.hitFlash > 0;
-      // Armor / Vest Torso
+      const isMagmaTitan = bossKey === 'boss_magma' || lowerName.includes('piroclasto') || lowerName.includes('titán');
+      const isIceQueen = bossKey === 'boss_ice' || lowerName.includes('glaciomita') || lowerName.includes('reina');
+      const isShadowBoss = bossKey === 'boss_shadow' || lowerName.includes('espectro') || lowerName.includes('abismo');
+
       const bodyFill = hitTint
         ? '#fecaca'
-        : isBlakkArchetype
-        ? '#1f2937'
+        : isBlakkArchetype || isShadowBoss
+        ? '#18181b'
         : isRedHook
         ? '#451a03'
         : isTwist
@@ -1158,12 +1161,16 @@ export class DuelArenaRenderer {
         : isKord
         ? '#1d4ed8'
         : isAquaticLord
-        ? '#0f3d56'
+        ? '#0c4a6e'
+        : isMagmaTitan
+        ? '#29120e'
+        : isIceQueen
+        ? '#155e75'
         : isCrystalOracle
-        ? '#4c1d95'
-        : '#3b0764';
-      const trimColor = isBlakkArchetype
-        ? '#dc2626'
+        ? '#312e81'
+        : '#1e293b';
+      const trimColor = isBlakkArchetype || isShadowBoss
+        ? '#ef4444'
         : isRedHook
         ? '#f59e0b'
         : isTwist
@@ -1172,16 +1179,59 @@ export class DuelArenaRenderer {
         ? '#f97316'
         : isAquaticLord
         ? '#22d3ee'
+        : isMagmaTitan
+        ? '#fb923c'
+        : isIceQueen
+        ? '#a5f3fc'
         : isCrystalOracle
-        ? '#e879f9'
+        ? '#c084fc'
         : '#f43f5e';
 
+      // Boss / Villain Silhouette Mantle or Wings behind torso
+      if (isBoss) {
+        ctx.fillStyle = isAquaticLord
+          ? '#082f49'
+          : isMagmaTitan
+          ? '#431407'
+          : isIceQueen
+          ? '#0e7490'
+          : isCrystalOracle
+          ? '#4c1d95'
+          : '#09090b';
+        ctx.strokeStyle = '#05080f';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-18, -18);
+        ctx.lineTo(-34, isIceQueen ? 26 : -4);
+        ctx.lineTo(-24, 28);
+        ctx.lineTo(24, 28);
+        ctx.lineTo(34, isIceQueen ? 26 : -4);
+        ctx.lineTo(18, -18);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Sculpted Armor / Coat Torso
       ctx.fillStyle = bodyFill;
-      drawRoundedBar(ctx, -18, -19, 36, 43, 10);
+      ctx.beginPath();
+      ctx.moveTo(-19, -18);
+      ctx.lineTo(19, -18);
+      ctx.lineTo(isBoss ? 17 : 14, 22);
+      ctx.lineTo(isBoss ? -17 : -14, 22);
+      ctx.closePath();
       ctx.fill();
       ctx.strokeStyle = trimColor;
       ctx.lineWidth = 2.4;
       ctx.stroke();
+
+      // Chest Core / Emblem
+      if (isBoss) {
+        ctx.fillStyle = trimColor;
+        ctx.beginPath();
+        ctx.arc(0, 2, 5.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       // Diagonal crimson bandolier & high collar for Dr. Blakk (Ref 3)
       if (isBlakkArchetype) {
@@ -1191,7 +1241,6 @@ export class DuelArenaRenderer {
         ctx.moveTo(-14, -18);
         ctx.lineTo(14, 16);
         ctx.stroke();
-        // High crimson collar behind head
         ctx.fillStyle = '#b91c1c';
         ctx.beginPath();
         ctx.moveTo(-16, -15);
@@ -1203,48 +1252,99 @@ export class DuelArenaRenderer {
         ctx.fill();
       }
 
-      // Head & Distinctive Hair / Face
+      // Head & Distinctive Hair / Crown / Helm
       const skinColor = isBlakkArchetype
         ? '#b5c299'
         : isKord
         ? '#60a5fa'
         : isAquaticLord
-        ? '#67e8f9'
+        ? '#38bdf8'
+        : isMagmaTitan
+        ? '#7c2d12'
+        : isIceQueen
+        ? '#cffafe'
         : isCrystalOracle
-        ? '#f5d0fe'
+        ? '#e0e7ff'
+        : isShadowBoss
+        ? '#64748b'
         : '#fde2c4';
       ctx.fillStyle = skinColor;
       ctx.beginPath();
       ctx.arc(0, -26, isBoss ? 13 : 11, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = '#05080f';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
 
-      if (isBlakkArchetype) {
-        // Dark swept villain hair + sharp goatee + fierce brows (Ref 3)
+      if (isAquaticLord) {
+        // Coral crown + fin crest
+        ctx.fillStyle = '#fde047';
+        ctx.beginPath();
+        ctx.moveTo(-10, -33);
+        ctx.lineTo(-14, -45);
+        ctx.lineTo(-4, -37);
+        ctx.lineTo(0, -47);
+        ctx.lineTo(4, -37);
+        ctx.lineTo(14, -45);
+        ctx.lineTo(10, -33);
+        ctx.closePath();
+        ctx.fill();
+      } else if (isMagmaTitan) {
+        // Curved magma horns
+        ctx.fillStyle = '#f97316';
+        ctx.beginPath();
+        ctx.moveTo(-11, -30);
+        ctx.quadraticCurveTo(-24, -42, -16, -20);
+        ctx.moveTo(11, -30);
+        ctx.quadraticCurveTo(24, -42, 16, -20);
+        ctx.fill();
+      } else if (isIceQueen) {
+        // Triple ice spire tiara
+        ctx.fillStyle = '#67e8f9';
+        ctx.beginPath();
+        ctx.moveTo(-9, -34);
+        ctx.lineTo(-12, -46);
+        ctx.lineTo(-3, -38);
+        ctx.lineTo(0, -49);
+        ctx.lineTo(3, -38);
+        ctx.lineTo(12, -46);
+        ctx.lineTo(9, -34);
+        ctx.closePath();
+        ctx.fill();
+      } else if (isCrystalOracle) {
+        // Orbiting prism diamond halo
+        for (let i = 0; i < 3; i++) {
+          const a = time * 2.4 + (i * Math.PI * 2) / 3;
+          const sx = Math.cos(a) * 26;
+          const sy = -22 + Math.sin(a) * 10;
+          ctx.fillStyle = i === 0 ? '#67e8f9' : '#c084fc';
+          ctx.beginPath();
+          ctx.moveTo(sx, sy - 6);
+          ctx.lineTo(sx + 4, sy);
+          ctx.lineTo(sx, sy + 6);
+          ctx.lineTo(sx - 4, sy);
+          ctx.closePath();
+          ctx.fill();
+        }
+      } else if (isBlakkArchetype || isShadowBoss) {
         ctx.fillStyle = '#111827';
         ctx.beginPath();
         ctx.moveTo(-12, -26);
-        ctx.lineTo(-13, -38);
-        ctx.lineTo(0, -43);
-        ctx.lineTo(13, -38);
+        ctx.lineTo(-14, -40);
+        ctx.lineTo(0, -45);
+        ctx.lineTo(14, -40);
         ctx.lineTo(11, -26);
         ctx.lineTo(4, -31);
         ctx.lineTo(-4, -31);
-        ctx.closePath();
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(-4, -15);
-        ctx.lineTo(0, -9);
-        ctx.lineTo(4, -15);
         ctx.closePath();
         ctx.fill();
         ctx.fillStyle = '#ef4444';
         ctx.fillRect(-9, -28, 7, 3.5);
         ctx.fillRect(1, -28, 7, 3.5);
       } else {
-        // Helmet / goggles / crest
         ctx.fillStyle = trimColor;
         ctx.fillRect(-11, -34, 22, 6);
-        ctx.fillStyle = '#fde047';
+        ctx.fillStyle = isRedHook ? '#09090b' : '#fde047';
         ctx.fillRect(-9, -28, 7, 4);
       }
 
@@ -1799,22 +1899,74 @@ export class DuelArenaRenderer {
       return;
     }
 
-    // Standard individualized hulls for the remaining 12 species
+    // Tail silhouette per species anatomy
     ctx.fillStyle = accent;
     ctx.beginPath();
-    ctx.moveTo(-rx + 2, 0);
-    ctx.lineTo(-rx - 7, -4 + wiggle);
-    ctx.lineTo(-rx - 7, 4 + wiggle);
+    if (speciesId === 'aquabeak' || speciesId === 'bubbaleone') {
+      ctx.moveTo(-rx + 2, 0);
+      ctx.quadraticCurveTo(-rx - 9, -6 + wiggle * 0.4, -rx - 10, 0);
+      ctx.quadraticCurveTo(-rx - 9, 6 + wiggle * 0.4, -rx + 2, 2);
+    } else if (speciesId === 'voltrix') {
+      ctx.moveTo(-rx + 2, 0);
+      ctx.lineTo(-rx - 9, -5 + wiggle * 0.6);
+      ctx.lineTo(-rx - 5, 0);
+      ctx.lineTo(-rx - 10, 5 + wiggle * 0.6);
+    } else if (speciesId === 'armashelt' || speciesId === 'rammstone' || speciesId === 'piroclasto') {
+      ctx.moveTo(-rx + 2, -2);
+      ctx.lineTo(-rx - 8, -3);
+      ctx.lineTo(-rx - 9, 4);
+      ctx.lineTo(-rx + 2, 4);
+    } else {
+      ctx.moveTo(-rx + 2, 0);
+      ctx.lineTo(-rx - 7, -4 + wiggle);
+      ctx.lineTo(-rx - 7, 4 + wiggle);
+    }
     ctx.closePath();
     ctx.fill();
 
+    // Distinct anatomical hull shapes (no generic single oval!)
     ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fill();
     ctx.strokeStyle = outline;
     ctx.lineWidth = mega ? 2.1 : 1.7;
-    ctx.stroke();
+    if (speciesId === 'armashelt' || speciesId === 'rammstone' || speciesId === 'lariat') {
+      drawRoundedBar(ctx, -rx, -ry, rx * 2, ry * 2, 5.5);
+      ctx.fill();
+      ctx.stroke();
+      // Armor seam
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-1, -ry + 1);
+      ctx.lineTo(-1, ry - 1);
+      ctx.stroke();
+    } else if (speciesId === 'piroclasto' || speciesId === 'glaciomita') {
+      ctx.beginPath();
+      ctx.moveTo(rx + 1, 0);
+      ctx.lineTo(rx * 0.45, -ry);
+      ctx.lineTo(-rx * 0.65, -ry * 0.85);
+      ctx.lineTo(-rx, 0);
+      ctx.lineTo(-rx * 0.65, ry * 0.85);
+      ctx.lineTo(rx * 0.45, ry);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else if (speciesId === 'umbrospect') {
+      ctx.beginPath();
+      ctx.ellipse(1, -0.5, rx * 0.92, ry * 0.96, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Contrasting belly stripe + rim highlight
+    ctx.fillStyle = sheet.palette.belly;
+    ctx.beginPath();
+    ctx.ellipse(1, ry * 0.45, rx * 0.62, ry * 0.34, 0, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.fillStyle = sheet.palette.highlight;
     ctx.globalAlpha = 0.35;
@@ -1854,7 +2006,7 @@ export class DuelArenaRenderer {
         ctx.fillStyle = '#fde047';
         ctx.beginPath();
         ctx.moveTo(rx - 1, -1);
-        ctx.lineTo(rx + 4, 1);
+        ctx.lineTo(rx + 5, 1);
         ctx.lineTo(rx - 1, 3);
         ctx.closePath();
         ctx.fill();
@@ -1972,14 +2124,25 @@ export class DuelArenaRenderer {
       ctx.fill();
     }
 
-    ctx.fillStyle = '#ffffff';
+    // Eye & Ghoul Fangs
+    const isGhoul = speciesId === 'darkfurnus' || speciesId === 'umbrospect';
+    ctx.fillStyle = isGhoul ? '#ef4444' : '#ffffff';
     ctx.beginPath();
-    ctx.arc(rx * 0.42, -2, 2.7, 0, Math.PI * 2);
+    ctx.arc(rx * 0.42, -2, speciesId === 'doc' || speciesId === 'enigmo' ? 3.4 : 2.7, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = sheet.palette.eyeIris === '#fef08a' ? '#0f172a' : '#060c14';
     ctx.beginPath();
     ctx.arc(rx * 0.48, -2, 1.4, 0, Math.PI * 2);
     ctx.fill();
+    if (isGhoul) {
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(rx * 0.45, 2);
+      ctx.lineTo(rx * 0.55, 5);
+      ctx.lineTo(rx * 0.65, 2);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   private drawTransformedSilhouette(

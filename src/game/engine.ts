@@ -27,9 +27,16 @@ import {
   WORLD_H,
   WORLD_W,
   createSlugInstance,
+  getElementMultiplier,
   getSpecies,
   pickWeightedSpeciesByBiome,
 } from './data';
+import {
+  findActionForKey,
+  isMovementHeld,
+  resolveEffectiveBindings,
+} from './inputManager';
+import { getSlugCombatProfile } from './slugCombatProfiles';
 import {
   awardSlugExperience,
   clearSlugNickname as clearSlugNicknameHelper,
@@ -92,6 +99,7 @@ import {
   type RoomValidationInfo,
   type TrainingRecord,
   type UIScreen,
+  type WorldProjectile,
 } from './types';
 import {
   STORY_CHAPTERS_BY_ID,
@@ -125,6 +133,7 @@ export class BajoterraEngine {
   public renderer = new WorldRenderer();
   public combat = new CombatManager();
   public entities: RoamingEntity[] = [];
+  public worldProjectiles: WorldProjectile[] = [];
 
   private canvas: HTMLCanvasElement | null = null;
   private minimapCanvas: HTMLCanvasElement | null = null;
@@ -140,6 +149,17 @@ export class BajoterraEngine {
   private keysHeld = new Set<string>();
   private joyVec = { x: 0, y: 0 };
   private touchSprinting = false;
+  private worldAimAngle = Math.PI * 0.5;
+  private playerVx = 0;
+  private playerVy = 0;
+  private playerDodgeTimer = 0;
+  private playerDodgeCooldown = 0;
+  private playerDodgeVx = 0;
+  private playerDodgeVy = 0;
+  private playerInvulnTimer = 0;
+  private worldFireCooldown = 0;
+  private worldAbilityCooldowns: Record<string, number> = {};
+  private worldProjSeq = 1;
   private toastText = '';
   private toastTimer = 0;
   private hasV4 = false;
@@ -376,6 +396,24 @@ export class BajoterraEngine {
       hasV4Save: this.hasV4,
       hasV3Save: this.hasV3,
       pulseCooldownPct: Math.max(0, Math.min(1, 1 - this.pulseCooldown / this.pulseMaxCooldown)),
+      worldCombat: (() => {
+        const activeSlug = this.state.party[this.state.activePartyIndex] || this.state.party[0];
+        const activeSp = activeSlug ? getSpecies(activeSlug.id) : null;
+        return {
+          aimAngle: this.worldAimAngle,
+          dodgeCooldown: this.playerDodgeCooldown,
+          dodgeMaxCooldown: 1.1,
+          dodging: this.playerDodgeTimer > 0,
+          fireCooldown: this.worldFireCooldown,
+          ability1Cooldown: this.getWorldAbilityCooldown(0),
+          ability2Cooldown: this.getWorldAbilityCooldown(1),
+          ability1Name: activeSp?.specialMoves[0]?.name || 'Habilidad 1',
+          ability2Name: activeSp?.specialMoves[1]?.name || 'Habilidad 2',
+          ability1Cost: activeSp?.specialMoves[0]?.energyCost || 4,
+          ability2Cost: activeSp?.specialMoves[1]?.energyCost || 6,
+          projectileCount: this.worldProjectiles.length,
+        };
+      })(),
     };
   }
 
@@ -453,6 +491,14 @@ export class BajoterraEngine {
     this.invalidateRoomCache();
     this.autoSaveErrorNotified = false;
     this.applyOptionsToAudio();
+    this.worldProjectiles = [];
+    this.playerVx = 0;
+    this.playerVy = 0;
+    this.playerDodgeTimer = 0;
+    this.playerDodgeCooldown = 0;
+    this.playerInvulnTimer = 0;
+    this.worldFireCooldown = 0;
+    this.worldAbilityCooldowns = {};
     this.chunks.reset(this.state.worldSeed, this.state.tilesDelta);
     this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
     this.renderer.resetCamera(this.state.player.x, this.state.player.y);
@@ -687,7 +733,13 @@ export class BajoterraEngine {
       return;
     }
     const key = e.key.toLowerCase();
-    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
+    const bindings = resolveEffectiveBindings(this.state.options.keyBindings);
+    const boundAction = findActionForKey(key, bindings);
+    if (
+      ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'tab'].includes(key) ||
+      (boundAction !== null &&
+        ['inventory', 'dodge', 'moveUp', 'moveDown', 'moveLeft', 'moveRight'].includes(boundAction))
+    ) {
       e.preventDefault();
     }
 
@@ -704,35 +756,51 @@ export class BajoterraEngine {
       return;
     }
 
-    if (key === 'escape') {
+    if (key === 'escape' || boundAction === 'pause') {
       if (this.screen === 'PLAYING') this.setScreen('PAUSED');
       else this.setScreen('PLAYING');
       return;
     }
 
     if (this.screen !== 'PLAYING') {
-      if (key === 'i' || key === 'tab') this.setScreen('PLAYING');
-      if (key === 'm' && this.screen === 'FULL_MAP') this.setScreen('PLAYING');
+      if (key === 'i' || key === 'tab' || boundAction === 'inventory') this.setScreen('PLAYING');
+      if ((key === 'm' || boundAction === 'map') && this.screen === 'FULL_MAP') this.setScreen('PLAYING');
       return;
     }
 
     // Edge-triggered actions
     if (!e.repeat) {
-      if (key >= '1' && key <= String(HOTBAR_SLOTS.length)) {
-        const idx = Number(key) - 1;
-        this.setHotbar(idx);
-      } else if (key === 'f') {
+      const action = boundAction;
+      if (action === 'slug1' || key === '1') {
+        if (this.state.party.length > 0) this.setActivePartyIndex(0);
+      } else if (action === 'slug2' || key === '2') {
+        if (this.state.party.length > 1) this.setActivePartyIndex(1);
+      } else if (action === 'slug3' || key === '3') {
+        if (this.state.party.length > 2) this.setActivePartyIndex(2);
+      } else if (action === 'slug4' || key === '4') {
+        if (this.state.party.length > 3) this.setActivePartyIndex(3);
+      } else if (key === 'f' || action === 'interact') {
         this.performPrimaryAction();
-      } else if (key === ' ') {
+      } else if (action === 'dodge' || key === ' ') {
+        this.triggerDodge();
+      } else if (action === 'ability1') {
+        this.triggerWorldAbility(0);
+      } else if (action === 'ability2') {
+        this.triggerWorldAbility(1);
+      } else if (action === 'pulse') {
         this.triggerExplorationPulse();
-      } else if (key === 'i' || key === 'tab') {
+      } else if (action === 'fire') {
+        this.fireWorldBlaster('quick');
+      } else if (action === 'secondary') {
+        this.performSecondaryOverworldAction();
+      } else if (key === 'i' || key === 'tab' || action === 'inventory') {
         this.setScreen('EXPEDITION');
-      } else if (key === 'm') {
+      } else if (action === 'map' || key === 'm') {
         this.setScreen('FULL_MAP');
-      } else if (key === 'q') {
+      } else if (action === 'cycleSlug' || key === 'q') {
         const nextIdx = (this.state.activePartyIndex + 1) % this.state.party.length;
         this.setActivePartyIndex(nextIdx);
-      } else if (key === 'v' && this.state.mecha?.unlocked) {
+      } else if ((key === 'v' || action === 'mecha') && this.state.mecha?.unlocked) {
         this.toggleMecha();
       }
     }
@@ -748,6 +816,8 @@ export class BajoterraEngine {
     this.keysHeld.clear();
     this.joyVec = { x: 0, y: 0 };
     this.touchSprinting = false;
+    this.playerVx = 0;
+    this.playerVy = 0;
   }
 
   public setJoystick(x: number, y: number): void {
@@ -756,6 +826,16 @@ export class BajoterraEngine {
 
   public setTouchSprint(active: boolean): void {
     this.touchSprinting = active;
+  }
+
+  public handleCanvasPointerMove(clientX: number, clientY: number): void {
+    if (this.screen !== 'PLAYING' || this.combat.battle || !this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const dxPx = clientX - rect.left - rect.width / 2;
+    const dyPx = clientY - rect.top - rect.height / 2;
+    if (Math.hypot(dxPx, dyPx) > 6) {
+      this.worldAimAngle = Math.atan2(dyPx, dxPx);
+    }
   }
 
   public handleCanvasClick(clientX: number, clientY: number): void {
@@ -767,13 +847,52 @@ export class BajoterraEngine {
     const dyPx = cy - rect.height / 2;
     if (Math.hypot(dxPx, dyPx) > 10) {
       const ang = Math.atan2(dyPx, dxPx);
+      this.worldAimAngle = ang;
       this.state.player.facingX = Math.round(Math.cos(ang));
       this.state.player.facingY = Math.round(Math.sin(ang));
       if (this.state.player.facingX === 0 && this.state.player.facingY === 0) {
         this.state.player.facingY = 1;
       }
     }
-    this.performPrimaryAction();
+    const resolved = this.resolvePrimaryInteraction();
+    const worldInteractKinds = [
+      'talk',
+      'combat',
+      'discover_secret',
+      'inspect_gate',
+      'open_door',
+      'close_door',
+      'open_chest',
+      'break_secret',
+      'recharge',
+      'altar',
+      'pickup_furniture',
+      'interact_slug',
+    ];
+    if (worldInteractKinds.includes(resolved.contextual.kind)) {
+      resolved.execute();
+    } else {
+      this.fireWorldBlaster('quick');
+    }
+  }
+
+  public handleCanvasSecondary(clientX: number, clientY: number): void {
+    if (this.screen !== 'PLAYING' || this.combat.battle) return;
+    this.handleCanvasPointerMove(clientX, clientY);
+    this.performSecondaryOverworldAction();
+  }
+
+  public performSecondaryOverworldAction(): void {
+    const resolved = this.resolvePrimaryInteraction();
+    if (resolved.contextual.kind === 'pulse' || resolved.contextual.kind === 'berry' || resolved.contextual.kind === 'place_station') {
+      resolved.execute();
+      return;
+    }
+    if (this.state.inventory.berries > 0 && this.state.player.hp < this.state.player.maxHp * 0.7) {
+      this.useQuickBerry();
+      return;
+    }
+    this.triggerExplorationPulse();
   }
 
   private getTargetTile(): { x: number; y: number } {
@@ -806,6 +925,15 @@ export class BajoterraEngine {
     if (this.pulseCooldown > 0) {
       this.pulseCooldown = Math.max(0, this.pulseCooldown - dt);
     }
+    if (this.playerDodgeTimer > 0) this.playerDodgeTimer = Math.max(0, this.playerDodgeTimer - dt);
+    if (this.playerDodgeCooldown > 0) this.playerDodgeCooldown = Math.max(0, this.playerDodgeCooldown - dt);
+    if (this.playerInvulnTimer > 0) this.playerInvulnTimer = Math.max(0, this.playerInvulnTimer - dt);
+    if (this.worldFireCooldown > 0) this.worldFireCooldown = Math.max(0, this.worldFireCooldown - dt);
+    for (const k of Object.keys(this.worldAbilityCooldowns)) {
+      if (this.worldAbilityCooldowns[k] > 0) {
+        this.worldAbilityCooldowns[k] = Math.max(0, this.worldAbilityCooldowns[k] - dt);
+      }
+    }
 
     if (this.screen === 'TITLE') {
       this.timeSec += dt;
@@ -826,7 +954,13 @@ export class BajoterraEngine {
         void this.runBackgroundSave('autosave');
       }
 
+      const activeSlug = this.state.party[this.state.activePartyIndex];
+      if (activeSlug && activeSlug.energy < activeSlug.maxEnergy) {
+        activeSlug.energy = Math.min(activeSlug.maxEnergy, activeSlug.energy + dt * 1.15);
+      }
+
       this.updatePlayerMovement(dt);
+      this.updateWorldProjectiles(dt);
       this.updateEntities(dt);
       const playerNearShelter = Math.hypot(this.state.player.x - SPAWN_X, this.state.player.y - SPAWN_Y) <= 22;
       updateHomeResidents(dt, this.state, this.chunks, this.getRoomValidations(false), playerNearShelter);
@@ -858,18 +992,168 @@ export class BajoterraEngine {
     const vh = this.canvas.height / this.dpr;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const target = this.screen === 'PLAYING' && !this.combat.battle ? this.getTargetTile() : null;
-    this.renderer.renderWorld(ctx, vw, vh, this.timeSec, this.state, this.chunks, this.entities, target);
+    this.renderer.renderWorld(
+      ctx,
+      vw,
+      vh,
+      this.timeSec,
+      this.state,
+      this.chunks,
+      this.entities,
+      target,
+      this.worldProjectiles,
+      this.screen === 'PLAYING' && !this.combat.battle
+        ? {
+            aimAngle: this.worldAimAngle,
+            dodging: this.playerDodgeTimer > 0,
+            invuln: this.playerInvulnTimer > 0,
+          }
+        : undefined
+    );
+  }
+
+  public triggerDodge(dirX?: number, dirY?: number): boolean {
+    if (this.screen !== 'PLAYING' || this.combat.battle) return false;
+    if (this.playerDodgeCooldown > 0) return false;
+
+    let dx = dirX ?? 0;
+    let dy = dirY ?? 0;
+    if (Math.hypot(dx, dy) < 0.1) {
+      const held = isMovementHeld(this.keysHeld, this.state.options.keyBindings);
+      dx = held.x + this.joyVec.x;
+      dy = held.y + this.joyVec.y;
+    }
+    const mag = Math.hypot(dx, dy);
+    if (mag < 0.1) {
+      dx = Math.cos(this.worldAimAngle);
+      dy = Math.sin(this.worldAimAngle);
+    } else {
+      dx /= mag;
+      dy /= mag;
+    }
+
+    const dashSpd = 12.4 * getMechaSpeedMultiplier(this.state);
+    this.playerDodgeVx = dx * dashSpd;
+    this.playerDodgeVy = dy * dashSpd;
+    this.playerDodgeTimer = 0.18;
+    this.playerDodgeCooldown = 1.1;
+    this.playerInvulnTimer = 0.26;
+    sound.playBlasterSelect();
+    this.renderer.spawnBurst(Math.round(this.state.player.x), Math.round(this.state.player.y), '#5eead4', 8);
+    this.emitHud(true);
+    return true;
+  }
+
+  public getWorldAbilityCooldown(slotIdx: 0 | 1): number {
+    const active = this.state.party[this.state.activePartyIndex];
+    if (!active) return 0;
+    const sp = getSpecies(active.id);
+    const mv = sp.specialMoves[slotIdx];
+    return mv ? Math.max(0, this.worldAbilityCooldowns[`${active.uid}_${mv.id}`] || 0) : 0;
+  }
+
+  public triggerWorldAbility(slotIdx: 0 | 1): boolean {
+    if (this.screen !== 'PLAYING' || this.combat.battle) return false;
+    return Boolean(this.fireWorldBlaster(slotIdx === 0 ? 'ability1' : 'ability2'));
+  }
+
+  public fireWorldBlaster(mode: 'quick' | 'ability1' | 'ability2' = 'quick'): WorldProjectile | null {
+    if (this.screen !== 'PLAYING' || this.combat.battle) return null;
+    const ally = this.state.party[this.state.activePartyIndex] || this.state.party[0];
+    if (!ally) return null;
+    const sp = getSpecies(ally.id);
+    const profile = getSlugCombatProfile(sp);
+
+    if (mode === 'quick' && this.worldFireCooldown > 0) return null;
+
+    let moveId: string | undefined;
+    let moveEffect: WorldProjectile['moveEffect'];
+    let powerMult = 1.0;
+
+    if (mode === 'ability1' || mode === 'ability2') {
+      const idx = mode === 'ability1' ? 0 : 1;
+      const mv = sp.specialMoves[idx];
+      const cdKey = `${ally.uid}_${mv.id}`;
+      const cd = this.worldAbilityCooldowns[cdKey] || 0;
+      if (cd > 0) {
+        this.notify(`${mv.name} recargándose (${cd.toFixed(1)}s).`);
+        return null;
+      }
+      if (ally.energy < mv.energyCost) {
+        this.notify(`Energía insuficiente para ${mv.name} (${mv.energyCost} EN).`);
+        return null;
+      }
+      ally.energy -= mv.energyCost;
+      this.worldAbilityCooldowns[cdKey] = Math.max(2.2, mv.cooldown * 1.4);
+      moveId = mv.id;
+      moveEffect = mv.effect;
+      powerMult = mv.power > 0 ? mv.power : 0.85;
+
+      if (mv.effect === 'heal') {
+        const healAmt = Math.max(14, Math.round(this.state.player.maxHp * 0.25));
+        this.state.player.hp = Math.min(this.state.player.maxHp, this.state.player.hp + healAmt);
+        ally.hp = Math.min(ally.maxHp, ally.hp + healAmt);
+        sound.playHeal();
+        this.renderer.spawnBurst(Math.round(this.state.player.x), Math.round(this.state.player.y), '#4ade80', 14);
+        this.renderer.addFloatingText(Math.round(this.state.player.x), Math.round(this.state.player.y), `+${healAmt} PS`, '#4ade80');
+        this.emitHud(true);
+        return null;
+      }
+      if (mv.effect === 'shield') {
+        this.playerInvulnTimer = Math.max(this.playerInvulnTimer, 2.2);
+        sound.playShieldBlock(true);
+        this.renderer.spawnBurst(Math.round(this.state.player.x), Math.round(this.state.player.y), '#38bdf8', 12);
+        this.renderer.addFloatingText(Math.round(this.state.player.x), Math.round(this.state.player.y), 'Escudo activo', '#38bdf8');
+        this.emitHud(true);
+        return null;
+      }
+    }
+
+    const angle = this.worldAimAngle;
+    const speedTiles = Math.max(9.5, (profile.baseLaunchSpeed / 36) * (mode === 'quick' ? 1 : 1.18));
+    const spawnX = this.state.player.x + Math.cos(angle) * 0.65;
+    const spawnY = this.state.player.y + Math.sin(angle) * 0.65;
+    const baseDmg = Math.max(
+      12,
+      Math.round(ally.atk * powerMult * (ally.mega ? 1.2 : 1) * (mode === 'quick' ? 0.9 : 1.35))
+    );
+
+    const wp: WorldProjectile = {
+      id: this.worldProjSeq++,
+      owner: 'ally',
+      speciesId: sp.id,
+      element: sp.type,
+      mode,
+      moveId,
+      moveEffect,
+      x: spawnX,
+      y: spawnY,
+      vx: Math.cos(angle) * speedTiles,
+      vy: Math.sin(angle) * speedTiles,
+      radiusTiles: Math.max(0.28, (profile.hitboxRadius / TILE_PX) * (mode === 'quick' ? 1 : 1.2)),
+      damage: baseDmg,
+      rangeTilesLeft: mode === 'quick' ? 11.5 : 15,
+      traveledTiles: 0,
+      transformDistTiles: Math.max(1.6, profile.transformDist / 48),
+      phase: 'protoform',
+      bouncesLeft: profile.bounces,
+      homing: profile.homing,
+      pierceLeft: moveEffect === 'pierce' ? 2 : 0,
+      trail: [{ x: spawnX, y: spawnY }],
+      alive: true,
+    };
+
+    this.worldProjectiles.push(wp);
+    this.worldFireCooldown = Math.max(0.24, profile.reloadSec);
+    sound.playBlasterFire(mode !== 'quick', false);
+    this.emitHud(true);
+    return wp;
   }
 
   private updatePlayerMovement(dt: number): void {
-    let dx = 0;
-    let dy = 0;
-    if (this.keysHeld.has('w') || this.keysHeld.has('arrowup')) dy -= 1;
-    if (this.keysHeld.has('s') || this.keysHeld.has('arrowdown')) dy += 1;
-    if (this.keysHeld.has('a') || this.keysHeld.has('arrowleft')) dx -= 1;
-    if (this.keysHeld.has('d') || this.keysHeld.has('arrowright')) dx += 1;
-    dx += this.joyVec.x;
-    dy += this.joyVec.y;
+    const held = isMovementHeld(this.keysHeld, this.state.options.keyBindings);
+    const dx = held.x + this.joyVec.x;
+    const dy = held.y + this.joyVec.y;
 
     const mag = Math.hypot(dx, dy);
     const wantSprint = this.keysHeld.has('shift') || this.touchSprinting;
@@ -884,18 +1168,6 @@ export class BajoterraEngine {
       this.state.player.stamina = Math.min(this.state.player.maxStamina, this.state.player.stamina + 16 * dt);
     }
 
-    if (mag < 0.12) return;
-
-    const nxDir = dx / mag;
-    const nyDir = dy / mag;
-    if (Math.abs(nxDir) > Math.abs(nyDir)) {
-      this.state.player.facingX = nxDir >= 0 ? 1 : -1;
-      this.state.player.facingY = 0;
-    } else {
-      this.state.player.facingX = 0;
-      this.state.player.facingY = nyDir >= 0 ? 1 : -1;
-    }
-
     const tileStanding = this.chunks.getTile(
       Math.floor(this.state.player.x + 0.5),
       Math.floor(this.state.player.y + 0.5)
@@ -904,14 +1176,47 @@ export class BajoterraEngine {
     const mechaMult = getMechaSpeedMultiplier(this.state);
     const speedTilesPerSec = (isSprinting ? 7.6 : 4.9) * iceBoost * mechaMult;
 
-    const stepX = nxDir * speedTilesPerSec * dt;
-    const stepY = nyDir * speedTilesPerSec * dt;
+    let targetVx = 0;
+    let targetVy = 0;
+    if (this.playerDodgeTimer > 0) {
+      this.playerVx = this.playerDodgeVx;
+      this.playerVy = this.playerDodgeVy;
+    } else if (mag >= 0.12) {
+      const nxDir = dx / mag;
+      const nyDir = dy / mag;
+      if (Math.abs(nxDir) > Math.abs(nyDir)) {
+        this.state.player.facingX = nxDir >= 0 ? 1 : -1;
+        this.state.player.facingY = 0;
+      } else {
+        this.state.player.facingX = 0;
+        this.state.player.facingY = nyDir >= 0 ? 1 : -1;
+      }
+      if (Math.abs(this.joyVec.x) > 0.1 || Math.abs(this.joyVec.y) > 0.1) {
+        this.worldAimAngle = Math.atan2(nyDir, nxDir);
+      }
+      targetVx = nxDir * speedTilesPerSec;
+      targetVy = nyDir * speedTilesPerSec;
+      const accelLerp = 1 - Math.exp(-42 * dt);
+      this.playerVx += (targetVx - this.playerVx) * accelLerp;
+      this.playerVy += (targetVy - this.playerVy) * accelLerp;
+    } else {
+      const decelLerp = 1 - Math.exp(-22 * dt);
+      this.playerVx += (0 - this.playerVx) * decelLerp;
+      this.playerVy += (0 - this.playerVy) * decelLerp;
+      if (Math.hypot(this.playerVx, this.playerVy) < 0.08) {
+        this.playerVx = 0;
+        this.playerVy = 0;
+      }
+    }
 
+    if (Math.hypot(this.playerVx, this.playerVy) < 0.01) return;
+
+    const stepX = this.playerVx * dt;
+    const stepY = this.playerVy * dt;
     const currentlyGated = this.getWalkingGateLockReason(this.state.player.x, this.state.player.y) !== null;
 
     const canWalk = (x: number, y: number): boolean => {
       if (x < 2 || y < 2 || x >= WORLD_W - 2 || y >= WORLD_H - 2) return false;
-      // Check bounding box around sprite center (x + 0.5, y + 0.5) aligned to [tx, tx + 1) tiles
       const cxCenter = x + 0.5;
       const cyCenter = y + 0.5;
       const r = 0.34;
@@ -944,11 +1249,31 @@ export class BajoterraEngine {
     const prevX = this.state.player.x;
     const prevY = this.state.player.y;
 
-    if (canWalk(this.state.player.x + stepX, this.state.player.y)) {
-      this.state.player.x += stepX;
+    if (Math.abs(stepX) > 0) {
+      if (canWalk(this.state.player.x + stepX, this.state.player.y)) {
+        this.state.player.x += stepX;
+      } else if (Math.abs(stepY) < 0.01) {
+        for (const nudge of [0.16, -0.16, 0.32, -0.32]) {
+          if (canWalk(this.state.player.x + stepX, this.state.player.y + nudge)) {
+            this.state.player.y += Math.sign(nudge) * Math.min(Math.abs(nudge), Math.abs(stepX) * 0.9);
+            this.state.player.x += stepX * 0.5;
+            break;
+          }
+        }
+      }
     }
-    if (canWalk(this.state.player.x, this.state.player.y + stepY)) {
-      this.state.player.y += stepY;
+    if (Math.abs(stepY) > 0) {
+      if (canWalk(this.state.player.x, this.state.player.y + stepY)) {
+        this.state.player.y += stepY;
+      } else if (Math.abs(stepX) < 0.01) {
+        for (const nudge of [0.16, -0.16, 0.32, -0.32]) {
+          if (canWalk(this.state.player.x + nudge, this.state.player.y + stepY)) {
+            this.state.player.x += Math.sign(nudge) * Math.min(Math.abs(nudge), Math.abs(stepY) * 0.9);
+            this.state.player.y += stepY * 0.5;
+            break;
+          }
+        }
+      }
     }
 
     const moved = Math.hypot(this.state.player.x - prevX, this.state.player.y - prevY);
@@ -1852,6 +2177,7 @@ export class BajoterraEngine {
 
   private seedInitialEntities(): void {
     this.entities = [];
+    this.worldProjectiles = [];
     // Friendly subterranean merchants
     this.entities.push({
       uid: 'merchant_home',
@@ -2102,6 +2428,168 @@ export class BajoterraEngine {
     }
   }
 
+  private updateWorldProjectiles(dt: number): void {
+    const px = this.state.player.x;
+    const py = this.state.player.y;
+
+    for (const wp of this.worldProjectiles) {
+      if (!wp.alive) continue;
+
+      if (wp.phase === 'transformed' && wp.homing > 0 && wp.owner === 'ally') {
+        let bestTarget: RoamingEntity | null = null;
+        let bestD = 7;
+        for (const ent of this.entities) {
+          if (ent.kind !== 'wild' && ent.kind !== 'mercenary' && ent.kind !== 'boss') continue;
+          const d = Math.hypot(ent.x - wp.x, ent.y - wp.y);
+          if (d < bestD) {
+            bestD = d;
+            bestTarget = ent;
+          }
+        }
+        if (bestTarget) {
+          const curA = Math.atan2(wp.vy, wp.vx);
+          const desA = Math.atan2(bestTarget.y - wp.y, bestTarget.x - wp.x);
+          let diff = desA - curA;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const maxTurn = wp.homing * dt;
+          const nextA = curA + Math.max(-maxTurn, Math.min(maxTurn, diff));
+          const spd = Math.hypot(wp.vx, wp.vy);
+          wp.vx = Math.cos(nextA) * spd;
+          wp.vy = Math.sin(nextA) * spd;
+        }
+      }
+
+      const nx = wp.x + wp.vx * dt;
+      const ny = wp.y + wp.vy * dt;
+      const stepDist = Math.hypot(nx - wp.x, ny - wp.y);
+      wp.traveledTiles += stepDist;
+      wp.rangeTilesLeft -= stepDist;
+
+      if (wp.phase === 'protoform' && wp.traveledTiles >= wp.transformDistTiles) {
+        wp.phase = 'transformed';
+        sound.playSlugTransform(wp.element);
+      }
+
+      const tx = Math.floor(nx + 0.5);
+      const ty = Math.floor(ny + 0.5);
+      const tile = this.chunks.getTile(tx, ty);
+      if (wp.owner === 'ally' && tile === TileType.CRACKED_WALL) {
+        this.openSecretPassage(tx, ty);
+        wp.alive = false;
+        continue;
+      }
+      if (isTileSolid(tile)) {
+        if (wp.bouncesLeft > 0) {
+          wp.bouncesLeft--;
+          const hitX = isTileSolid(this.chunks.getTile(Math.floor(nx + 0.5), Math.floor(wp.y + 0.5)));
+          const hitY = isTileSolid(this.chunks.getTile(Math.floor(wp.x + 0.5), Math.floor(ny + 0.5)));
+          if (hitX) wp.vx = -wp.vx;
+          if (hitY || (!hitX && !hitY)) wp.vy = -wp.vy;
+        } else {
+          wp.alive = false;
+          this.renderer.spawnBurst(tx, ty, ELEMENT_CHART[wp.element]?.color || '#38bdf8', 6);
+          continue;
+        }
+      } else {
+        wp.x = nx;
+        wp.y = ny;
+      }
+
+      wp.trail.push({ x: wp.x, y: wp.y });
+      if (wp.trail.length > 7) wp.trail.shift();
+
+      if (wp.rangeTilesLeft <= 0) {
+        wp.alive = false;
+        continue;
+      }
+
+      if (wp.owner === 'ally') {
+        for (let i = this.entities.length - 1; i >= 0; i--) {
+          const ent = this.entities[i];
+          if (ent.kind !== 'wild' && ent.kind !== 'mercenary' && ent.kind !== 'boss') continue;
+          const dist = Math.hypot(ent.x - wp.x, ent.y - wp.y);
+          if (dist <= wp.radiusTiles + (ent.kind === 'boss' ? 0.85 : 0.6)) {
+            const targetSp = ent.speciesId ? getSpecies(ent.speciesId) : null;
+            const elMult = targetSp ? getElementMultiplier(wp.element, targetSp.type) : 1;
+            const dmg = Math.max(4, Math.round(wp.damage * elMult * (wp.phase === 'transformed' ? 1.2 : 0.88)));
+            if (typeof ent.maxHp !== 'number') ent.maxHp = ent.hp;
+            ent.hp = Math.max(0, ent.hp - dmg);
+            ent.hitFlash = 0.18;
+            ent.behaviorState = 'alert';
+
+            const col = elMult > 1.2 ? '#fde047' : ELEMENT_CHART[wp.element]?.color || '#38bdf8';
+            sound.playHit(elMult > 1.2 || wp.mode !== 'quick');
+            this.renderer.spawnBurst(Math.round(ent.x), Math.round(ent.y), col, 10);
+            this.renderer.addFloatingText(Math.round(ent.x), Math.round(ent.y), `-${dmg}`, col);
+
+            if (wp.moveEffect === 'drain') {
+              const healAmt = Math.max(4, Math.round(dmg * 0.35));
+              this.state.player.hp = Math.min(this.state.player.maxHp, this.state.player.hp + healAmt);
+            }
+
+            if (ent.kind === 'boss' && ent.hp <= ent.maxHp * 0.72) {
+              wp.alive = false;
+              this.engageEntity(ent);
+              break;
+            }
+
+            if (ent.hp <= 0) {
+              this.handleWorldEntityDefeated(ent);
+            }
+
+            if (wp.pierceLeft > 0) {
+              wp.pierceLeft--;
+            } else {
+              wp.alive = false;
+              break;
+            }
+          }
+        }
+      } else {
+        const distPlayer = Math.hypot(px - wp.x, py - wp.y);
+        if (distPlayer <= wp.radiusTiles + 0.45) {
+          wp.alive = false;
+          if (this.playerInvulnTimer > 0) {
+            this.renderer.addFloatingText(Math.round(px), Math.round(py), 'Esquivado', '#5eead4');
+          } else {
+            this.state.player.hp = Math.max(1, this.state.player.hp - wp.damage);
+            this.renderer.triggerShake(3.2, 0.14);
+            this.renderer.addFloatingText(Math.round(px), Math.round(py), `-${wp.damage}`, '#f87171');
+            sound.playHit(false);
+            this.emitHud(true);
+          }
+        }
+      }
+    }
+
+    this.worldProjectiles = this.worldProjectiles.filter((p) => p.alive);
+  }
+
+  private handleWorldEntityDefeated(ent: RoamingEntity): void {
+    this.entities = this.entities.filter((x) => x.uid !== ent.uid);
+    this.state.stats.wins++;
+    const tokens = ent.kind === 'mercenary' ? 2 : 1;
+    this.state.cavernTokens = (this.state.cavernTokens ?? 0) + tokens;
+    const ally = this.state.party[this.state.activePartyIndex];
+    if (ally) {
+      awardSlugExperience(this.state, ally, ent.kind === 'mercenary' ? 24 : 14, { bondDelta: 3 });
+    }
+    this.awardPlayerXp(12);
+    if (ent.challengeId) {
+      this.ensureExplorationFields();
+      if (!this.state.clearedChallenges!.includes(ent.challengeId)) {
+        this.state.clearedChallenges!.push(ent.challengeId);
+        this.state.inventory.capsules += 1;
+      }
+    }
+    sound.playVictory();
+    this.renderer.spawnBurst(Math.round(ent.x), Math.round(ent.y), '#fde047', 16);
+    this.notify(`¡${ent.name} derrotado en caverna! +${tokens} Ficha(s)`);
+    this.syncStoryProgress();
+    this.emitHud(true);
+  }
+
   private updateEntities(dt: number): void {
     const px = this.state.player.x;
     const py = this.state.player.y;
@@ -2109,6 +2597,10 @@ export class BajoterraEngine {
     for (let i = this.entities.length - 1; i >= 0; i--) {
       const ent = this.entities[i];
       if (ent.cooldown > 0) ent.cooldown -= dt;
+      if ((ent.hitFlash ?? 0) > 0) ent.hitFlash = Math.max(0, (ent.hitFlash ?? 0) - dt);
+      if ((ent.attackCooldown ?? 0) > 0) ent.attackCooldown = Math.max(0, (ent.attackCooldown ?? 0) - dt);
+      if (typeof ent.maxHp !== 'number') ent.maxHp = ent.hp;
+
       const dist = Math.hypot(px - ent.x, py - ent.y);
 
       // Despawn distant wild/merc mobs to keep simulation lightweight
@@ -2119,16 +2611,66 @@ export class BajoterraEngine {
 
       if (ent.kind === 'merchant' || ent.kind === 'story_npc') continue;
 
-      if (ent.kind === 'mercenary' && dist < 8 && dist > 1.0 && ent.cooldown <= 0) {
-        // Chase player unless near torches
-        const ang = Math.atan2(py - ent.y, px - ent.x);
-        const nx = ent.x + Math.cos(ang) * 2.2 * dt;
-        const ny = ent.y + Math.sin(ang) * 2.2 * dt;
-        if (!isTileSolid(this.chunks.getTile(Math.floor(nx + 0.5), Math.floor(ny + 0.5)))) {
-          ent.x = nx;
-          ent.y = ny;
+      const detectR = ent.detectRadius ?? (ent.kind === 'boss' ? 11 : ent.kind === 'mercenary' ? 9.5 : 6.5);
+
+      if (ent.behaviorState === 'windup') {
+        ent.telegraphTimer = Math.max(0, (ent.telegraphTimer ?? 0) - dt);
+        if ((ent.telegraphTimer ?? 0) <= 0) {
+          ent.behaviorState = 'recover';
+          ent.attackCooldown = ent.kind === 'boss' ? 1.8 : 2.35;
+          const ang = Math.atan2(py - ent.y, px - ent.x);
+          const sp = ent.speciesId ? getSpecies(ent.speciesId) : null;
+          this.worldProjectiles.push({
+            id: this.worldProjSeq++,
+            owner: 'enemy',
+            speciesId: ent.speciesId || 'infurnus',
+            element: sp?.type || 'Sombra',
+            mode: 'quick',
+            x: ent.x + Math.cos(ang) * 0.6,
+            y: ent.y + Math.sin(ang) * 0.6,
+            vx: Math.cos(ang) * (ent.kind === 'boss' ? 9.2 : 7.6),
+            vy: Math.sin(ang) * (ent.kind === 'boss' ? 9.2 : 7.6),
+            radiusTiles: 0.3,
+            damage: ent.kind === 'boss' ? 11 : ent.kind === 'mercenary' ? 8 : 5,
+            rangeTilesLeft: 10,
+            traveledTiles: 0,
+            transformDistTiles: 2.2,
+            phase: 'protoform',
+            bouncesLeft: 0,
+            homing: 0,
+            pierceLeft: 0,
+            trail: [],
+            alive: true,
+          });
+          sound.playBlasterFire(ent.kind === 'boss', false);
+        }
+      } else if (dist < detectR && ent.cooldown <= 0) {
+        if ((ent.attackCooldown ?? 0) <= 0 && dist > 2.2 && dist < 8.8 && (ent.kind === 'mercenary' || ent.kind === 'boss')) {
+          ent.behaviorState = 'windup';
+          ent.telegraphTimer = 0.65;
+        } else if (ent.kind === 'mercenary' && dist > 1.0) {
+          ent.behaviorState = 'chase';
+          const ang = Math.atan2(py - ent.y, px - ent.x);
+          const nx = ent.x + Math.cos(ang) * 2.2 * dt;
+          const ny = ent.y + Math.sin(ang) * 2.2 * dt;
+          if (!isTileSolid(this.chunks.getTile(Math.floor(nx + 0.5), Math.floor(ny + 0.5)))) {
+            ent.x = nx;
+            ent.y = ny;
+          }
+        } else if (ent.kind === 'wild') {
+          ent.behaviorState = 'patrol';
+          ent.dir += (Math.random() - 0.5) * 2.2 * dt;
+          const nx = ent.x + Math.cos(ent.dir) * 1.1 * dt;
+          const ny = ent.y + Math.sin(ent.dir) * 1.1 * dt;
+          if (!isTileSolid(this.chunks.getTile(Math.floor(nx + 0.5), Math.floor(ny + 0.5))) && Math.hypot(nx - ent.homeX, ny - ent.homeY) < 6) {
+            ent.x = nx;
+            ent.y = ny;
+          } else {
+            ent.dir += Math.PI * 0.7;
+          }
         }
       } else if (ent.kind === 'wild') {
+        ent.behaviorState = 'patrol';
         ent.dir += (Math.random() - 0.5) * 2.2 * dt;
         const nx = ent.x + Math.cos(ent.dir) * 1.1 * dt;
         const ny = ent.y + Math.sin(ent.dir) * 1.1 * dt;
@@ -2140,8 +2682,8 @@ export class BajoterraEngine {
         }
       }
 
-      // Trigger encounter on collision
-      if (dist < 0.92 && ent.cooldown <= 0) {
+      // Trigger full slug duel encounter on close contact (unless mid-dodge invuln)
+      if (dist < 0.92 && ent.cooldown <= 0 && this.playerInvulnTimer <= 0) {
         this.engageEntity(ent);
         return;
       }

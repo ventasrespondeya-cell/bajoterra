@@ -1,15 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Compass,
   Lock,
   MapPin,
   Navigation,
+  RotateCcw,
   Sparkles,
   Users,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { HIDDEN_DISCOVERIES } from '../game/activities';
-import { BIOME_INFO } from '../game/data';
+import { BIOME_INFO, BOSS_DEFINITIONS } from '../game/data';
 import { gameEngine } from '../game/engine';
 import {
   STORY_CHAPTERS_BY_ID,
@@ -19,6 +22,7 @@ import {
 } from '../game/storyData';
 import { canAccessRoute } from '../game/storyEngine';
 import type { HudSnapshot } from '../game/types';
+import { WORLD_REGIONS, type WorldRegionKind } from '../game/world';
 
 interface FullMapModalProps {
   snap: HudSnapshot;
@@ -39,26 +43,85 @@ const SCENARIO_ORDER = [
   'esc_ciudadela_sombria',
 ];
 
+const FILTER_TABS: Array<{ id: 'all' | WorldRegionKind; label: string }> = [
+  { id: 'all', label: 'Todo' },
+  { id: 'settlement', label: 'Asentamientos' },
+  { id: 'dungeon', label: 'Mazmorras' },
+  { id: 'enemy_base', label: 'Bases Blakk' },
+  { id: 'landmark', label: 'Hitos' },
+];
+
 function formatCanonTag(tag: 'serie_canon' | 'adaptacion_juego' | 'pendiente_canon'): string {
   if (tag === 'serie_canon') return 'Canon de la serie';
   if (tag === 'adaptacion_juego') return 'Adaptación RPG';
   return 'Referencia abierta';
 }
 
+function formatRegionKind(kind: WorldRegionKind): string {
+  switch (kind) {
+    case 'settlement':
+      return 'Asentamiento';
+    case 'dungeon':
+      return 'Mazmorra / Templo';
+    case 'enemy_base':
+      return 'Base Blakk';
+    default:
+      return 'Hito Subterráneo';
+  }
+}
+
 export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, onClose }) => {
   const [selectedId, setSelectedId] = useState<string>(snap.story.currentScenarioId || 'esc_refugio_shane');
+  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
+  const [selectedBossId, setSelectedBossId] = useState<string | null>(null);
+  const [filterKind, setFilterKind] = useState<'all' | WorldRegionKind>('all');
+  const [zoom, setZoom] = useState<number>(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const dragRef = useRef<{
+    active: boolean;
+    moved: boolean;
+    startX: number;
+    startY: number;
+    origPanX: number;
+    origPanY: number;
+  }>({
+    active: false,
+    moved: false,
+    startX: 0,
+    startY: 0,
+    origPanX: 0,
+    origPanY: 0,
+  });
+
+  const clampPan = (nx: number, ny: number, z: number) => {
+    const maxPan = Math.max(0, (z - 1) * 210);
+    return {
+      x: Math.max(-maxPan, Math.min(maxPan, nx)),
+      y: Math.max(-maxPan, Math.min(maxPan, ny)),
+    };
+  };
 
   useEffect(() => {
     if (fullMapRef.current) {
-      gameEngine.renderer.renderFullWorldMap(fullMapRef.current, gameEngine.state);
+      gameEngine.renderer.renderFullWorldMap(fullMapRef.current, gameEngine.state, {
+        zoom,
+        panX: pan.x,
+        panY: pan.y,
+        filterKind,
+        selectedRegionId,
+        selectedScenarioId: selectedId,
+      });
     }
-  }, [fullMapRef, snap]);
+  }, [fullMapRef, snap, zoom, pan, filterKind, selectedRegionId, selectedId]);
 
   const exploredCount = Object.keys(gameEngine.state.exploredChunks).length;
   const totalChunks = 20 * 20;
   const exploredPct = Math.round((exploredCount / totalChunks) * 100);
 
   const selectedScenario = STORY_SCENARIOS[selectedId] || STORY_SCENARIOS['esc_refugio_shane'];
+  const selectedRegion = selectedRegionId ? WORLD_REGIONS.find((r) => r.id === selectedRegionId) || null : null;
+  const selectedBoss = selectedBossId ? BOSS_DEFINITIONS.find((b) => b.id === selectedBossId) || null : null;
   const activeChapter = STORY_CHAPTERS_BY_ID[snap.story.currentChapterId];
 
   const getScenarioStatus = (scId: string) => {
@@ -95,8 +158,82 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
     .map((secId) => HIDDEN_DISCOVERIES.find((d) => d.id === secId))
     .filter((d): d is NonNullable<typeof d> => Boolean(d));
   const discoveredInSelected = scenarioSecrets.filter((d) => snap.discoveredSecrets.includes(d.id));
-
   const discoveredSecretItems = HIDDEN_DISCOVERIES.filter((d) => snap.discoveredSecrets.includes(d.id));
+
+  const filteredRegions =
+    filterKind === 'all' ? [] : WORLD_REGIONS.filter((r) => r.kind === filterKind);
+
+  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    dragRef.current = {
+      active: true,
+      moved: false,
+      startX: e.clientX,
+      startY: e.clientY,
+      origPanX: pan.x,
+      origPanY: pan.y,
+    };
+  };
+
+  const handleCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!dragRef.current.active) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    if (Math.hypot(dx, dy) > 5) {
+      dragRef.current.moved = true;
+    }
+    if (dragRef.current.moved && zoom > 1) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const scaleX = e.currentTarget.width / Math.max(1, rect.width);
+      const scaleY = e.currentTarget.height / Math.max(1, rect.height);
+      setPan(
+        clampPan(
+          dragRef.current.origPanX + dx * scaleX,
+          dragRef.current.origPanY + dy * scaleY,
+          zoom
+        )
+      );
+    }
+  };
+
+  const handleCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const wasMoved = dragRef.current.moved;
+    dragRef.current.active = false;
+    if (wasMoved || !fullMapRef.current) return;
+
+    const canvas = fullMapRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const clickX = ((e.clientX - rect.left) / Math.max(1, rect.width)) * canvas.width;
+    const clickY = ((e.clientY - rect.top) / Math.max(1, rect.height)) * canvas.height;
+    const hit = gameEngine.renderer.hitTestWorldMapNode(
+      canvas.width,
+      canvas.height,
+      clickX,
+      clickY,
+      gameEngine.state,
+      { zoom, panX: pan.x, panY: pan.y, filterKind }
+    );
+    if (!hit) return;
+
+    if (hit.kind === 'boss') {
+      setSelectedBossId(hit.id);
+      setSelectedRegionId(null);
+      return;
+    }
+
+    setSelectedBossId(null);
+    if (hit.scenarioId) {
+      setSelectedId(hit.scenarioId);
+      setSelectedRegionId(hit.regionId || null);
+    } else if (hit.regionId) {
+      setSelectedRegionId(hit.regionId);
+    }
+  };
+
+  const handleZoomChange = (nextZoom: number) => {
+    const clamped = Math.max(1, Math.min(3.2, Number(nextZoom.toFixed(2))));
+    setZoom(clamped);
+    setPan((prev) => clampPan(prev.x, prev.y, clamped));
+  };
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center p-2.5 sm:p-5 bg-[#03080e]/90 backdrop-blur-sm">
@@ -110,7 +247,7 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
             </h2>
             <p className="text-[11px] sm:text-xs text-slate-300 tabular-nums mt-0.5 truncate">
               {snap.story.currentScenarioName} · Biomas {snap.discoveries.length}/6 · Explorado{' '}
-              {exploredPct}%
+              {exploredPct}% · {WORLD_REGIONS.length} regiones cartografiadas
             </p>
           </div>
           <button
@@ -125,14 +262,80 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
         {/* Main 2-column World Map Workspace */}
         <div className="flex-1 min-h-0 overflow-y-auto bt-scroll pr-1">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
-            {/* Left Column: Map Canvas + Geography Legend */}
+            {/* Left Column: Interactive Map Canvas + Zoom/Filter Controls + Geography Legend */}
             <div className="lg:col-span-6 space-y-2.5">
-              <div className="flex justify-center bt-inset border-teal-400/30 rounded-xl p-2">
+              {/* Filter Tabs & Zoom Toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1">
+                  {FILTER_TABS.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => {
+                        setFilterKind(tab.id);
+                        setSelectedBossId(null);
+                        if (tab.id === 'all') setSelectedRegionId(null);
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                        filterKind === tab.id
+                          ? 'bg-teal-500/25 border-teal-300 text-teal-100'
+                          : 'bg-slate-900/70 border-white/10 text-slate-300 hover:border-cyan-400/40'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label="Alejar mapa"
+                    onClick={() => handleZoomChange(zoom - 0.35)}
+                    disabled={zoom <= 1}
+                    className="bt-btn-secondary w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer disabled:opacity-40"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-[10px] font-bold text-slate-200 tabular-nums w-9 text-center">
+                    {zoom.toFixed(1)}x
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Acercar mapa"
+                    onClick={() => handleZoomChange(zoom + 0.35)}
+                    disabled={zoom >= 3.2}
+                    className="bt-btn-secondary w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer disabled:opacity-40"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Restablecer vista del mapa"
+                    onClick={() => {
+                      setZoom(1);
+                      setPan({ x: 0, y: 0 });
+                    }}
+                    className="bt-btn-secondary w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-center bt-inset border-teal-400/30 rounded-xl p-2 relative">
                 <canvas
                   ref={fullMapRef}
                   width={440}
                   height={440}
-                  className="w-full max-w-[440px] aspect-square rounded-lg pixelated"
+                  onPointerDown={handleCanvasPointerDown}
+                  onPointerMove={handleCanvasPointerMove}
+                  onPointerUp={handleCanvasPointerUp}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    handleZoomChange(zoom + (e.deltaY < 0 ? 0.25 : -0.25));
+                  }}
+                  className="w-full max-w-[440px] aspect-square rounded-lg pixelated cursor-grab active:cursor-grabbing touch-none"
                 />
               </div>
 
@@ -169,16 +372,13 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
                     <span className="w-2.5 h-2.5 rounded-full bg-teal-400 inline-block" /> Visitado
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> Objetivo
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> Objetivo / Asent.
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block" /> Sellado
+                    <span className="w-2.5 h-2.5 rotate-45 bg-purple-400 inline-block" /> Mazmorra / Secreto
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rotate-45 bg-purple-400 inline-block" /> Secreto
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> Jefe
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> Jefe / Base Blakk
                   </span>
                 </div>
               </div>
@@ -186,184 +386,277 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
 
             {/* Right Column: Destinations Graph & Location Inspector */}
             <div className="lg:col-span-6 space-y-3">
-              {/* Interconnected Underground Locations */}
+              {/* Interconnected Underground Locations OR Filtered Regions */}
               <div className="bt-inset rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-xs font-extrabold text-teal-300 uppercase tracking-wider">
-                    Destinos del Subsuelo ({snap.storyState.visitedScenarioIds.length}/{SCENARIO_ORDER.length} visitados)
+                    {filterKind === 'all'
+                      ? `Destinos del Subsuelo (${snap.storyState.visitedScenarioIds.length}/${SCENARIO_ORDER.length} visitados)`
+                      : `${FILTER_TABS.find((t) => t.id === filterKind)?.label} (${filteredRegions.length})`}
                   </h3>
                   <span className="text-[11px] text-amber-200 font-semibold truncate">
                     Cap. {snap.story.currentChapterOrder}
                   </span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  {SCENARIO_ORDER.map((scId) => {
-                    const sc = STORY_SCENARIOS[scId];
-                    if (!sc) return null;
-                    const st = getScenarioStatus(scId);
-                    const isSelected = selectedScenario.id === scId;
-                    const statusLabel = st.isCurrent
-                      ? 'Actual'
-                      : st.isVisited
-                      ? 'Visitado'
-                      : st.isUnlocked || st.canTravelNow
-                      ? 'Accesible'
-                      : 'Bloqueado';
-                    return (
-                      <button
-                        key={scId}
-                        type="button"
-                        onClick={() => setSelectedId(scId)}
-                        className={`text-left rounded-xl px-2.5 py-2 border transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#0d222c] border-teal-300'
-                            : st.isCurrent || st.isVisited || st.canTravelNow
-                            ? 'bt-card hover:border-cyan-400/55'
-                            : 'bt-card opacity-65'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-1.5">
-                          <span className="text-xs font-extrabold text-white truncate">
-                            {sc.name}
-                          </span>
-                          <span
-                            className={`text-[10px] font-bold shrink-0 ${
-                              st.isCurrent
-                                ? 'text-sky-300'
-                                : st.isVisited
-                                ? 'text-teal-300'
-                                : st.canTravelNow
-                                ? 'text-amber-300'
-                                : 'text-slate-400'
-                            }`}
-                          >
-                            {statusLabel}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-1 text-[10px] text-slate-300 mt-0.5">
-                          <span className="truncate">{sc.regionName}</span>
-                          {st.isObjective && (
-                            <span className="text-amber-300 font-extrabold shrink-0 flex items-center gap-0.5">
-                              <Sparkles className="w-2.5 h-2.5" /> Objetivo
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
 
-              {/* Selected Destination Details & Travel Trigger */}
-              <div className="bt-card rounded-xl p-3.5 space-y-2.5">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-extrabold text-white">{selectedScenario.name}</div>
-                    <div className="text-[11px] text-teal-300 font-semibold">
-                      {selectedScenario.regionName} · {formatCanonTag(selectedScenario.canonStatus)}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={!selStatus.canTravelNow}
-                    onClick={() => {
-                      const ok = gameEngine.travelToStoryScenario(selectedScenario.id);
-                      if (ok) onClose();
-                    }}
-                    className={`px-3.5 py-2 rounded-xl font-extrabold text-xs whitespace-nowrap min-h-[38px] flex items-center gap-1.5 cursor-pointer disabled:opacity-45 ${
-                      selStatus.canTravelNow ? 'bt-btn-primary' : 'bt-btn-secondary'
-                    }`}
-                  >
-                    {selStatus.isCurrent ? (
-                      <>
-                        <MapPin className="w-3.5 h-3.5" /> Estás aquí
-                      </>
-                    ) : selStatus.canTravelNow ? (
-                      <>
-                        <Navigation className="w-3.5 h-3.5" /> Viajar
-                      </>
-                    ) : (
-                      <>
-                        <Lock className="w-3.5 h-3.5" /> Sellado
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <p className="text-xs text-slate-200 leading-relaxed">
-                  {selStatus.isUnlocked || selStatus.isVisited || selStatus.canTravelNow
-                    ? selectedScenario.summary
-                    : `Acceso bloqueado: ${selStatus.firstLockReason}`}
-                </p>
-
-                {/* Connected Routes */}
-                <div className="space-y-1 pt-1 border-t border-white/10">
-                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-300">
-                    Rutas conectadas
-                  </div>
-                  <div className="space-y-1">
-                    {selStatus.routeAccessList.map(({ route, access }) => {
-                      if (!route) return null;
-                      const otherId =
-                        route.fromScenarioId === selectedScenario.id
-                          ? route.toScenarioId
-                          : route.fromScenarioId;
-                      const otherName = STORY_SCENARIOS[otherId]?.name || otherId;
+                {filterKind === 'all' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {SCENARIO_ORDER.map((scId) => {
+                      const sc = STORY_SCENARIOS[scId];
+                      if (!sc) return null;
+                      const st = getScenarioStatus(scId);
+                      const isSelected = !selectedRegion && !selectedBoss && selectedScenario.id === scId;
+                      const statusLabel = st.isCurrent
+                        ? 'Actual'
+                        : st.isVisited
+                        ? 'Visitado'
+                        : st.isUnlocked || st.canTravelNow
+                        ? 'Accesible'
+                        : 'Bloqueado';
                       return (
-                        <div
-                          key={route.id}
-                          className="flex items-center justify-between gap-2 text-[11px] text-slate-200"
+                        <button
+                          key={scId}
+                          type="button"
+                          onClick={() => {
+                            setSelectedId(scId);
+                            setSelectedRegionId(null);
+                            setSelectedBossId(null);
+                          }}
+                          className={`text-left rounded-xl px-2.5 py-2 border transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#0d222c] border-teal-300'
+                              : st.isCurrent || st.isVisited || st.canTravelNow
+                              ? 'bt-card hover:border-cyan-400/55'
+                              : 'bt-card opacity-65'
+                          }`}
                         >
-                          <span className="truncate">
-                            {route.name} → <strong className="text-white">{otherName}</strong>
-                          </span>
-                          <span
-                            className={`text-[10px] font-bold shrink-0 ${
-                              access.allowed ? 'text-emerald-300' : 'text-amber-300'
-                            }`}
-                          >
-                            {access.allowed ? 'Abierta' : 'Cerrada'}
-                          </span>
-                        </div>
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="text-xs font-extrabold text-white truncate">
+                              {sc.name}
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold shrink-0 ${
+                                st.isCurrent
+                                  ? 'text-sky-300'
+                                  : st.isVisited
+                                  ? 'text-teal-300'
+                                  : st.canTravelNow
+                                  ? 'text-amber-300'
+                                  : 'text-slate-400'
+                              }`}
+                            >
+                              {statusLabel}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-1 text-[10px] text-slate-300 mt-0.5">
+                            <span className="truncate">{sc.regionName}</span>
+                            {st.isObjective && (
+                              <span className="text-amber-300 font-extrabold shrink-0 flex items-center gap-0.5">
+                                <Sparkles className="w-2.5 h-2.5" /> Objetivo
+                              </span>
+                            )}
+                          </div>
+                        </button>
                       );
                     })}
                   </div>
-                </div>
-
-                {/* NPCs, Facilities & Secrets (masked if undiscovered) */}
-                {(selStatus.isUnlocked || selStatus.isVisited || selStatus.canTravelNow) && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1.5 border-t border-white/10 text-[11px]">
-                    <div>
-                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-sky-300 flex items-center gap-1 mb-1">
-                        <Users className="w-3 h-3" /> Personajes en zona
-                      </div>
-                      {selectedScenario.npcIds.length === 0 ? (
-                        <span className="text-slate-400">Zona salvaje sin base permanente</span>
-                      ) : (
-                        <div className="text-slate-200">
-                          {selectedScenario.npcIds
-                            .map((id) => STORY_CHARACTERS[id]?.name || id)
-                            .join(', ')}
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300 mb-1">
-                        Servicios y Secretos
-                      </div>
-                      <div className="text-slate-200 truncate">
-                        {selectedScenario.facilities.join(' · ')}
-                      </div>
-                      {scenarioSecrets.length > 0 && (
-                        <div className="text-[10px] text-purple-300 font-semibold mt-0.5 tabular-nums">
-                          Secretos hallados: {discoveredInSelected.length}/{scenarioSecrets.length}
-                          {discoveredInSelected.length === 0 && ' · Explora con Pulso [Espacio]'}
-                        </div>
-                      )}
-                    </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-56 overflow-y-auto bt-scroll pr-1">
+                    {filteredRegions.map((reg) => {
+                      const cx = Math.floor(reg.x / 16);
+                      const cy = Math.floor(reg.y / 16);
+                      const explored = Boolean(gameEngine.state.exploredChunks[`${cx},${cy}`]);
+                      const isSel = selectedRegionId === reg.id;
+                      return (
+                        <button
+                          key={reg.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedRegionId(reg.id);
+                            setSelectedBossId(null);
+                            if (reg.scenarioId) setSelectedId(reg.scenarioId);
+                          }}
+                          className={`text-left rounded-xl px-2.5 py-2 border transition-colors cursor-pointer ${
+                            isSel
+                              ? 'bg-[#0d222c] border-teal-300'
+                              : 'bt-card hover:border-cyan-400/55'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="text-xs font-extrabold text-white truncate">
+                              {reg.name}
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold shrink-0 ${
+                                explored ? 'text-teal-300' : 'text-slate-400'
+                              }`}
+                            >
+                              {explored ? 'Cartografiado' : 'Sin explorar'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-1 text-[10px] text-slate-300 mt-0.5 tabular-nums">
+                            <span className="truncate">{BIOME_INFO[reg.biome].name}</span>
+                            <span>
+                              ({reg.x}, {reg.y})
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
+
+              {/* Selected Boss / Region / Story Scenario Details Inspector */}
+              {selectedBoss ? (
+                <div className="bt-card rounded-xl p-3.5 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-extrabold text-rose-200">{selectedBoss.name}</div>
+                      <div className="text-[11px] text-amber-300 font-semibold">
+                        Guardián de Bioma · {BIOME_INFO[selectedBoss.biome].name} · ({selectedBoss.x}, {selectedBoss.y})
+                      </div>
+                    </div>
+                    <span
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold ${
+                        snap.defeatedBosses.includes(selectedBoss.id)
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/35'
+                          : 'bg-rose-500/20 text-rose-200 border border-rose-400/35'
+                      }`}
+                    >
+                      {snap.defeatedBosses.includes(selectedBoss.id) ? 'Derrotado' : 'Activo'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-200 leading-relaxed">
+                    Guardián principal en {BIOME_INFO[selectedBoss.biome].name}. Prepárate con babosas Velocimorph y equipo nivel {selectedBoss.level} antes de desafiarlo.
+                  </p>
+                </div>
+              ) : selectedRegion && !selectedRegion.scenarioId ? (
+                <div className="bt-card rounded-xl p-3.5 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-extrabold text-white">{selectedRegion.name}</div>
+                      <div className="text-[11px] text-teal-300 font-semibold tabular-nums">
+                        {formatRegionKind(selectedRegion.kind)} · {BIOME_INFO[selectedRegion.biome].name} · ({selectedRegion.x}, {selectedRegion.y})
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-800/80 text-slate-200 border border-white/10">
+                      Radio {selectedRegion.radius}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-200 leading-relaxed">{selectedRegion.description}</p>
+                </div>
+              ) : (
+                <div className="bt-card rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-extrabold text-white">{selectedScenario.name}</div>
+                      <div className="text-[11px] text-teal-300 font-semibold">
+                        {selectedScenario.regionName} · {formatCanonTag(selectedScenario.canonStatus)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!selStatus.canTravelNow}
+                      onClick={() => {
+                        const ok = gameEngine.travelToStoryScenario(selectedScenario.id);
+                        if (ok) onClose();
+                      }}
+                      className={`px-3.5 py-2 rounded-xl font-extrabold text-xs whitespace-nowrap min-h-[38px] flex items-center gap-1.5 cursor-pointer disabled:opacity-45 ${
+                        selStatus.canTravelNow ? 'bt-btn-primary' : 'bt-btn-secondary'
+                      }`}
+                    >
+                      {selStatus.isCurrent ? (
+                        <>
+                          <MapPin className="w-3.5 h-3.5" /> Estás aquí
+                        </>
+                      ) : selStatus.canTravelNow ? (
+                        <>
+                          <Navigation className="w-3.5 h-3.5" /> Viajar
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="w-3.5 h-3.5" /> Sellado
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-slate-200 leading-relaxed">
+                    {selStatus.isUnlocked || selStatus.isVisited || selStatus.canTravelNow
+                      ? selectedScenario.summary
+                      : `Acceso bloqueado: ${selStatus.firstLockReason}`}
+                  </p>
+
+                  {/* Connected Routes */}
+                  <div className="space-y-1 pt-1 border-t border-white/10">
+                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-300">
+                      Rutas conectadas
+                    </div>
+                    <div className="space-y-1">
+                      {selStatus.routeAccessList.map(({ route, access }) => {
+                        if (!route) return null;
+                        const otherId =
+                          route.fromScenarioId === selectedScenario.id
+                            ? route.toScenarioId
+                            : route.fromScenarioId;
+                        const otherName = STORY_SCENARIOS[otherId]?.name || otherId;
+                        return (
+                          <div
+                            key={route.id}
+                            className="flex items-center justify-between gap-2 text-[11px] text-slate-200"
+                          >
+                            <span className="truncate">
+                              {route.name} → <strong className="text-white">{otherName}</strong>
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold shrink-0 ${
+                                access.allowed ? 'text-emerald-300' : 'text-amber-300'
+                              }`}
+                            >
+                              {access.allowed ? 'Abierta' : 'Cerrada'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* NPCs, Facilities & Secrets (masked if undiscovered) */}
+                  {(selStatus.isUnlocked || selStatus.isVisited || selStatus.canTravelNow) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1.5 border-t border-white/10 text-[11px]">
+                      <div>
+                        <div className="text-[10px] font-extrabold uppercase tracking-wider text-sky-300 flex items-center gap-1 mb-1">
+                          <Users className="w-3 h-3" /> Personajes en zona
+                        </div>
+                        {selectedScenario.npcIds.length === 0 ? (
+                          <span className="text-slate-400">Zona salvaje sin base permanente</span>
+                        ) : (
+                          <div className="text-slate-200">
+                            {selectedScenario.npcIds
+                              .map((id) => STORY_CHARACTERS[id]?.name || id)
+                              .join(', ')}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300 mb-1">
+                          Servicios y Secretos
+                        </div>
+                        <div className="text-slate-200 truncate">
+                          {selectedScenario.facilities.join(' · ')}
+                        </div>
+                        {scenarioSecrets.length > 0 && (
+                          <div className="text-[10px] text-purple-300 font-semibold mt-0.5 tabular-nums">
+                            Secretos hallados: {discoveredInSelected.length}/{scenarioSecrets.length}
+                            {discoveredInSelected.length === 0 && ' · Explora con Pulso [Espacio]'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

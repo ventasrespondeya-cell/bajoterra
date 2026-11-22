@@ -8,7 +8,8 @@ export type CinematicEventType =
   | 'biome_discovered'
   | 'poi_discovered'
   | 'chapter_unlocked'
-  | 'route_unlocked';
+  | 'route_unlocked'
+  | 'campaign_victory';
 
 export type AudioCueMood =
   | 'exploration_calm'

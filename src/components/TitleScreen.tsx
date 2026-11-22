@@ -229,12 +229,14 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       {/* Footer Control Legend */}
       <div className="text-[11px] sm:text-xs text-slate-300/85 border-t border-cyan-400/15 pt-3 flex flex-wrap gap-x-4 gap-y-1">
         <span><strong className="text-cyan-200">WASD / Flechas</strong> Mover</span>
-        <span><strong className="text-cyan-200">Shift</strong> Correr</span>
+        <span><strong className="text-cyan-200">Ratón + Clic</strong> Apuntar y Disparar</span>
         <span><strong className="text-cyan-200">F / Clic</strong> Interactuar</span>
+        <span><strong className="text-cyan-200">Espacio</strong> Esquivar</span>
+        <span><strong className="text-cyan-200">Z / X</strong> Habilidades</span>
         <span><strong className="text-cyan-200">Q / 1-4</strong> Cambiar babosa</span>
-        <span><strong className="text-cyan-200">Espacio</strong> Pulso Escáner</span>
+        <span><strong className="text-cyan-200">R</strong> Pulso</span>
         <span><strong className="text-cyan-200">V</strong> Meca</span>
-        <span><strong className="text-cyan-200">I</strong> Campaña y Estuche</span>
+        <span><strong className="text-cyan-200">Tab / I</strong> Campaña</span>
         <span><strong className="text-cyan-200">M</strong> Mapa</span>
         <span><strong className="text-cyan-200">Esc</strong> Pausa</span>
       </div>

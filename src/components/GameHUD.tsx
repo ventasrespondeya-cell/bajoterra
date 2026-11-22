@@ -4,6 +4,7 @@ import {
   BookOpen,
   ChevronUp,
   Compass,
+  Crosshair,
   DoorOpen,
   Hand,
   Heart,
@@ -18,6 +19,7 @@ import {
   Swords,
   Volume2,
   VolumeX,
+  Wind,
   Zap,
 } from 'lucide-react';
 import { BIOME_INFO, HOME_FOOD_DEFS, HOTBAR_SLOTS, getFavoriteFoodForSpecies } from '../game/data';
@@ -47,6 +49,10 @@ interface GameHUDProps {
   onPlayHomeSlug: (uid: string) => void;
   onJoystick: (x: number, y: number) => void;
   onTouchSprint: (active: boolean) => void;
+  onFire?: () => void;
+  onDodge?: () => void;
+  onAbility1?: () => void;
+  onAbility2?: () => void;
 }
 
 function renderContextualIcon(kind: ExplorationActionKind, activeToolId: string) {
@@ -102,6 +108,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onPlayHomeSlug,
   onJoystick,
   onTouchSprint,
+  onFire,
+  onDodge,
+  onAbility1,
+  onAbility2,
 }) => {
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
@@ -152,6 +162,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   const activeSlot = HOTBAR_SLOTS[snap.selectedHotbar] || HOTBAR_SLOTS[0];
   const activeQty = activeSlot.itemKey ? snap.inventory[activeSlot.itemKey] : null;
   const ctxAction = snap.contextualAction;
+  const wc = snap.worldCombat;
+  const activeSlug = snap.party[snap.activePartyIndex] || snap.party[0];
 
   const updateStick = (clientX: number, clientY: number) => {
     const el = stickRef.current;
@@ -467,8 +479,57 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             )}
           </div>
 
-          {/* Bottom-Right: Single Compact Tool Selector + Single Contextual Primary Action */}
-          <div ref={toolSelectorRef} className="pointer-events-auto relative flex items-end gap-2">
+          {/* Bottom-Right: World Blaster Combat + Compact Tool Selector + Single Contextual Primary Action */}
+          <div ref={toolSelectorRef} className="pointer-events-auto relative flex flex-col items-end gap-1.5">
+            {wc && (
+              <div className={`flex items-center gap-1.5 ${showTouch ? '' : ''}`}>
+                <button
+                  type="button"
+                  onClick={() => onAbility1?.()}
+                  disabled={wc.ability1Cooldown > 0 || (activeSlug ? activeSlug.energy < wc.ability1Cost : false)}
+                  title={`${wc.ability1Name} [Z]`}
+                  aria-label={`Habilidad 1: ${wc.ability1Name}`}
+                  className={`bt-hud-panel px-2.5 rounded-xl border border-amber-400/40 flex items-center gap-1.5 text-[11px] font-bold text-amber-100 cursor-pointer disabled:opacity-45 touch-none ${
+                    showTouch ? 'min-h-[44px] min-w-[68px] justify-center' : 'h-9'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                  <span className="truncate max-w-[74px]">
+                    {wc.ability1Cooldown > 0 ? `${wc.ability1Cooldown.toFixed(1)}s` : wc.ability1Name}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAbility2?.()}
+                  disabled={wc.ability2Cooldown > 0 || (activeSlug ? activeSlug.energy < wc.ability2Cost : false)}
+                  title={`${wc.ability2Name} [X]`}
+                  aria-label={`Habilidad 2: ${wc.ability2Name}`}
+                  className={`bt-hud-panel px-2.5 rounded-xl border border-cyan-400/40 flex items-center gap-1.5 text-[11px] font-bold text-cyan-100 cursor-pointer disabled:opacity-45 touch-none ${
+                    showTouch ? 'min-h-[44px] min-w-[68px] justify-center' : 'h-9'
+                  }`}
+                >
+                  <Zap className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                  <span className="truncate max-w-[74px]">
+                    {wc.ability2Cooldown > 0 ? `${wc.ability2Cooldown.toFixed(1)}s` : wc.ability2Name}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDodge?.()}
+                  disabled={wc.dodgeCooldown > 0}
+                  title="Esquivar [Espacio]"
+                  aria-label="Esquivar"
+                  className={`bt-hud-panel px-2.5 rounded-xl border border-teal-400/45 flex items-center gap-1.5 text-[11px] font-bold text-teal-100 cursor-pointer disabled:opacity-45 touch-none ${
+                    showTouch ? 'min-h-[44px] min-w-[62px] justify-center' : 'h-9'
+                  }`}
+                >
+                  <Wind className="w-3.5 h-3.5 text-teal-300 shrink-0" />
+                  <span>{wc.dodgeCooldown > 0 ? `${wc.dodgeCooldown.toFixed(1)}s` : 'Esquivar'}</span>
+                </button>
+              </div>
+            )}
+
+            <div className="relative flex items-end gap-2">
             {/* Compact Tool Wheel / Menu Popover (opens only on tap/click, closes on pick) */}
             {toolMenuOpen && (
               <div
@@ -594,6 +655,19 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 </div>
               </div>
             </button>
+
+            {showTouch && (
+              <button
+                type="button"
+                onClick={() => onFire?.()}
+                aria-label="Disparar bláster"
+                className="h-14 w-14 rounded-2xl border-2 border-amber-300/80 bg-gradient-to-b from-amber-400 to-orange-500 text-[#07111a] font-extrabold flex flex-col items-center justify-center shadow-lg touch-none cursor-pointer"
+              >
+                <Crosshair className="w-5 h-5" />
+                <span className="text-[9px] leading-none mt-0.5">TIRO</span>
+              </button>
+            )}
+            </div>
           </div>
         </div>
       </div>

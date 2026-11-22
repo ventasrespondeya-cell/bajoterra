@@ -206,6 +206,11 @@ export class CombatManager {
         telegraphProgress: 0,
         aiCooldown: 0,
         aiTargetY: 268,
+        dodgeTimer: 0,
+        dodgeCooldown: 0,
+        dodgeVx: 0,
+        dodgeVy: 0,
+        invulnTimer: 0,
       },
       enemyDuelist: {
         x: ENEMY_LANE_X,
@@ -316,6 +321,55 @@ export class CombatManager {
     const pd = this.battle.playerDuelist;
     pd.x = Math.max(PLAYER_MIN_X, Math.min(PLAYER_MAX_X, pd.x + deltaX));
     pd.y = Math.max(DUELIST_MIN_Y, Math.min(DUELIST_MAX_Y, pd.y + deltaY));
+  }
+
+  public triggerDodge(state: GameState, dirX?: number, dirY?: number): boolean {
+    const b = this.battle;
+    if (!b || b.turn !== 'duel') return false;
+    const pd = b.playerDuelist;
+    if ((pd.dodgeCooldown ?? 0) > 0 || b.allyStatus.stunTimer > 0) return false;
+
+    let dx = dirX ?? this.moveInputX;
+    let dy = dirY ?? this.moveInputY;
+    const mag = Math.hypot(dx, dy);
+    if (mag < 0.08) {
+      dx = 0;
+      dy = pd.y > (DUELIST_MIN_Y + DUELIST_MAX_Y) / 2 ? -1 : 1;
+    } else {
+      dx /= mag;
+      dy /= mag;
+    }
+
+    const dashSpeed = 680;
+    pd.dodgeTimer = 0.2;
+    pd.dodgeCooldown = 1.15;
+    pd.invulnTimer = 0.28;
+    pd.dodgeVx = dx * dashSpeed;
+    pd.dodgeVy = dy * dashSpeed;
+    pd.vx = pd.dodgeVx;
+    pd.vy = pd.dodgeVy;
+
+    const closeDanger = b.projectiles.some(
+      (p) => p.owner === 'enemy' && p.alive && Math.hypot(p.x - pd.x, p.y - pd.y) < 155
+    );
+    if (closeDanger) {
+      b.pulseCharge = Math.min(100, b.pulseCharge + 15);
+      this.checkPulseUnlock('¡Esquiva Perfecta!');
+      this.pushEffect({
+        target: 'ally',
+        kind: 'pulse',
+        text: '⚡ ¡Esquiva!',
+        color: '#5eead4',
+        x: pd.x,
+        y: pd.y - 38,
+      });
+    }
+
+    sound.playBlasterSelect();
+    this.pushShockwave(pd.x, pd.y, 62, '#5eead4', 'shield');
+    this.onStateChangeCallback?.();
+    void state;
+    return true;
   }
 
   public setAimAngle(angleRad: number): void {
@@ -1028,6 +1082,9 @@ export class CombatManager {
     pd.reloadTimer = Math.max(0, pd.reloadTimer - dt);
     pd.hitFlash = Math.max(0, pd.hitFlash - dt);
     pd.perfectFlash = Math.max(0, pd.perfectFlash - dt);
+    pd.dodgeTimer = Math.max(0, (pd.dodgeTimer ?? 0) - dt);
+    pd.dodgeCooldown = Math.max(0, (pd.dodgeCooldown ?? 0) - dt);
+    pd.invulnTimer = Math.max(0, (pd.invulnTimer ?? 0) - dt);
 
     ed.recoil = Math.max(0, ed.recoil - dt);
     ed.guardTimer = Math.max(0, ed.guardTimer - dt);
@@ -1091,8 +1148,19 @@ export class CombatManager {
       enemy.burnTurns = 0;
     }
 
-    // Free 2D player arena movement (with cover collision sliding)
-    if (b.allyStatus.stunTimer <= 0 && (Math.abs(this.moveInputX) > 0.01 || Math.abs(this.moveInputY) > 0.01)) {
+    // Free 2D player arena movement (dodge dash + cover collision sliding)
+    if ((pd.dodgeTimer ?? 0) > 0 && b.allyStatus.stunTimer <= 0) {
+      pd.vx = pd.dodgeVx ?? 0;
+      pd.vy = pd.dodgeVy ?? 0;
+      const nextX = Math.max(PLAYER_MIN_X, Math.min(PLAYER_MAX_X, pd.x + pd.vx * dt));
+      if (!this.duelistHitsCover(nextX, pd.y, 18, b.obstacles)) {
+        pd.x = nextX;
+      }
+      const nextY = Math.max(DUELIST_MIN_Y, Math.min(DUELIST_MAX_Y, pd.y + pd.vy * dt));
+      if (!this.duelistHitsCover(pd.x, nextY, 18, b.obstacles)) {
+        pd.y = nextY;
+      }
+    } else if (b.allyStatus.stunTimer <= 0 && (Math.abs(this.moveInputX) > 0.01 || Math.abs(this.moveInputY) > 0.01)) {
       const moveSpd = b.allyStatus.chillTimer > 0 ? 170 : 250;
       pd.vx = this.moveInputX * moveSpd;
       pd.vy = this.moveInputY * moveSpd;
@@ -1204,10 +1272,21 @@ export class CombatManager {
     if (ed.aiCooldown > 0) return;
 
     const hpPct = enemy.hp / Math.max(1, enemy.maxHp);
+    const bossPhase2 = Boolean(enemy.isBoss && hpPct <= 0.55);
+
+    if (enemy.bossId === 'boss_shadow' && bossPhase2 && ed.guardCooldown <= 0 && Math.random() < 0.25) {
+      ed.guardCooldown = 4.2;
+      ed.y =
+        pd.y > (DUELIST_MIN_Y + DUELIST_MAX_Y) / 2
+          ? DUELIST_MIN_Y + 26
+          : DUELIST_MAX_Y - 26;
+      this.pushShockwave(ed.x, ed.y, 64, '#a855f7', 'transform', '¡Parpadeo Sombrío!');
+    }
+
     if ((enemy.strategy === 'defensivo' || enemy.strategy === 'jefe') && hpPct < 0.55 && ed.guardCooldown <= 0 && Math.random() < 0.36) {
-      ed.guardTimer = 1.6;
+      ed.guardTimer = enemy.bossId === 'boss_ice' ? 2.1 : 1.6;
       ed.guardCooldown = 4.6;
-      enemy.shieldTimer = 2.4;
+      enemy.shieldTimer = enemy.bossId === 'boss_ice' ? 2.8 : 2.4;
       const heal = Math.round(enemy.maxHp * 0.08);
       enemy.hp = Math.min(enemy.maxHp, enemy.hp + heal);
       sound.playShieldBlock(false);
@@ -1217,7 +1296,7 @@ export class CombatManager {
       return;
     }
 
-    if ((enemy.strategy === 'agresivo' || enemy.strategy === 'jefe') && Math.random() < 0.34) {
+    if ((enemy.strategy === 'agresivo' || enemy.strategy === 'jefe') && Math.random() < (bossPhase2 ? 0.44 : 0.34)) {
       enemy.telegraphing = 'heavy';
       ed.telegraphProgress = 0.05;
       this.battle!.pulseWindowActive = true;
@@ -1228,7 +1307,8 @@ export class CombatManager {
 
     this.spawnEnemyProjectile(state, false);
     const chillDelay = (enemy.chillTimer || 0) > 0 ? 0.55 : 0;
-    ed.aiCooldown = (enemy.isBoss ? 1.45 : enemy.isMercenary ? 1.65 : 1.95) + chillDelay;
+    const phaseAccel = bossPhase2 ? -0.26 : 0;
+    ed.aiCooldown = Math.max(0.75, (enemy.isBoss ? 1.45 : enemy.isMercenary ? 1.65 : 1.95) + chillDelay + phaseAccel);
   }
 
   private spawnEnemyProjectile(_state: GameState, heavy: boolean): void {
@@ -1239,64 +1319,108 @@ export class CombatManager {
     const pd = b.playerDuelist;
     const sp = getSpecies(enemy.id);
     const profile = getSlugCombatProfile(sp);
+    const hpPct = enemy.hp / Math.max(1, enemy.maxHp);
+    const bossPhase2 = Boolean(enemy.isBoss && hpPct <= 0.55);
+
+    const bossRosterMap: Record<string, string[]> = {
+      boss_aquatic: ['aquabeak', 'makobreaker', 'jellyish'],
+      boss_magma: ['piroclasto', 'infurnus', 'lavalynx'],
+      boss_ice: ['frostcrawler', 'glaciomita'],
+      boss_crystal: ['enigmo', 'polero', 'tazerling'],
+      boss_shadow: ['umbrospect', 'darkfurnus', 'toxis'],
+      boss_blakk: ['darkfurnus', 'tazerling', 'toxis', 'infurnus'],
+    };
 
     const fireSpecies =
-      enemy.isBoss && Math.random() < 0.35
+      enemy.isBoss && enemy.bossId && bossRosterMap[enemy.bossId]
+        ? getSpecies(bossRosterMap[enemy.bossId][Math.floor(Math.random() * bossRosterMap[enemy.bossId].length)])
+        : enemy.isBoss && Math.random() < 0.35
         ? getSpecies(['infurnus', 'tazerling', 'frostcrawler', 'darkfurnus', 'enigmo'][Math.floor(Math.random() * 5)])
         : sp;
     const fireProfile = getSlugCombatProfile(fireSpecies);
 
     const dx = pd.x - (ed.x - 32);
     const dy = pd.y - ed.y;
-    const speed = (heavy ? fireProfile.maxLaunchSpeed * 0.96 : fireProfile.baseLaunchSpeed * 1.12) * (enemy.isBoss ? 1.06 : 0.94);
+    const speed =
+      (heavy ? fireProfile.maxLaunchSpeed * 0.96 : fireProfile.baseLaunchSpeed * 1.12) *
+      (enemy.isBoss ? (bossPhase2 ? 1.14 : 1.06) : 0.94);
     const flightT = Math.max(0.38, Math.hypot(dx, dy) / speed);
     const g = BASE_GRAVITY * fireProfile.gravityScale;
     const aimVy = dy / flightT - 0.5 * g * flightT;
     const aimVx = dx / flightT;
-    const mag = Math.hypot(aimVx, aimVy) || 1;
-    const vx = (aimVx / mag) * speed;
-    const vy = (aimVy / mag) * speed;
+    const baseAngle = Math.atan2(aimVy, aimVx);
 
     const powerScore =
       enemy.atk *
       (heavy ? 1.45 : 0.88) *
+      (bossPhase2 ? 1.1 : 1) *
       ((enemy.chillTimer || 0) > 0 ? 0.75 : 1);
 
     const move = fireSpecies.specialMoves[heavy ? 1 : 0];
-    const proj: DuelProjectile = {
-      id: projSeq++,
-      owner: 'enemy',
-      speciesId: fireSpecies.id,
-      slugName: fireSpecies.name,
-      element: fireSpecies.type,
-      mega: enemy.mega && heavy,
-      mode: heavy ? 'move1' : 'quick',
-      moveEffect: heavy ? move.effect : undefined,
-      x: ed.x - 32,
-      y: ed.y,
-      prevX: ed.x - 32,
-      prevY: ed.y,
-      vx,
-      vy,
-      radius: fireProfile.hitboxRadius + (heavy ? 3 : 0),
-      distanceTraveled: 0,
-      transformDist: heavy ? 110 : profile.transformDist,
-      phase: 'protoform',
-      transformTimer: 0,
-      chargeScore: heavy ? 0.92 : 0.62,
-      perfectRelease: heavy,
-      powerScore,
-      gravityScale: fireProfile.gravityScale,
-      homing: heavy ? fireProfile.homing * 0.55 : fireProfile.homing * 0.3,
-      bouncesLeft: fireProfile.bounces,
-      phaseObstacles: fireProfile.phaseObstacles || heavy,
-      pierceLeft: 0,
-      aoeRadius: fireProfile.aoeRadius,
-      trail: [],
-      alive: true,
-    };
+    const angleOffsets =
+      enemy.isBoss && heavy && bossPhase2
+        ? [-0.14, 0, 0.14]
+        : enemy.isBoss && (heavy || enemy.bossId === 'boss_aquatic' || enemy.bossId === 'boss_blakk')
+        ? [-0.08, 0.08]
+        : [0];
 
-    b.projectiles.push(proj);
+    for (const offset of angleOffsets) {
+      const ang = baseAngle + offset;
+      const proj: DuelProjectile = {
+        id: projSeq++,
+        owner: 'enemy',
+        speciesId: fireSpecies.id,
+        slugName: fireSpecies.name,
+        element: fireSpecies.type,
+        mega: enemy.mega && heavy,
+        mode: heavy ? 'move1' : 'quick',
+        moveEffect:
+          enemy.bossId === 'boss_magma' && heavy
+            ? 'burn'
+            : enemy.bossId === 'boss_ice' && heavy
+            ? 'chill'
+            : enemy.bossId === 'boss_shadow' && heavy
+            ? 'stun'
+            : heavy
+            ? move.effect
+            : undefined,
+        x: ed.x - 32,
+        y: ed.y,
+        prevX: ed.x - 32,
+        prevY: ed.y,
+        vx: Math.cos(ang) * speed,
+        vy: Math.sin(ang) * speed,
+        radius: fireProfile.hitboxRadius + (heavy ? 3 : 0),
+        distanceTraveled: 0,
+        transformDist: heavy ? 110 : profile.transformDist,
+        phase: 'protoform',
+        transformTimer: 0,
+        chargeScore: heavy ? 0.92 : 0.62,
+        perfectRelease: heavy,
+        powerScore: angleOffsets.length > 1 ? powerScore * 0.78 : powerScore,
+        gravityScale: fireProfile.gravityScale,
+        homing:
+          enemy.bossId === 'boss_crystal'
+            ? heavy
+              ? 2.2
+              : 1.35
+            : heavy
+            ? fireProfile.homing * 0.55
+            : fireProfile.homing * 0.3,
+        bouncesLeft:
+          enemy.bossId === 'boss_aquatic'
+            ? Math.max(2, fireProfile.bounces + 2)
+            : fireProfile.bounces,
+        phaseObstacles:
+          enemy.bossId === 'boss_shadow' || fireProfile.phaseObstacles || heavy,
+        pierceLeft: 0,
+        aoeRadius: fireProfile.aoeRadius,
+        trail: [],
+        alive: true,
+      };
+      b.projectiles.push(proj);
+    }
+
     ed.recoil = 0.16;
     sound.playBlasterFire(heavy, false);
   }
@@ -1535,6 +1659,10 @@ export class CombatManager {
       } else {
         const dist = Math.hypot(p.x - pd.x, p.y - pd.y);
         if (dist <= p.radius + allyHitRadius) {
+          if ((pd.invulnTimer ?? 0) > 0) {
+            this.pushShockwave(pd.x, pd.y, 44, '#5eead4', 'shield', '¡Esquivado!');
+            continue;
+          }
           p.alive = false;
           this.applyEnemyProjectileHit(state, p);
           if (b.turn !== 'duel') return;

@@ -200,7 +200,7 @@ export const WORLD_REGIONS: WorldRegionDef[] = [
     y: 252,
     radius: 12,
     description: 'Antigua fragua subterránea rodeada de magma y vigilada por el Titán Piroclasto.',
-    scenarioId: 'esc_forja_magma',
+    scenarioId: 'esc_caverna_magma',
   },
   {
     id: 'reg_templo_cuarzo',
@@ -276,7 +276,7 @@ export const WORLD_REGIONS: WorldRegionDef[] = [
     y: 54,
     radius: 13,
     description: 'Cuartel principal del Dr. Blakk protegido por murallas y puentes sobre abismos.',
-    scenarioId: 'esc_bastion_sombrio',
+    scenarioId: 'esc_ciudadela_sombria',
   },
 
   // ---- 26 PUNTOS DE REFERENCIA, PUENTES, CASCADAS Y MIRADORES ----
@@ -584,11 +584,14 @@ export class ChunkManager {
     const dx = x - SPAWN_X;
     const dy = y - SPAWN_Y;
     const dist = Math.hypot(dx, dy);
-    // Natural sinuous curve outside central shelter corridor so roads wind like real cavern galleries
-    const waveX = dist > 26 ? Math.sin(y * 0.085) * 3.2 : 0;
-    const waveY = dist > 26 ? Math.cos(x * 0.085) * 3.2 : 0;
-    const onHorizontalRoad = Math.abs(dy + waveY) <= 1.5;
-    const onVerticalRoad = Math.abs(dx + waveX) <= 1.5;
+
+    // Sinuous cavern arteries PLUS guaranteed walkable cardinal avenues along SPAWN_X / SPAWN_Y
+    const waveX = dist > 26 ? Math.sin(y * 0.085) * 2.8 : 0;
+    const waveY = dist > 26 ? Math.cos(x * 0.085) * 2.8 : 0;
+    const onCardinalX = Math.abs(dy) <= 1.1;
+    const onCardinalY = Math.abs(dx) <= 1.1;
+    const onHorizontalRoad = onCardinalX || Math.abs(dy + waveY) <= 1.45;
+    const onVerticalRoad = onCardinalY || Math.abs(dx + waveX) <= 1.45;
     const ringNoise = Math.sin(Math.atan2(dy, dx) * 5) * 3.5;
     const onInnerRing = Math.abs(dist - (72 + ringNoise)) <= 1.6;
     const onOuterRing = Math.abs(dist - (118 + ringNoise)) <= 1.6;
@@ -596,6 +599,8 @@ export class ChunkManager {
     const b = getBiomeAt(x, y, this.worldSeed);
     const caveNoise = fbm(x, y, this.worldSeed);
     const lakeNoise = fbm(x + 400, y + 400, this.worldSeed + 313);
+    const clusterField = smoothNoise(x * 0.22, y * 0.22, this.worldSeed + 641);
+    const secondaryCluster = smoothNoise(x * 0.27 + 91, y * 0.27 - 37, this.worldSeed + 997);
     const chasmBand = smoothNoise(x * 0.045, y * 0.045, this.worldSeed + 881);
     const r = hash2D(x, y, this.worldSeed + 17);
 
@@ -608,8 +613,8 @@ export class ChunkManager {
 
     if (onHorizontalRoad || onVerticalRoad || onInnerRing || onOuterRing) {
       if (inChasmTrench) return TileType.ROPE_BRIDGE;
-      if (r < 0.032) return TileType.MUSHROOM;
-      if (r < 0.055 && (onInnerRing || dist < 34)) return TileType.COBBLESTONE;
+      if (!onCardinalX && !onCardinalY && r < 0.025) return TileType.MUSHROOM;
+      if (clusterField > 0.72 && (onInnerRing || dist < 34)) return TileType.COBBLESTONE;
       return TileType.FLOOR;
     }
 
@@ -617,124 +622,118 @@ export class ChunkManager {
       return TileType.CHASM;
     }
 
-    // Organic cliff walls and mineral formations
-    if (caveNoise > 0.66) {
+    // Cohesive cavern cliff plateaus & stratified mineral outcrops (avoiding 1x1 noise specks)
+    if (caveNoise > 0.655) {
       if (b === 'Magma') {
-        if (r < 0.14) return TileType.MAGMA_COAL;
-        if (r < 0.22) return TileType.THERMAL_COPPER;
-        if (r < 0.34) return TileType.BASALT_COLUMN;
+        if (clusterField > 0.72 && r < 0.34) return TileType.BASALT_COLUMN;
+        if (secondaryCluster > 0.72 && r < 0.48) return TileType.MAGMA_COAL;
+        if (secondaryCluster < 0.24 && r < 0.36) return TileType.THERMAL_COPPER;
         return TileType.VOLCANIC_ROCK;
       }
       if (b === 'Heladas') {
-        if (r < 0.16) return TileType.ICE_CRYSTAL;
-        if (r < 0.24) return TileType.BLUE_QUARTZ;
-        if (r < 0.42) return TileType.ICE;
+        if (clusterField > 0.68 && r < 0.42) return TileType.ICE_CRYSTAL;
+        if (secondaryCluster < 0.26 && r < 0.36) return TileType.BLUE_QUARTZ;
+        if (caveNoise > 0.72 || clusterField > 0.48) return TileType.ICE;
         return TileType.ROCK;
       }
       if (b === 'Acuaticas') {
-        if (r < 0.16) return TileType.WATERFALL;
-        if (r < 0.28) return TileType.BLUE_QUARTZ;
-        if (r < 0.36) return TileType.ORE;
+        if (lakeNoise < 0.34 && r < 0.42) return TileType.WATERFALL;
+        if (clusterField > 0.7 && r < 0.38) return TileType.BLUE_QUARTZ;
+        if (secondaryCluster < 0.25 && r < 0.3) return TileType.ORE;
         return TileType.ROCK;
       }
       if (b === 'Cristalinas') {
-        if (r < 0.24) return TileType.CRYSTAL_SPIRE;
-        if (r < 0.36) return TileType.BLUE_QUARTZ;
-        if (r < 0.46) return TileType.ENERGY_CRYSTAL;
-        if (r < 0.485) return TileType.EVO_STONE_VEIN;
+        if (clusterField > 0.68 && r < 0.46) return TileType.CRYSTAL_SPIRE;
+        if (secondaryCluster > 0.7 && r < 0.42) return TileType.BLUE_QUARTZ;
+        if (clusterField < 0.26 && r < 0.4) return TileType.ENERGY_CRYSTAL;
+        if (r < 0.028) return TileType.EVO_STONE_VEIN;
         return TileType.ROCK;
       }
       if (b === 'Sombrias') {
-        if (r < 0.14) return TileType.DARK_IRON;
-        if (r < 0.25) return TileType.SHADOW_CRYSTAL;
-        if (r < 0.32) return TileType.RUIN_PILLAR;
-        if (r < 0.335) return TileType.EVO_STONE_VEIN;
+        if (clusterField > 0.7 && r < 0.42) return TileType.SHADOW_CRYSTAL;
+        if (secondaryCluster < 0.26 && r < 0.35) return TileType.DARK_IRON;
+        if (clusterField < 0.24 && r < 0.3) return TileType.RUIN_PILLAR;
+        if (r < 0.025) return TileType.EVO_STONE_VEIN;
         return TileType.ROCK;
       }
-      if (r < 0.15) return TileType.ORE;
-      if (r < 0.2) return TileType.RUIN_PILLAR;
+      if (clusterField > 0.72 && r < 0.36) return TileType.ORE;
+      if (secondaryCluster < 0.22 && r < 0.28) return TileType.RUIN_PILLAR;
       return TileType.ROCK;
     }
 
-    // Underground lakes, waterfalls & lava rivers
+    // Sculpted underground lakes, waterfalls & lava rivers
     if (lakeNoise < 0.25) {
       if (b === 'Magma') return TileType.LAVA;
       if (b === 'Heladas') {
-        return lakeNoise < 0.15 ? TileType.WATER : TileType.ICE_FLOOR;
+        return lakeNoise < 0.145 ? TileType.WATER : TileType.ICE_FLOOR;
       }
       if (b === 'Acuaticas') {
-        if (lakeNoise > 0.22 && r < 0.24) return TileType.WATERFALL;
+        if (lakeNoise > 0.225 && clusterField > 0.62 && r < 0.38) return TileType.WATERFALL;
         return TileType.WATER;
       }
-      if (b === 'Verdes' && lakeNoise > 0.225 && r < 0.09) return TileType.WATERFALL;
+      if (b === 'Verdes' && lakeNoise > 0.228 && clusterField > 0.68 && r < 0.22) return TileType.WATERFALL;
       return TileType.WATER;
     }
-    if (lakeNoise < 0.29 && (b === 'Verdes' || b === 'Heladas' || b === 'Acuaticas') && r < 0.28) {
+    // Natural shoreline kelp belt along shallow aquatic waters
+    if (lakeNoise < 0.295 && (b === 'Verdes' || b === 'Heladas' || b === 'Acuaticas') && clusterField > 0.54 && r < 0.42) {
       return TileType.KELP;
     }
 
-    // Lush biome props, glowing mushroom clusters, basalt, ruins & flora
+    // Clustered flora groves, mushroom clearings, ruin colonnades & mineral patches
     if (b === 'Verdes') {
-      if (r < 0.032) return TileType.WOOD_PILLAR;
-      if (r < 0.056) return TileType.RUIN_PILLAR;
-      if (r < 0.088) return TileType.ORE;
-      if (r < 0.155) return TileType.MUSHROOM;
-      if (r < 0.168) return TileType.ENERGY_CRYSTAL;
+      if (clusterField > 0.76 && r < 0.32) return TileType.MUSHROOM;
+      if (secondaryCluster > 0.78 && r < 0.18) return TileType.WOOD_PILLAR;
+      if (clusterField < 0.19 && r < 0.16) return TileType.RUIN_PILLAR;
+      if (secondaryCluster < 0.2 && r < 0.2) return TileType.ORE;
+      if (clusterField > 0.84 && r < 0.12) return TileType.ENERGY_CRYSTAL;
       return TileType.FLOOR;
     }
 
     if (b === 'Acuaticas') {
-      if (r < 0.045) return TileType.WATER;
-      if (r < 0.072) return TileType.WATERFALL;
-      if (r < 0.145) return TileType.KELP;
-      if (r < 0.185) return TileType.BLUE_QUARTZ;
-      if (r < 0.215) return TileType.MUSHROOM;
-      if (r < 0.24) return TileType.ORE;
+      if (clusterField > 0.74 && r < 0.28) return TileType.KELP;
+      if (secondaryCluster > 0.75 && r < 0.24) return TileType.BLUE_QUARTZ;
+      if (clusterField < 0.2 && r < 0.22) return TileType.MUSHROOM;
+      if (secondaryCluster < 0.18 && r < 0.16) return TileType.ORE;
       return TileType.FLOOR;
     }
 
     if (b === 'Magma') {
-      if (r < 0.045) return TileType.LAVA;
-      if (r < 0.085) return TileType.MAGMA_COAL;
-      if (r < 0.118) return TileType.BASALT_COLUMN;
-      if (r < 0.148) return TileType.THERMAL_COPPER;
-      if (r < 0.175) return TileType.VOLCANIC_ROCK;
-      if (r < 0.19) return TileType.ENERGY_CRYSTAL;
+      if (clusterField > 0.77 && r < 0.28) return TileType.BASALT_COLUMN;
+      if (secondaryCluster > 0.76 && r < 0.24) return TileType.MAGMA_COAL;
+      if (clusterField < 0.2 && r < 0.2) return TileType.THERMAL_COPPER;
+      if (secondaryCluster < 0.18 && r < 0.16) return TileType.ENERGY_CRYSTAL;
       return TileType.FLOOR;
     }
 
     if (b === 'Heladas') {
-      if (r < 0.05) return TileType.ICE;
-      if (r < 0.09) return TileType.ICE_CRYSTAL;
-      if (r < 0.125) return TileType.BLUE_QUARTZ;
-      if (r < 0.155) return TileType.ORE;
-      if (r < 0.285) return TileType.ICE_FLOOR;
-      if (r < 0.3) return TileType.ENERGY_CRYSTAL;
+      if (lakeNoise < 0.36) return TileType.ICE_FLOOR;
+      if (clusterField > 0.76 && r < 0.28) return TileType.ICE_CRYSTAL;
+      if (secondaryCluster > 0.76 && r < 0.22) return TileType.BLUE_QUARTZ;
+      if (clusterField < 0.2 && r < 0.18) return TileType.ORE;
       return TileType.FLOOR;
     }
 
     if (b === 'Cristalinas') {
-      if (r < 0.052) return TileType.CRYSTAL_SPIRE;
-      if (r < 0.098) return TileType.ENERGY_CRYSTAL;
-      if (r < 0.14) return TileType.BLUE_QUARTZ;
-      if (r < 0.175) return TileType.NEON_MUSHROOM;
-      if (r < 0.205) return TileType.RUIN_PILLAR;
+      if (clusterField > 0.77 && r < 0.26) return TileType.CRYSTAL_SPIRE;
+      if (secondaryCluster > 0.75 && r < 0.26) return TileType.ENERGY_CRYSTAL;
+      if (clusterField < 0.21 && r < 0.24) return TileType.BLUE_QUARTZ;
+      if (secondaryCluster < 0.2 && r < 0.22) return TileType.NEON_MUSHROOM;
+      if (clusterField > 0.83 && r < 0.12) return TileType.RUIN_PILLAR;
       return TileType.FLOOR;
     }
 
     // Sombrias
-    if (r < 0.046) return TileType.SHADOW_CRYSTAL;
-    if (r < 0.082) return TileType.DARK_IRON;
-    if (r < 0.122) return TileType.NEON_MUSHROOM;
-    if (r < 0.148) return TileType.RUIN_PILLAR;
-    if (r < 0.178) return TileType.ORE;
+    if (clusterField > 0.77 && r < 0.26) return TileType.SHADOW_CRYSTAL;
+    if (secondaryCluster > 0.76 && r < 0.26) return TileType.NEON_MUSHROOM;
+    if (clusterField < 0.2 && r < 0.22) return TileType.DARK_IRON;
+    if (secondaryCluster < 0.19 && r < 0.18) return TileType.RUIN_PILLAR;
     return TileType.FLOOR;
   }
 
   private clearEntranceApproach(tiles: Uint8Array): void {
     for (let ly = 12; ly <= 14; ly++) {
       for (let lx = 5; lx <= 9; lx++) {
-        tiles[ly * CHUNK_SIZE + lx] = lx === 7 ? TileType.COBBLESTONE : TileType.FLOOR;
+        tiles[ly * CHUNK_SIZE + lx] = TileType.FLOOR;
       }
     }
   }
@@ -811,7 +810,7 @@ export class ChunkManager {
         }
       }
     }
-    tiles[11 * CHUNK_SIZE + 7] = TileType.WOOD_STAIRS;
+    tiles[10 * CHUNK_SIZE + 7] = TileType.WOOD_STAIRS;
     tiles[7 * CHUNK_SIZE + 7] = TileType.CAMPFIRE;
     tiles[5 * CHUNK_SIZE + 5] = TileType.WOOD_PILLAR;
     tiles[5 * CHUNK_SIZE + 9] = TileType.CHEST_CLOSED;
@@ -950,7 +949,8 @@ export class ChunkManager {
       if (x === 190 && y === 156) return TileType.CHEST_CLOSED;
       if (x === 181 && y === 162) return TileType.CAMPFIRE;
       if (x === 189 && y === 162) return TileType.TORCH;
-      if (Math.hypot(x - 185, y - 160) <= 2.3) return TileType.COBBLESTONE;
+      const distOutpost = Math.hypot(x - 185, y - 160);
+      if (distOutpost >= 1.8 && distOutpost <= 3.1 && y !== 160 && x !== 185) return TileType.COBBLESTONE;
       return TileType.BUILT_FLOOR;
     }
 
@@ -1162,6 +1162,16 @@ export class ChunkManager {
     if (Math.abs(dx) > 7 || Math.abs(dy) > 7) return null;
 
     if (Math.abs(dx) === 7 || Math.abs(dy) === 7) {
+      if ((Math.abs(dx) === 7 && Math.abs(dy) === 2) || (Math.abs(dy) === 7 && Math.abs(dx) === 2)) {
+        return TileType.TORCH;
+      }
+      if (Math.abs(dx) <= 1 || Math.abs(dy) <= 1) return TileType.COBBLESTONE;
+      return TileType.FLOOR;
+    }
+
+    if (Math.abs(dx) === 6 || Math.abs(dy) === 6) {
+      if (Math.abs(dx) <= 1 || Math.abs(dy) <= 1) return TileType.COBBLESTONE;
+      if (Math.abs(dx) === 6 && Math.abs(dy) === 6) return TileType.MUSHROOM;
       return TileType.FLOOR;
     }
 
@@ -1169,6 +1179,7 @@ export class ChunkManager {
       if ((dx === 0 && dy === -5) || (dx === 0 && dy === 5) || (dx === -5 && dy === 0) || (dx === 5 && dy === 0)) {
         return TileType.DOOR_OPEN;
       }
+      if (Math.abs(dx) === 5 && Math.abs(dy) === 5) return TileType.WOOD_PILLAR;
       return TileType.WALL;
     }
 
@@ -1178,6 +1189,7 @@ export class ChunkManager {
       if (dx === -3 && dy === 3) return TileType.TORCH;
       if (dx === 3 && dy === 3) return TileType.TORCH;
       if (dx === 0 && dy === -3) return TileType.ALTAR;
+      if (Math.abs(dx) === 4 && Math.abs(dy) === 4) return TileType.ENERGY_CRYSTAL;
       return TileType.BUILT_FLOOR;
     }
 

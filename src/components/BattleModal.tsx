@@ -8,6 +8,7 @@ import {
   Sparkles,
   Swords,
   Target,
+  Wind,
   X,
   Zap,
 } from 'lucide-react';
@@ -15,6 +16,7 @@ import { ARENA_HEIGHT, ARENA_WIDTH } from '../game/combatArenas';
 import { CombatManager } from '../game/combat';
 import { DuelArenaRenderer } from '../game/combatRenderer';
 import { BIOME_INFO, getElementMultiplier, getSpecies } from '../game/data';
+import { findActionForKey, resolveEffectiveBindings } from '../game/inputManager';
 import { getEffectiveMoveEnergyCost, getMoveMasteryInfo, getSlugDisplayName } from '../game/progression';
 import { getSlugCombatProfile } from '../game/slugCombatProfiles';
 import type { BattleState, BlasterShotMode, GameState } from '../game/types';
@@ -100,14 +102,15 @@ export const BattleModal: React.FC<BattleModalProps> = ({
 
   const updateKeyboardMove = useCallback(() => {
     const held = heldMoveKeysRef.current;
-    const up = held.has('w') || held.has('arrowup');
-    const down = held.has('s') || held.has('arrowdown');
-    const left = held.has('a') || held.has('arrowleft');
-    const right = held.has('d') || held.has('arrowright');
+    const bindings = resolveEffectiveBindings(state.options.keyBindings);
+    const up = held.has(bindings.moveUp) || held.has('w') || held.has('arrowup');
+    const down = held.has(bindings.moveDown) || held.has('s') || held.has('arrowdown');
+    const left = held.has(bindings.moveLeft) || held.has('a') || held.has('arrowleft');
+    const right = held.has(bindings.moveRight) || held.has('d') || held.has('arrowright');
     const dx = (right ? 1 : 0) - (left ? 1 : 0);
     const dy = (down ? 1 : 0) - (up ? 1 : 0);
     combat.setMoveInput(dx, dy);
-  }, [combat]);
+  }, [combat, state.options.keyBindings]);
 
   const clearAllInputs = useCallback(() => {
     heldMoveKeysRef.current.clear();
@@ -194,7 +197,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
     [combat, state, onSync]
   );
 
-  // Full 2D keyboard controls (WASD / Arrows move, 1-4 or Q switch, Z/X skills, F/Shift contextual, R pulse, Space charge/fire)
+  // Full 2D keyboard controls (WASD/Arrows + InputManager bindings: 1-4/Q switch, Z/X skills, F/Right-click contextual, R pulse, Space dodge, Left Click fire)
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!combat.battle || introPaused || isEditableEventTarget(e.target)) return;
@@ -205,35 +208,63 @@ export const BattleModal: React.FC<BattleModalProps> = ({
       }
       if (combat.battle.turn !== 'duel') return;
       const key = e.key.toLowerCase();
+      const bindings = resolveEffectiveBindings(state.options.keyBindings);
+      const boundAction = findActionForKey(key, bindings);
+      const isMoveKey =
+        MOVE_KEYS.has(key) ||
+        boundAction === 'moveUp' ||
+        boundAction === 'moveDown' ||
+        boundAction === 'moveLeft' ||
+        boundAction === 'moveRight';
 
-      if (MOVE_KEYS.has(key)) {
+      if (isMoveKey) {
         e.preventDefault();
         if (!heldMoveKeysRef.current.has(key)) {
           heldMoveKeysRef.current.add(key);
           updateKeyboardMove();
         }
-      } else if (key === '1' || key === '2' || key === '3' || key === '4') {
-        const idx = Number(key) - 1;
-        if (state.party[idx]) {
-          combat.swapSlug(state, idx);
+      } else if (boundAction === 'slug1' || key === '1') {
+        if (state.party[0]) {
+          combat.swapSlug(state, 0);
           onSync();
         }
-      } else if (key === 'q') {
+      } else if (boundAction === 'slug2' || key === '2') {
+        if (state.party[1]) {
+          combat.swapSlug(state, 1);
+          onSync();
+        }
+      } else if (boundAction === 'slug3' || key === '3') {
+        if (state.party[2]) {
+          combat.swapSlug(state, 2);
+          onSync();
+        }
+      } else if (boundAction === 'slug4' || key === '4') {
+        if (state.party[3]) {
+          combat.swapSlug(state, 3);
+          onSync();
+        }
+      } else if (boundAction === 'cycleSlug' || key === 'q') {
         if (combat.cycleSlug(state, 1)) onSync();
-      } else if (key === 'z') {
+      } else if (boundAction === 'ability1' || key === 'z') {
         selectOrFireMode(0);
-      } else if (key === 'x') {
+      } else if (boundAction === 'ability2' || key === 'x') {
         selectOrFireMode(1);
-      } else if (key === 'r') {
+      } else if (boundAction === 'pulse' || key === 'r') {
         if (combat.battle.pulseWindowActive) {
           combat.fireBlasterShot(state, { charge: 0.8, modeOverride: 'pulse' });
           onSync();
         }
-      } else if (key === 'f' || e.key === 'Shift') {
+      } else if (boundAction === 'interact' || boundAction === 'secondary' || key === 'f' || e.key === 'Shift') {
         e.preventDefault();
         combat.triggerContextualAction(state);
         onSync();
-      } else if (e.key === ' ' || e.code === 'Space') {
+      } else if (boundAction === 'dodge' || e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        if (!e.repeat) {
+          combat.triggerDodge(state);
+          onSync();
+        }
+      } else if (boundAction === 'fire') {
         e.preventDefault();
         if (!e.repeat) {
           combat.beginCharge(state);
@@ -246,14 +277,22 @@ export const BattleModal: React.FC<BattleModalProps> = ({
   const handleKeyUp = useCallback(
     (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      if (MOVE_KEYS.has(key)) {
+      const bindings = resolveEffectiveBindings(state.options.keyBindings);
+      const boundAction = findActionForKey(key, bindings);
+      const isMoveKey =
+        MOVE_KEYS.has(key) ||
+        boundAction === 'moveUp' ||
+        boundAction === 'moveDown' ||
+        boundAction === 'moveLeft' ||
+        boundAction === 'moveRight';
+      if (isMoveKey) {
         if (heldMoveKeysRef.current.delete(key)) {
           updateKeyboardMove();
         }
         return;
       }
       if (isEditableEventTarget(e.target)) return;
-      if (e.key === ' ' || e.code === 'Space') {
+      if (boundAction === 'fire') {
         if (combat.battle?.turn === 'duel' && combat.battle.playerDuelist.charging) {
           combat.releaseChargeAndFire(state);
           onSync();
@@ -421,6 +460,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
   const enemyHpPct = Math.max(0, Math.min(100, (enemy.hp / Math.max(1, enemy.maxHp)) * 100));
   const pulsePct = Math.max(0, Math.min(100, battle.pulseCharge));
   const guardCd = battle.playerDuelist.guardCooldown;
+  const dodgeCd = battle.playerDuelist.dodgeCooldown ?? 0;
   const chargeVal = battle.playerDuelist.charge;
   const chargeTier = combat.getChargeTierInfo(state);
   const contextual = combat.getContextualAction(state);
@@ -889,15 +929,53 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               </span>
             </div>
 
-            {/* Center: Single Contextual Action + Secondary Menu (Slugs are on the right column) */}
-            <div className="flex-1 min-w-0 flex items-center justify-center gap-2 pb-1">
+            {/* Center: Dodge + Z/X Abilities + Contextual Action + Secondary Menu */}
+            <div className="flex-1 min-w-0 flex flex-wrap items-center justify-center gap-1.5 pb-1">
+              <button
+                disabled={!canAct || dodgeCd > 0}
+                onClick={() => {
+                  combat.triggerDodge(state);
+                  onSync();
+                }}
+                aria-label="Esquivar"
+                className="min-h-[44px] px-2.5 rounded-xl border border-teal-400/50 bt-btn-secondary text-teal-100 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer disabled:opacity-45 touch-none"
+              >
+                <Wind className="w-3.5 h-3.5 shrink-0" />
+                <span>{dodgeCd > 0 ? `${dodgeCd.toFixed(1)}s` : 'Esquivar'}</span>
+              </button>
+
+              {allySpecies.specialMoves.map((mv, idx) => {
+                const mvIdx = idx as 0 | 1;
+                const cd = combat.getMoveCooldown(ally, mv.id);
+                const cost = getEffectiveMoveEnergyCost(mv.energyCost, ally.moveMastery?.[mvIdx] ?? 0);
+                const locked = !canAct || cd > 0 || ally.energy < cost;
+                return (
+                  <button
+                    key={mv.id}
+                    disabled={locked}
+                    onClick={() => selectOrFireMode(mvIdx)}
+                    aria-label={mv.name}
+                    className={`min-h-[44px] px-2.5 rounded-xl border text-[11px] font-bold flex items-center gap-1 cursor-pointer disabled:opacity-40 touch-none ${
+                      battle.selectedMode === mvIdx
+                        ? 'bg-indigo-950/80 border-amber-300 text-amber-100'
+                        : 'bt-btn-secondary border-indigo-400/40 text-slate-100'
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3 text-amber-300 shrink-0" />
+                    <span className="truncate max-w-[66px]">
+                      {cd > 0 ? `${cd.toFixed(1)}s` : mv.name}
+                    </span>
+                  </button>
+                );
+              })}
+
               <button
                 disabled={!canAct || contextual.disabled}
                 onClick={() => {
                   combat.triggerContextualAction(state);
                   onSync();
                 }}
-                className={`min-h-[48px] px-3.5 rounded-2xl border text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-45 ${
+                className={`min-h-[44px] px-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-45 touch-none ${
                   contextual.kind === 'capture'
                     ? 'bt-btn-amber'
                     : contextual.kind === 'heal'
@@ -920,7 +998,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               <button
                 onClick={() => setActionsOpen((v) => !v)}
                 aria-label="Abrir menú de acciones"
-                className={`min-h-[48px] px-3 rounded-2xl border text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`min-h-[44px] px-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1 cursor-pointer touch-none ${
                   actionsOpen ? 'bt-btn-primary' : 'bt-btn-secondary border-amber-400/45 text-amber-100'
                 }`}
               >
@@ -1006,18 +1084,31 @@ export const BattleModal: React.FC<BattleModalProps> = ({
             </div>
           </div>
         ) : (
-          /* DESKTOP / PC COMPACT DOCK: Controls Hint | Contextual Action + Menu (Slugs are on the right column) */
+          /* DESKTOP / PC COMPACT DOCK: Controls Hint | Dodge + Contextual Action + Menu (Slugs are on the right column) */
           <div className="bt-hud-panel rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
             <div className="text-[11px] sm:text-xs text-slate-300 font-medium">
               <strong className="text-teal-200">WASD / Flechas</strong> mover ·{' '}
-              <strong className="text-teal-200">Ratón</strong> apuntar ·{' '}
-              <strong className="text-teal-200">Clic / Espacio</strong> cargar y disparar ·{' '}
-              <strong className="text-teal-200">Q / 1–4</strong> cambiar babosa ·{' '}
+              <strong className="text-teal-200">Ratón + Clic</strong> apuntar y disparar ·{' '}
+              <strong className="text-teal-200">Espacio</strong> esquivar ·{' '}
+              <strong className="text-teal-200">Z / X</strong> técnicas ·{' '}
+              <strong className="text-teal-200">Q / 1–4</strong> babosa ·{' '}
               <strong className="text-teal-200">F / Clic der.</strong> acción/escudo
             </div>
 
-            {/* Contextual Primary Action + Secondary Menu */}
+            {/* Dodge + Contextual Primary Action + Secondary Menu */}
             <div className="flex items-center gap-2 ml-auto">
+              <button
+                disabled={!canAct || dodgeCd > 0}
+                onClick={() => {
+                  combat.triggerDodge(state);
+                  onSync();
+                }}
+                className="min-h-[44px] px-3 rounded-xl border border-teal-400/50 bt-btn-secondary text-teal-100 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-45"
+              >
+                <Wind className="w-4 h-4" />
+                <span>{dodgeCd > 0 ? `Esquivar (${dodgeCd.toFixed(1)}s)` : 'Esquivar [Espacio]'}</span>
+              </button>
+
               <button
                 disabled={!canAct || contextual.disabled}
                 onClick={() => {

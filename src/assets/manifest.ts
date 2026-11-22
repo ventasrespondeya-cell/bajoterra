@@ -1,7 +1,7 @@
 /**
  * BAJOTERRA 4.0 — Registro Maestro de Activos Visuales (Parte 1)
  * Catálogo centralizado de hojas de sprites HiDPI, dimensiones, estados de animación
- * y módulos de terreno/arquitectura para personajes, babosas, enemigos y biomas.
+ * y módulos de terreno/decoración/arquitectura para personajes, babosas, enemigos y biomas.
  */
 
 export type AssetCategory =
@@ -56,7 +56,7 @@ export interface AssetModuleSpec {
 export const HD_CHARACTER_SPRITE_SIZE = 64;
 export const HD_BOSS_SPRITE_SIZE = 80;
 export const HD_SLUG_SPRITE_SIZE = 64;
-export const HD_TILE_SPRITE_SIZE = 56; // 2x crispness sobre WORLD_TILE = 28
+export const HD_TILE_SPRITE_SIZE = 56; // 2x HiDPI sobre TILE_PX = 28
 
 export const ASSET_REGISTRY: AssetModuleSpec[] = [
   {
@@ -68,18 +68,18 @@ export const ASSET_REGISTRY: AssetModuleSpec[] = [
     directions: ['down', 'up', 'left', 'right'],
     animationStates: ['idle', 'walk', 'interact', 'combat', 'hit', 'special'],
     description:
-      'Hojas HiDPI 64×64 con sombreado cel-shaded para Eli Shane, Burpy, Pronto, Trixie, Kord Zane, Will Shane, Mercader y Entrenadores.',
+      'Hojas HiDPI 64×64 con sombreado cel-shaded y 4 direcciones auténticas para Eli Shane, Kord Zane, Trixie Sting, Pronto, Will Shane, Mercader, Entrenadores y Mecha Shane.',
   },
   {
     id: 'hd_enemies_bosses',
     category: 'enemies',
-    modulePath: 'src/assets/characters/characterSpritesheet.ts',
+    modulePath: 'src/assets/enemies/enemySpritesheet.ts',
     frameWidth: HD_BOSS_SPRITE_SIZE,
     frameHeight: HD_BOSS_SPRITE_SIZE,
     directions: ['down', 'up', 'left', 'right'],
-    animationStates: ['idle', 'walk', 'combat', 'hit', 'special'],
+    animationStates: ['idle', 'walk', 'interact', 'combat', 'hit', 'special'],
     description:
-      'Rivales y villanos (Garfio Rojo, Twist, Mercenarios/Soldados de Blakk, Dr. Blakk) y 5 Jefes de Bioma 80×80 con siluetas únicas.',
+      'Hojas exclusivas para Garfio Rojo, Twist, Soldados de Blakk, Dr. Thaddius Blakk, Comandante Blakk y los 5 Jefes de Bioma 80×80 con siluetas y armas únicas.',
   },
   {
     id: 'hd_slug_anatomies',
@@ -105,7 +105,7 @@ export const ASSET_REGISTRY: AssetModuleSpec[] = [
       'victory',
     ],
     description:
-      '20 especies completas con anatomía por partes (cabeza, placas, tórax, abdomen luminoso, alas venadas), variantes Normal, Megamorph y Malvada (Ghoul).',
+      '20 especies completas con anatomía única por especie, alas venadas desplegables, formas Normal / Velocimorph / Megamorph / Ghoul.',
   },
   {
     id: 'hd_portraits_ui',
@@ -115,7 +115,7 @@ export const ASSET_REGISTRY: AssetModuleSpec[] = [
     frameHeight: 128,
     animationStates: ['idle', 'happy', 'combat', 'charge', 'sleep'],
     description:
-      'Retratos vectoriales expresivos para diálogos, Babosapedia, equipo y pantallas de duelo.',
+      'Retratos vectoriales expresivos para personajes, jefes, diálogos y Babosapedia.',
   },
   {
     id: 'hd_terrain_autotile',
@@ -123,29 +123,29 @@ export const ASSET_REGISTRY: AssetModuleSpec[] = [
     modulePath: 'src/assets/environments/hdTileset.ts',
     frameWidth: HD_TILE_SPRITE_SIZE,
     frameHeight: HD_TILE_SPRITE_SIZE,
-    animationStates: ['autotile_16', 'cliff_drop', 'chasm', 'cobblestone'],
+    animationStates: ['autotile_16', 'cliff_drop', 'chasm', 'shoreline_blend'],
     description:
-      'Terreno 2.5D de alta densidad con acantilados estratificados, auto-tiling de bordes de pared/roca, abismos profundos y calzadas de adoquines.',
+      'Terreno 2.5D con acantilados estratificados, auto-tiling de bordes, enredaderas colgantes, abismos y transiciones orgánicas de orilla.',
   },
   {
     id: 'hd_biome_decorations',
     category: 'biomeDecorations',
-    modulePath: 'src/assets/environments/hdTileset.ts',
+    modulePath: 'src/assets/environments/biomeDecorations.ts',
     frameWidth: HD_TILE_SPRITE_SIZE,
     frameHeight: HD_TILE_SPRITE_SIZE,
     animationStates: ['ambient_glow', 'waterfall_mist', 'spore_pulse'],
     description:
-      'Hongos bioluminiscentes en racimo, cascadas cian con bruma animada, pilares de basalto hexagonal, espiras de cuarzo y vegetación de las 6 cavernas.',
+      'Hongos luminosos en losas de piedra, cascadas cian con espuma, espiras de cristal, columnas de basalto y algas bioluminiscentes.',
   },
   {
     id: 'hd_buildings_bridges',
     category: 'buildings',
-    modulePath: 'src/assets/environments/hdTileset.ts',
+    modulePath: 'src/assets/buildings/caveArchitecture.ts',
     frameWidth: HD_TILE_SPRITE_SIZE,
     frameHeight: HD_TILE_SPRITE_SIZE,
-    animationStates: ['rope_bridge', 'wood_stairs', 'campfire_burn', 'ruin_pillar'],
+    animationStates: ['rope_bridge', 'wood_stairs', 'campfire_burn', 'rune_circle', 'shane_dome'],
     description:
-      'Puentes colgantes de madera y cuerda sobre abismos, escaleras de madera, hogueras de campamento, pilares en ruinas y arquitectura madera/piedra.',
+      'Puentes colgantes de cuerda sobre simas, escaleras de madera, hogueras de campamento, círculos rúnicos, cofres, altares y cúpula del Refugio Shane.',
   },
   {
     id: 'hd_combat_effects',
@@ -155,7 +155,7 @@ export const ASSET_REGISTRY: AssetModuleSpec[] = [
     frameHeight: 96,
     animationStates: ['protoform_trail', 'velocimorph_burst', 'ghoul_aura', 'clash_shockwave'],
     description:
-      'Efectos de transformación en vuelo, ondas de choque elementales, escudos de prisma y halos de partículas.',
+      'Efectos cinéticos de lanzamiento, metamorfosis Velocimorph, estelas por especie y duelos HiDPI en arena.',
   },
 ];
 

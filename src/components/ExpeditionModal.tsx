@@ -7,6 +7,7 @@ import {
   Heart,
   Home,
   MessageSquare,
+  Search,
   Shield,
   Sparkles,
   Swords,
@@ -57,6 +58,7 @@ import {
   STORY_ORDERED_SPECIES_IDS,
   getSlugDesignSheet,
 } from '../game/slugArtDirection';
+import { getSlugCombatProfile } from '../game/slugCombatProfiles';
 import type { FurnitureKind, GameState, HabitatId, HudSnapshot, InventoryKey } from '../game/types';
 import { ResourceSwatch } from './GameIcons';
 import { SlugDetailPanel } from './SlugDetailPanel';
@@ -110,6 +112,9 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
   const [catalogMood, setCatalogMood] = useState<SlugPortraitMood>('happy');
   const [showArtGuide, setShowArtGuide] = useState<boolean>(false);
   const [catalogSilhouette, setCatalogSilhouette] = useState<boolean>(false);
+  const [pediaSearch, setPediaSearch] = useState<string>('');
+  const [pediaElement, setPediaElement] = useState<string>('Todos');
+  const [pediaOwnedFilter, setPediaOwnedFilter] = useState<'all' | 'caught' | 'missing'>('all');
 
   const allSlugs = [...snap.party, ...snap.storage];
   const capturedCount = Object.keys(snap.capturedSpecies).length;
@@ -1609,78 +1614,197 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                 </div>
               )}
 
-              {/* Story-Ordered 20-Species Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                {STORY_ORDERED_SPECIES_IDS.map((id) => getSpecies(id)).map((sp) => {
+              {/* Search, Element & Ownership Filters */}
+              {(() => {
+                const elementFilters: Array<{ id: string; label: string }> = [
+                  { id: 'Todos', label: 'Todos' },
+                  { id: 'Fuego', label: 'Fuego' },
+                  { id: 'Agua', label: 'Agua' },
+                  { id: 'Hielo', label: 'Hielo' },
+                  { id: 'Electrico', label: 'Eléctrico' },
+                  { id: 'Tierra', label: 'Tierra' },
+                  { id: 'Planta', label: 'Planta' },
+                  { id: 'Luz', label: 'Luz' },
+                  { id: 'Sombra', label: 'Sombra' },
+                  { id: 'Energia', label: 'Energía' },
+                ];
+                const q = pediaSearch.trim().toLowerCase();
+                const filteredSpecies = STORY_ORDERED_SPECIES_IDS.map((id) => getSpecies(id)).filter((sp) => {
                   const seen = !!snap.seenSpecies[sp.id];
                   const caught = snap.capturedSpecies[sp.id] || 0;
                   const known = seen || caught > 0;
-                  const sheet = getSlugDesignSheet(sp.id);
-                  return (
-                    <div
-                      key={sp.id}
-                      className={`bt-card rounded-xl p-3.5 flex flex-col justify-between ${
-                        caught > 0
-                          ? 'border-teal-400/50'
-                          : known
-                          ? 'border-slate-600/80'
-                          : 'opacity-70 border-slate-800'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between gap-1 text-[10px] text-slate-400 mb-1.5">
-                          <span>#{sheet.storyOrder} · {sheet.storyChapter}</span>
-                          <span className={sp.canonStatus === 'serie_canon' ? 'text-teal-300 font-bold' : 'text-slate-400'}>
-                            {sp.canonStatus === 'serie_canon' ? 'Serie animada' : 'Adaptación RPG'}
-                          </span>
+                  if (pediaOwnedFilter === 'caught' && caught <= 0) return false;
+                  if (pediaOwnedFilter === 'missing' && caught > 0) return false;
+                  if (pediaElement !== 'Todos' && sp.type !== pediaElement) return false;
+                  if (q) {
+                    const combatRole = getSlugCombatProfile(sp.id).roleLabel.toLowerCase();
+                    const biomeName = BIOME_INFO[sp.habitat].name.toLowerCase();
+                    const haystack = [
+                      known ? sp.name.toLowerCase() : 'especie desconocida',
+                      known ? combatRole : '',
+                      sp.type.toLowerCase(),
+                      biomeName,
+                    ].join(' ');
+                    if (!haystack.includes(q)) return false;
+                  }
+                  return true;
+                });
+
+                return (
+                  <>
+                    <div className="bt-inset rounded-xl p-3 space-y-2.5">
+                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center justify-between">
+                        <div className="relative flex-1 min-w-0">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={pediaSearch}
+                            onChange={(e) => setPediaSearch(e.target.value)}
+                            placeholder="Buscar babosa por nombre, rol o hábitat..."
+                            aria-label="Buscar babosa por nombre, rol o hábitat"
+                            className="w-full min-h-[40px] pl-9 pr-3 py-1.5 rounded-xl bg-slate-950/80 border border-white/15 text-xs text-white placeholder:text-slate-400 focus:outline-none focus:border-teal-400"
+                          />
                         </div>
-                        <div className="flex items-center gap-2.5 mb-2">
-                          <div className="w-14 h-14 rounded-xl bt-inset flex items-center justify-center shrink-0">
-                            {known ? (
-                              <SlugPortrait
-                                speciesId={sp.id}
-                                size={48}
-                                mood={caught > 0 ? catalogMood : 'idle'}
-                                silhouette={catalogSilhouette}
-                              />
-                            ) : (
-                              <span className="text-base font-extrabold text-slate-500">?</span>
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-extrabold text-sm text-white truncate">
-                                {known ? sp.name : 'Especie desconocida'}
-                              </span>
-                              <span className="text-[10px] font-bold text-amber-300 shrink-0">{sp.rarity}</span>
-                            </div>
-                            <div className="text-[11px] text-slate-300 mt-0.5">
-                              <span className="font-bold" style={{ color: ELEMENT_CHART[sp.type]?.color }}>
-                                {sp.type}
-                              </span>{' '}
-                              · {BIOME_INFO[sp.habitat].name}
-                            </div>
-                          </div>
+                        <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Filtrar por estado de captura">
+                          {(
+                            [
+                              { id: 'all', label: 'Todas' },
+                              { id: 'caught', label: 'Capturadas' },
+                              { id: 'missing', label: 'Por descubrir' },
+                            ] as const
+                          ).map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setPediaOwnedFilter(opt.id)}
+                              className={`min-h-[36px] px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer whitespace-nowrap shrink-0 ${
+                                pediaOwnedFilter === opt.id ? 'bt-btn-primary' : 'bt-btn-secondary'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
                         </div>
-                        <p className="text-[11px] text-slate-300 leading-relaxed">
-                          {known
-                            ? sp.lore
-                            : `Explora ${BIOME_INFO[sp.habitat].name} para descubrir esta especie.`}
-                        </p>
-                        {known && (
-                          <div className="text-[10px] text-cyan-200/85 mt-1.5 leading-snug">
-                            Rasgos: {sheet.silhouetteHooks.slice(0, 2).join(' · ')}
-                          </div>
-                        )}
                       </div>
-                      <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-teal-200 tabular-nums font-semibold">
-                        <span>Capturadas: {caught}</span>
-                        {known && <span className="text-amber-200/85 text-[10px]">{sheet.vfxSignature.transformLabel}</span>}
+
+                      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar por elemento">
+                        {elementFilters.map((el) => (
+                          <button
+                            key={el.id}
+                            type="button"
+                            onClick={() => setPediaElement(el.id)}
+                            className={`min-h-[34px] px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer whitespace-nowrap shrink-0 ${
+                              pediaElement === el.id ? 'bt-btn-amber' : 'bt-btn-secondary'
+                            }`}
+                          >
+                            {el.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+
+                    {filteredSpecies.length === 0 ? (
+                      <div className="bt-card rounded-xl p-6 text-center space-y-2.5">
+                        <div className="text-sm font-extrabold text-white">
+                          No hay especies que coincidan con los filtros actuales
+                        </div>
+                        <p className="text-xs text-slate-300">
+                          Prueba otro elemento, limpia la búsqueda o cambia el filtro de captura.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPediaSearch('');
+                            setPediaElement('Todos');
+                            setPediaOwnedFilter('all');
+                          }}
+                          className="bt-btn-primary px-4 py-2 rounded-xl text-xs font-extrabold cursor-pointer"
+                        >
+                          Restablecer filtros
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                        {filteredSpecies.map((sp) => {
+                          const seen = !!snap.seenSpecies[sp.id];
+                          const caught = snap.capturedSpecies[sp.id] || 0;
+                          const known = seen || caught > 0;
+                          const sheet = getSlugDesignSheet(sp.id);
+                          const combatProfile = getSlugCombatProfile(sp.id);
+                          return (
+                            <div
+                              key={sp.id}
+                              className={`bt-card rounded-xl p-3.5 flex flex-col justify-between ${
+                                caught > 0
+                                  ? 'border-teal-400/50'
+                                  : known
+                                  ? 'border-slate-600/80'
+                                  : 'opacity-70 border-slate-800'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between gap-1 text-[10px] text-slate-400 mb-1.5">
+                                  <span>#{sheet.storyOrder} · {sheet.storyChapter}</span>
+                                  <span className={sp.canonStatus === 'serie_canon' ? 'text-teal-300 font-bold' : 'text-slate-400'}>
+                                    {sp.canonStatus === 'serie_canon' ? 'Serie animada' : 'Adaptación RPG'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2.5 mb-2">
+                                  <div className="w-14 h-14 rounded-xl bt-inset flex items-center justify-center shrink-0">
+                                    {known ? (
+                                      <SlugPortrait
+                                        speciesId={sp.id}
+                                        size={48}
+                                        mood={caught > 0 ? catalogMood : 'idle'}
+                                        silhouette={catalogSilhouette}
+                                      />
+                                    ) : (
+                                      <span className="text-base font-extrabold text-slate-500">?</span>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className="font-extrabold text-sm text-white truncate">
+                                        {known ? sp.name : 'Especie desconocida'}
+                                      </span>
+                                      <span className="text-[10px] font-bold text-amber-300 shrink-0">{sp.rarity}</span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-300 mt-0.5">
+                                      <span className="font-bold" style={{ color: ELEMENT_CHART[sp.type]?.color }}>
+                                        {sp.type}
+                                      </span>{' '}
+                                      · {BIOME_INFO[sp.habitat].name}
+                                    </div>
+                                    {known && (
+                                      <div className="text-[10px] text-amber-200/90 font-semibold mt-0.5 truncate">
+                                        {combatProfile.roleLabel}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                <p className="text-[11px] text-slate-300 leading-relaxed">
+                                  {known
+                                    ? sp.lore
+                                    : `Explora ${BIOME_INFO[sp.habitat].name} para descubrir esta especie.`}
+                                </p>
+                                {known && (
+                                  <div className="text-[10px] text-cyan-200/85 mt-1.5 leading-snug">
+                                    Rasgos: {sheet.silhouetteHooks.slice(0, 2).join(' · ')}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-teal-200 tabular-nums font-semibold">
+                                <span>Capturadas: {caught}</span>
+                                {known && <span className="text-amber-200/85 text-[10px]">{sheet.vfxSignature.transformLabel}</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>

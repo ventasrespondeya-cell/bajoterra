@@ -1,11 +1,17 @@
+import { drawRefugioShaneDomeOverlay, drawRuneCircleOverlay } from '../assets/buildings/caveArchitecture';
+import { drawHabitatZoneOverlay } from '../assets/environments/biomeDecorations';
+import { getHdCharacterSprite, getHdMechaSprite } from '../assets/characters/characterSpritesheet';
+import { encodeAutoTileMask, getHdTileSprite } from '../assets/environments/hdTileset';
+import { type CharacterAnimState, type CharacterFacingDir, type SlugAnimState } from '../assets/manifest';
+import { getHdSlugSprite } from '../assets/slugs/slugSpritesheet';
 import { HIDDEN_DISCOVERIES } from './activities';
-import { BIOME_INFO, BOSS_DEFINITIONS, FURNITURE_DEFS, HABITAT_DEFS, TILE_PX, WORLD_H, WORLD_W, getSpecies } from './data';
+import { BIOME_INFO, BOSS_DEFINITIONS, ELEMENT_CHART, FURNITURE_DEFS, HABITAT_DEFS, TILE_PX, WORLD_H, WORLD_W, getSpecies } from './data';
 import { getSlugDisplayName } from './progression';
 import { sampleSlugAnimationFrame, type SlugAnimationState } from './slugArtDirection';
 import { sprites, type SlugSpritePose } from './sprites';
 import { STORY_CHAPTERS_BY_ID, STORY_ROUTES, STORY_SCENARIOS } from './storyData';
 import { canAccessRoute, ensureStoryState } from './storyEngine';
-import { TileType, type BiomeId, type GameState, type RoamingEntity } from './types';
+import { TileType, type BiomeId, type GameState, type RoamingEntity, type WorldProjectile } from './types';
 import { ChunkManager, WORLD_REGIONS, getBiomeAt, type WorldRegionDef, type WorldRegionKind } from './world';
 
 export interface FullWorldMapRenderOptions {
@@ -260,7 +266,9 @@ export class WorldRenderer {
     state: GameState,
     chunks: ChunkManager,
     entities: RoamingEntity[],
-    targetTile: { x: number; y: number } | null
+    targetTile: { x: number; y: number } | null,
+    worldProjectiles: WorldProjectile[] = [],
+    playerCombatVisual?: { aimAngle: number; dodging: boolean; invuln: boolean }
   ): void {
     ctx.imageSmoothingEnabled = true;
     ctx.clearRect(0, 0, vw, vh);
@@ -271,8 +279,9 @@ export class WorldRenderer {
         typeof window.matchMedia === 'function' &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const visualTime = reduced ? 0 : timeSec;
-    const sxShake = !reduced && this.shakeTime > 0 ? Math.sin(timeSec * 52) * this.shakeMag : 0;
-    const syShake = !reduced && this.shakeTime > 0 ? Math.cos(timeSec * 47) * this.shakeMag : 0;
+    const allowShake = !reduced && state.options.screenShake !== false;
+    const sxShake = allowShake && this.shakeTime > 0 ? Math.sin(timeSec * 52) * this.shakeMag : 0;
+    const syShake = allowShake && this.shakeTime > 0 ? Math.cos(timeSec * 47) * this.shakeMag : 0;
 
     // Tactile diorama zoom so HiDPI characters, slugs & 2.5D cliffs read crisply on desktop & mobile
     const camZoom = vw < 540 ? 1.14 : 1.24;
@@ -298,10 +307,28 @@ export class WorldRenderer {
     ctx.scale(camZoom, camZoom);
     ctx.translate(-vw / 2, -vh / 2);
 
+    // 0.5 Abyssal Cavern Parallax Layer (visible behind chasms & rope bridges)
+    ctx.fillStyle = '#02050c';
+    ctx.fillRect(-16, -16, vw + 32, vh + 32);
+    const pShiftX = -(this.camX * 0.25) % 96;
+    const pShiftY = -(this.camY * 0.25) % 96;
+    ctx.save();
+    ctx.fillStyle = 'rgba(30, 58, 95, 0.14)';
+    for (let py = pShiftY - 96; py < vh + 96; py += 96) {
+      for (let px = pShiftX - 96; px < vw + 96; px += 96) {
+        ctx.beginPath();
+        ctx.ellipse(px + 48, py + 44, 34, 12, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+
     const isAutoMatchTile = (candidate: TileType, target: TileType): boolean => {
       if (target === TileType.CHASM) return candidate === TileType.CHASM;
       return isOpaqueWallTile(candidate) || candidate === TileType.ICE;
     };
+
+    const altarCenters: Array<{ sx: number; sy: number }> = [];
 
     // 1. HiDPI 2.5D Autotiled Terrain & Architectural Pass
     for (let ty = y0; ty <= y1; ty++) {
@@ -328,6 +355,43 @@ export class WorldRenderer {
           ctx.drawImage(sprite, sx, sy);
         }
 
+        // Organic Terrain Edge & Shoreline Blending (eliminates hard 28x28 grid seams)
+        if (tile === TileType.WATER || tile === TileType.LAVA) {
+          const nTile = ty > 0 ? chunks.getTile(tx, ty - 1) : tile;
+          const sTile = ty + 1 < WORLD_H ? chunks.getTile(tx, ty + 1) : tile;
+          const wTile = tx > 0 ? chunks.getTile(tx - 1, ty) : tile;
+          const eTile = tx + 1 < WORLD_W ? chunks.getTile(tx + 1, ty) : tile;
+          const rimColor =
+            tile === TileType.LAVA ? 'rgba(251, 146, 60, 0.55)' : 'rgba(125, 211, 252, 0.42)';
+          const bankColor =
+            tile === TileType.LAVA ? 'rgba(67, 20, 7, 0.6)' : 'rgba(15, 23, 42, 0.42)';
+          if (nTile !== tile && nTile !== TileType.WATERFALL) {
+            ctx.fillStyle = bankColor;
+            ctx.fillRect(sx, sy, TILE_PX, 4);
+            ctx.fillStyle = rimColor;
+            ctx.fillRect(sx + 1, sy + 4, TILE_PX - 2, 2);
+          }
+          if (sTile !== tile) {
+            ctx.fillStyle = rimColor;
+            ctx.fillRect(sx + 2, sy + TILE_PX - 3, TILE_PX - 4, 2);
+          }
+          if (wTile !== tile) {
+            ctx.fillStyle = rimColor;
+            ctx.fillRect(sx, sy + 2, 2.5, TILE_PX - 4);
+          }
+          if (eTile !== tile) {
+            ctx.fillStyle = rimColor;
+            ctx.fillRect(sx + TILE_PX - 2.5, sy + 2, 2.5, TILE_PX - 4);
+          }
+        } else if (tile === TileType.COBBLESTONE || tile === TileType.ICE_FLOOR) {
+          const nTile = ty > 0 ? chunks.getTile(tx, ty - 1) : tile;
+          if (nTile === TileType.FLOOR) {
+            ctx.fillStyle =
+              tile === TileType.ICE_FLOOR ? 'rgba(186, 230, 253, 0.25)' : 'rgba(71, 85, 105, 0.35)';
+            ctx.fillRect(sx + 2, sy, TILE_PX - 4, 3);
+          }
+        }
+
         // Deterministic micro-details on open cavern floors
         if (tile === TileType.FLOOR && (hash & 7) === 0) {
           ctx.fillStyle =
@@ -352,12 +416,12 @@ export class WorldRenderer {
         const isWallHere = isOpaqueWallTile(tile);
         if (!isWallHere && tile !== TileType.CHASM) {
           if (ty > 0 && isOpaqueWallTile(chunks.getTile(tx, ty - 1))) {
-            ctx.fillStyle = 'rgba(2, 6, 12, 0.42)';
-            ctx.fillRect(sx, sy, TILE_PX, 6);
+            ctx.fillStyle = 'rgba(2, 6, 12, 0.48)';
+            ctx.fillRect(sx, sy, TILE_PX, 7);
           }
           if (tx > 0 && isOpaqueWallTile(chunks.getTile(tx - 1, ty))) {
-            ctx.fillStyle = 'rgba(2, 6, 12, 0.22)';
-            ctx.fillRect(sx, sy, 3.5, TILE_PX);
+            ctx.fillStyle = 'rgba(2, 6, 12, 0.24)';
+            ctx.fillRect(sx, sy, 4, TILE_PX);
           }
         }
 
@@ -418,10 +482,11 @@ export class WorldRenderer {
           lightSources.push({
             sx: lsx,
             sy: lsy,
-            r: tile === TileType.ICE_CRYSTAL ? 84 : 108,
+            r: tile === TileType.ICE_CRYSTAL ? 84 : 112,
             color: tile === TileType.ICE_CRYSTAL ? 'rgba(125, 211, 252, 0.65)' : 'rgba(45, 212, 191, 0.72)',
           });
           if (tile === TileType.ALTAR) {
+            altarCenters.push({ sx: sx + TILE_PX / 2, sy: sy + TILE_PX / 2 });
             ctx.strokeStyle = `rgba(94, 234, 212, ${0.42 + Math.sin(visualTime * 4) * 0.18})`;
             ctx.lineWidth = 1.5;
             ctx.beginPath();
@@ -456,20 +521,28 @@ export class WorldRenderer {
       }
     }
 
-    // 1.5 Habitat floor zones & placed home furniture
+    // 1.35 Sunken Shane Sanctuary Dome & Rune Circle Shrine Decals
+    if (160 >= x0 - 2 && 160 <= x1 + 2 && 160 >= y0 - 2 && 160 <= y1 + 2) {
+      drawRefugioShaneDomeOverlay(
+        ctx,
+        160 * TILE_PX - ox + TILE_PX / 2,
+        160 * TILE_PX - oy + TILE_PX / 2,
+        visualTime,
+        reduced
+      );
+    }
+    for (const ac of altarCenters) {
+      drawRuneCircleOverlay(ctx, ac.sx, ac.sy, visualTime, reduced);
+    }
+
+    // 1.5 Sculpted Habitat Sanctuary Zones & Placed Home Furniture
     for (const hab of HABITAT_DEFS) {
       if (hab.anchorX < x0 - 1 || hab.anchorX > x1 + 1 || hab.anchorY < y0 - 1 || hab.anchorY > y1 + 1) {
         continue;
       }
       const hsx = hab.anchorX * TILE_PX - ox;
       const hsy = hab.anchorY * TILE_PX - oy;
-      ctx.fillStyle = hab.floorTint;
-      ctx.fillRect(hsx - 10, hsy - 10, TILE_PX + 20, TILE_PX + 20);
-      ctx.strokeStyle = hab.accentColor;
-      ctx.globalAlpha = 0.6;
-      ctx.lineWidth = 1.6;
-      ctx.strokeRect(hsx - 9, hsy - 9, TILE_PX + 18, TILE_PX + 18);
-      ctx.globalAlpha = 1;
+      drawHabitatZoneOverlay(ctx, hsx, hsy, TILE_PX, hab.accentColor, hab.floorTint, hab.name);
     }
 
     if (state.home?.furniture) {
@@ -620,6 +693,38 @@ export class WorldRenderer {
         if (ent.kind === 'boss') {
           lightSources.push({ sx: toScreenX(ex + 14), sy: toScreenY(ey + 14), r: 120, color: 'rgba(248, 113, 113, 0.72)' });
         }
+      }
+
+      if (ent.behaviorState === 'windup' && (ent.telegraphTimer ?? 0) > 0) {
+        const pulse = 0.55 + Math.sin(visualTime * 18) * 0.35;
+        ctx.strokeStyle = `rgba(248, 113, 113, ${pulse.toFixed(2)})`;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(ex + 14, ey + 15, 19, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      if ((ent.hitFlash ?? 0) > 0) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.beginPath();
+        ctx.arc(ex + 14, ey + 14, 15, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (
+        (ent.kind === 'wild' || ent.kind === 'mercenary' || ent.kind === 'boss') &&
+        typeof ent.maxHp === 'number' &&
+        ent.maxHp > 0 &&
+        ent.hp < ent.maxHp
+      ) {
+        const barW = ent.kind === 'boss' ? 38 : 26;
+        const barX = ex + 14 - barW / 2;
+        const barY = ent.kind === 'wild' ? ey - 8 : ey - 24;
+        const ratio = Math.max(0, Math.min(1, ent.hp / ent.maxHp));
+        ctx.fillStyle = 'rgba(2, 6, 14, 0.88)';
+        ctx.fillRect(barX - 1, barY - 1, barW + 2, 5);
+        ctx.fillStyle = ratio > 0.5 ? '#22c55e' : ratio > 0.25 ? '#f59e0b' : '#ef4444';
+        ctx.fillRect(barX, barY, barW * ratio, 3);
       }
     }
 
@@ -794,7 +899,18 @@ export class WorldRenderer {
         ? 'up'
         : 'down';
     const walkFrame = Math.floor(state.stats.steps * 2.4) % 4;
-    const playerAnim: CharacterAnimState = Math.abs(state.stats.steps * 10) % 10 > 0 ? 'walk' : 'idle';
+    const playerAnim: CharacterAnimState =
+      this.pulseRing > 0.45
+        ? 'special'
+        : Math.abs(state.stats.steps * 10) % 10 > 0
+        ? 'walk'
+        : 'idle';
+
+    // Crisp explorer drop shadow
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.45)';
+    ctx.beginPath();
+    ctx.ellipse(psx + 14, psy + 24, mechaMounted ? 15 : 11, 4.5, 0, 0, Math.PI * 2);
+    ctx.fill();
 
     if (mechaMounted && state.mecha) {
       const hdMecha = getHdMechaSprite(state.mecha.tier, state.mecha.theme, dirKey, playerAnim, walkFrame);
@@ -819,6 +935,34 @@ export class WorldRenderer {
       }
     }
 
+    if (playerCombatVisual?.invuln || playerCombatVisual?.dodging) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(94, 234, 212, 0.85)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(psx + 14, psy + 14, 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(45, 212, 191, 0.22)';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (playerCombatVisual) {
+      const aimX = psx + 14 + Math.cos(playerCombatVisual.aimAngle) * 24;
+      const aimY = psy + 14 + Math.sin(playerCombatVisual.aimAngle) * 24;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.72)';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(aimX, aimY, 4.2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#e0f2fe';
+      ctx.beginPath();
+      ctx.arc(aimX, aimY, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
     // Player headlamp spotlight
     lightSources.push({
       sx: toScreenX(psx + 14),
@@ -826,6 +970,45 @@ export class WorldRenderer {
       r: 205,
       color: 'rgba(186, 230, 253, 0.96)',
     });
+
+    // 5.5 Overworld Blaster & Enemy Projectiles
+    for (const wp of worldProjectiles) {
+      const wpx = wp.x * TILE_PX - ox + 14;
+      const wpy = wp.y * TILE_PX - oy + 14;
+      if (wpx < -40 || wpy < -40 || wpx > vw + 40 || wpy > vh + 40) continue;
+      const col = wp.owner === 'enemy' ? '#f87171' : ELEMENT_CHART[wp.element]?.color || '#38bdf8';
+
+      if (wp.trail.length > 1) {
+        ctx.save();
+        ctx.strokeStyle = col;
+        ctx.lineCap = 'round';
+        for (let tIdx = 1; tIdx < wp.trail.length; tIdx++) {
+          const prev = wp.trail[tIdx - 1];
+          const cur = wp.trail[tIdx];
+          ctx.globalAlpha = (tIdx / wp.trail.length) * 0.55;
+          ctx.lineWidth = Math.max(1.5, (tIdx / wp.trail.length) * (wp.phase === 'transformed' ? 7 : 4));
+          ctx.beginPath();
+          ctx.moveTo(prev.x * TILE_PX - ox + 14, prev.y * TILE_PX - oy + 14);
+          ctx.lineTo(cur.x * TILE_PX - ox + 14, cur.y * TILE_PX - oy + 14);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      const radPx = wp.phase === 'transformed' ? 7.5 : 4.5;
+      ctx.save();
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(wpx, wpy, radPx, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(wpx, wpy, radPx * 0.46, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      lightSources.push({ sx: toScreenX(wpx), sy: toScreenY(wpy), r: wp.phase === 'transformed' ? 68 : 42, color: col });
+    }
 
     // Pulse exploration ring
     if (this.pulseRing > 0) {
@@ -935,12 +1118,14 @@ export class WorldRenderer {
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = 0.15;
     for (const l of lights) {
-      const grad = ctx.createRadialGradient(l.sx, l.sy, 2, l.sx, l.sy, l.r * 0.65);
+      const bloomR = l.r * 0.65;
+      if (l.sx < -bloomR || l.sy < -bloomR || l.sx > vw + bloomR || l.sy > vh + bloomR) continue;
+      const grad = ctx.createRadialGradient(l.sx, l.sy, 2, l.sx, l.sy, bloomR);
       grad.addColorStop(0, l.color);
       grad.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(l.sx, l.sy, l.r * 0.65, 0, Math.PI * 2);
+      ctx.arc(l.sx, l.sy, bloomR, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();

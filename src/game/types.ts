@@ -1,3 +1,4 @@
+import type { ControlActionId } from './inputManager';
 import type { CanonSourceTag, StoryHudSummary, StoryProgressState } from './storyTypes';
 
 export type BiomeId = 'Verdes' | 'Acuaticas' | 'Magma' | 'Heladas' | 'Cristalinas' | 'Sombrias';
@@ -264,6 +265,11 @@ export interface DuelistArenaState {
   aiCooldown: number; // seconds until next enemy decision
   aiTargetX?: number;
   aiTargetY: number;
+  dodgeTimer?: number;
+  dodgeCooldown?: number;
+  dodgeVx?: number;
+  dodgeVy?: number;
+  invulnTimer?: number;
 }
 
 export interface DuelProjectile {
@@ -392,6 +398,8 @@ export interface QuestDef {
   rewards: Partial<Inventory> & { xp?: number; perk?: string };
 }
 
+export type EntityBehaviorState = 'patrol' | 'alert' | 'chase' | 'windup' | 'recover';
+
 export interface RoamingEntity {
   uid: string;
   kind: 'wild' | 'mercenary' | 'boss' | 'merchant' | 'story_npc';
@@ -410,8 +418,41 @@ export interface RoamingEntity {
   biome: BiomeId;
   level: number;
   hp: number;
+  maxHp?: number;
   dir: number;
   cooldown: number;
+  vx?: number;
+  vy?: number;
+  behaviorState?: EntityBehaviorState;
+  detectRadius?: number;
+  hitFlash?: number;
+  telegraphTimer?: number;
+  attackCooldown?: number;
+}
+
+export interface WorldProjectile {
+  id: number;
+  owner: 'ally' | 'enemy';
+  speciesId: string;
+  element: ElementType;
+  mode: 'quick' | 'ability1' | 'ability2';
+  moveId?: string;
+  moveEffect?: 'burn' | 'chill' | 'stun' | 'heal' | 'shield' | 'pierce' | 'drain';
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radiusTiles: number;
+  damage: number;
+  rangeTilesLeft: number;
+  traveledTiles: number;
+  transformDistTiles: number;
+  phase: 'protoform' | 'transformed';
+  bouncesLeft: number;
+  homing: number;
+  pierceLeft: number;
+  trail: Array<{ x: number; y: number }>;
+  alive: boolean;
 }
 
 export interface CraftRecipe {
@@ -426,10 +467,16 @@ export interface CraftRecipe {
 export interface GameOptions {
   soundEnabled: boolean;
   volume: number;
+  musicVolume?: number;
+  sfxVolume?: number;
+  ambientVolume?: number;
   touchControls: 'auto' | 'on' | 'off';
   lightingQuality: 'high' | 'eco';
   showMinimap: boolean;
   reducedMotion?: boolean;
+  screenShake?: boolean;
+  uiScale?: 'compact' | 'normal' | 'large';
+  keyBindings?: Partial<Record<ControlActionId, string>>;
 }
 
 export interface PlayerState {
@@ -650,6 +697,21 @@ export interface ExplorationContextualAction {
   canAct: boolean;
 }
 
+export interface WorldCombatHudState {
+  aimAngle: number;
+  dodgeCooldown: number;
+  dodgeMaxCooldown: number;
+  dodging: boolean;
+  fireCooldown: number;
+  ability1Cooldown: number;
+  ability2Cooldown: number;
+  ability1Name: string;
+  ability2Name: string;
+  ability1Cost: number;
+  ability2Cost: number;
+  projectileCount: number;
+}
+
 export interface HudSnapshot {
   screen: UIScreen;
   player: PlayerState;
@@ -696,4 +758,5 @@ export interface HudSnapshot {
   hasV4Save: boolean;
   hasV3Save: boolean;
   pulseCooldownPct: number;
+  worldCombat?: WorldCombatHudState;
 }

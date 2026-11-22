@@ -33,6 +33,8 @@ export function getCinematicDurationMs(ev: CinematicEvent, reducedMotion = false
       return Math.round(2800 * scale);
     case 'poi_discovered':
       return Math.round(2600 * scale);
+    case 'campaign_victory':
+      return Math.round(5200 * scale);
     default:
       return Math.round(2000 * scale);
   }

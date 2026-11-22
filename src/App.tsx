@@ -87,7 +87,12 @@ export default function App() {
       {/* Isolated 60fps Canvas Viewport */}
       <canvas
         ref={mainCanvasRef}
+        onPointerMove={(e) => gameEngine.handleCanvasPointerMove(e.clientX, e.clientY)}
         onClick={(e) => gameEngine.handleCanvasClick(e.clientX, e.clientY)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          gameEngine.handleCanvasSecondary(e.clientX, e.clientY);
+        }}
         className="w-full h-full block pixelated cursor-crosshair"
       />
 
@@ -134,6 +139,10 @@ export default function App() {
           onPlayHomeSlug={(uid) => gameEngine.playWithHomeSlug(uid)}
           onJoystick={(x, y) => gameEngine.setJoystick(x, y)}
           onTouchSprint={(active) => gameEngine.setTouchSprint(active)}
+          onFire={() => gameEngine.fireWorldBlaster('quick')}
+          onDodge={() => gameEngine.triggerDodge()}
+          onAbility1={() => gameEngine.triggerWorldAbility(0)}
+          onAbility2={() => gameEngine.triggerWorldAbility(1)}
         />
       )}
 

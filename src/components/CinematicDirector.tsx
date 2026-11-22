@@ -715,6 +715,91 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
           </div>
         </div>
       )}
+
+      {/* 6. CAMPAIGN VICTORY & EPILOGUE CELEBRATION */}
+      {featured && featured.type === 'campaign_victory' && (
+        <div
+          onClick={handleSkipFeatured}
+          className="pointer-events-auto fixed inset-0 z-[66] flex items-center justify-center p-4 bg-[#03070e]/88 backdrop-blur-sm"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-lg bt-panel bt-animate-modal rounded-2xl p-6 text-center overflow-hidden border-amber-300/80"
+          >
+            {featured.skippable && (
+              <button
+                type="button"
+                onClick={handleSkipFeatured}
+                aria-label="Cerrar celebración de campaña"
+                className="absolute top-3 right-3 z-20 bt-btn-secondary px-2.5 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <FastForward className="w-3.5 h-3.5" />
+                Saltar
+              </button>
+            )}
+
+            {!effectiveReduced && (
+              <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                {SPARK_POSITIONS.map((pos, i) => (
+                  <span
+                    key={i}
+                    className="bt-cinematic-spark absolute w-2 h-2 rounded-full bg-amber-300"
+                    style={{
+                      left: pos.left,
+                      top: pos.top,
+                      animationDelay: pos.delay,
+                      boxShadow: '0 0 14px #fbbf24',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div className="relative z-10 flex justify-center mb-3">
+              <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-amber-400/20 border border-amber-300/80 text-amber-200 text-[11px] font-black uppercase tracking-widest">
+                <Crown className="w-3.5 h-3.5 text-amber-300" />
+                Campaña Completada · 8 Capítulos
+              </span>
+            </div>
+
+            <div className="relative z-10 flex items-center justify-center my-2">
+              <div className="absolute w-32 h-32 rounded-full blur-2xl opacity-45 bg-amber-400" />
+              <SlugPortrait
+                speciesId={featured.speciesId || 'infurnus'}
+                mega
+                mood="victory"
+                size={112}
+              />
+            </div>
+
+            <h2 className="relative z-10 text-2xl sm:text-3xl font-black text-amber-200 tracking-wide mt-2">
+              {featured.title}
+            </h2>
+            {featured.subtitle && (
+              <p className="relative z-10 text-xs sm:text-sm font-bold text-teal-200 mt-1">
+                {featured.subtitle}
+              </p>
+            )}
+            {featured.loreLine && (
+              <p className="relative z-10 text-xs sm:text-sm text-slate-200/90 max-w-md mx-auto mt-2.5 leading-relaxed">
+                {featured.loreLine}
+              </p>
+            )}
+
+            <div className="relative z-10 bt-inset rounded-xl px-4 py-2.5 mt-4 text-xs text-emerald-200 font-semibold">
+              ✦ Modo Post-Game desbloqueado: Torneos Élite, Jefes Abismales y Revanchas de Bioma disponibles.
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSkipFeatured}
+              className="relative z-10 mt-4 w-full bt-btn-amber py-2.5 rounded-xl font-extrabold text-xs cursor-pointer min-h-[42px]"
+            >
+              Continuar en las 99 Cavernas
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

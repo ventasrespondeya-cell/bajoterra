@@ -96,6 +96,12 @@ export const CharacterPortrait: React.FC<CharacterPortraitProps> = ({
           <>
             <path d="M22 42 L32 50 L42 42" fill="none" stroke={p.outfitSecondary} strokeWidth="3.5" strokeLinecap="round" />
             <circle cx="32" cy="52" r="2.6" fill={p.accentColor} />
+            {p.id.startsWith('boss_') && (
+              <>
+                <path d="M10 47 Q17 39 24 44 L21 52 L11 52 Z" fill={p.outfitSecondary} stroke="#060c14" strokeWidth="1.5" />
+                <path d="M54 47 Q47 39 40 44 L43 52 L53 52 Z" fill={p.outfitSecondary} stroke="#060c14" strokeWidth="1.5" />
+              </>
+            )}
           </>
         )}
 
@@ -138,7 +144,7 @@ export const CharacterPortrait: React.FC<CharacterPortraitProps> = ({
       )}
 
       {/* Hair / Helmet / Hood */}
-      {characterId === 'eli_shane' && (
+      {p.id === 'eli_shane' && (
         <g>
           {/* Spiky navy-indigo Eli Shane hair */}
           <path
@@ -153,7 +159,7 @@ export const CharacterPortrait: React.FC<CharacterPortraitProps> = ({
         </g>
       )}
 
-      {characterId === 'dr_blakk' && (
+      {p.id === 'dr_blakk' && (
         <g>
           {/* Swept-back sharp widows-peak hair + goatee */}
           <path
@@ -167,14 +173,14 @@ export const CharacterPortrait: React.FC<CharacterPortraitProps> = ({
         </g>
       )}
 
-      {characterId === 'comandante_blakk' && (
+      {(p.id === 'comandante_blakk' || p.id === 'mercenary') && (
         <g>
           <path d="M16 24 Q18 7 32 7 Q46 7 48 24 Z" fill="#18181b" stroke="#be123c" strokeWidth="1.8" />
-          <rect x="20" y="21" width="24" height="5" rx="2" fill="#f43f5e" />
+          <rect x="20" y="21" width="24" height="5" rx="2" fill={p.id === 'mercenary' ? '#ef4444' : '#f43f5e'} />
         </g>
       )}
 
-      {characterId === 'trixie' && (
+      {p.id === 'trixie' && (
         <g>
           <path
             d="M16 28 Q16 8 32 8 Q48 8 48 28 L44 21 Q38 14 32 17 Q26 14 20 21 Z"
@@ -186,7 +192,7 @@ export const CharacterPortrait: React.FC<CharacterPortraitProps> = ({
         </g>
       )}
 
-      {characterId === 'will_shane' && (
+      {p.id === 'will_shane' && (
         <g>
           <path
             d="M16 25 Q16 7 32 7 Q48 7 48 25 L43 16 L32 14 L21 16 Z"
@@ -198,7 +204,7 @@ export const CharacterPortrait: React.FC<CharacterPortraitProps> = ({
         </g>
       )}
 
-      {characterId === 'red_hook' && (
+      {p.id === 'red_hook' && (
         <path
           d="M17 22 Q18 9 32 9 Q46 9 47 22 L42 15 L22 15 Z"
           fill={p.hairColor}
@@ -207,7 +213,7 @@ export const CharacterPortrait: React.FC<CharacterPortraitProps> = ({
         />
       )}
 
-      {characterId === 'twist' && (
+      {p.id === 'twist' && (
         <path
           d="M14 30 Q14 6 32 6 Q50 6 50 30 L45 19 L32 16 L19 19 Z"
           fill={p.outfitPrimary}
@@ -216,13 +222,64 @@ export const CharacterPortrait: React.FC<CharacterPortraitProps> = ({
         />
       )}
 
-      {characterId === 'mercader_subterraneo' && (
+      {p.id === 'mercader_subterraneo' && (
         <path
           d="M14 32 Q14 7 32 7 Q50 7 50 32 L44 20 Q32 16 20 20 Z"
           fill="#047857"
           stroke="#5eead4"
           strokeWidth="1.6"
         />
+      )}
+
+      {p.id === 'trainer' && (
+        <g>
+          <path d="M17 21 Q20 9 32 9 Q44 9 47 21 L41 16 L23 16 Z" fill={p.hairColor} stroke="#060c14" strokeWidth="1.5" />
+          <path d="M17 17 Q32 12 47 17 L44 21 Q32 18 20 21 Z" fill="#0ea5e9" stroke="#facc15" strokeWidth="1.3" />
+        </g>
+      )}
+
+      {p.id === 'boss_aquatic' && (
+        <g>
+          <polygon points="15,21 9,10 21,15" fill="#06b6d4" stroke="#060c14" strokeWidth="1.4" />
+          <polygon points="49,21 55,10 43,15" fill="#06b6d4" stroke="#060c14" strokeWidth="1.4" />
+          <polygon points="32,4 26,15 38,15" fill="#22d3ee" stroke="#060c14" strokeWidth="1.4" />
+          <circle cx="32" cy="14" r="2.2" fill="#fde047" />
+        </g>
+      )}
+
+      {p.id === 'boss_magma' && (
+        <g>
+          <path d="M19 16 Q10 10 15 4 Q22 10 24 14 Z" fill="#f97316" stroke="#060c14" strokeWidth="1.4" />
+          <path d="M45 16 Q54 10 49 4 Q42 10 40 14 Z" fill="#f97316" stroke="#060c14" strokeWidth="1.4" />
+          <polygon points="23,14 32,7 41,14" fill="#fde047" stroke="#7c2d12" strokeWidth="1.3" />
+        </g>
+      )}
+
+      {p.id === 'boss_ice' && (
+        <g>
+          <polygon points="21,15 24,5 28,13 32,3 36,13 40,5 43,15" fill="#e0f2fe" stroke="#0e7490" strokeWidth="1.4" />
+          <circle cx="32" cy="11" r="2" fill="#38bdf8" />
+        </g>
+      )}
+
+      {p.id === 'boss_crystal' && (
+        <g>
+          <polygon points="32,3 25,16 39,16" fill="#c084fc" stroke="#060c14" strokeWidth="1.4" />
+          <polygon points="15,15 19,8 23,16" fill="#67e8f9" stroke="#060c14" strokeWidth="1.2" />
+          <polygon points="49,15 45,8 41,16" fill="#67e8f9" stroke="#060c14" strokeWidth="1.2" />
+        </g>
+      )}
+
+      {p.id === 'boss_shadow' && (
+        <g>
+          <path
+            d="M14 28 Q14 5 32 5 Q50 5 50 28 L44 18 L32 23 L20 18 Z"
+            fill="#09090b"
+            stroke="#f43f5e"
+            strokeWidth="1.6"
+          />
+          <circle cx="32" cy="13" r="2.3" fill="#f43f5e" />
+        </g>
       )}
 
       {/* Goggles on brow for Pronto / Kord */}
@@ -237,7 +294,7 @@ export const CharacterPortrait: React.FC<CharacterPortraitProps> = ({
       )}
 
       {/* Expressive Eyes & Eyebrows */}
-      {characterId !== 'comandante_blakk' && (
+      {p.id !== 'comandante_blakk' && p.id !== 'mercenary' && (
         <g>
           {/* Eyebrows */}
           {normMood === 'alerta' || normMood === 'decidido' || p.isVillain ? (

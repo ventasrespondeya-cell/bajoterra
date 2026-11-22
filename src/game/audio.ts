@@ -3,6 +3,8 @@ import type { BiomeId } from './types';
 
 export type MusicTrackId =
   | 'none'
+  | 'menu_theme'
+  | 'refuge_ambience'
   | 'biome_Verdes'
   | 'biome_Acuaticas'
   | 'biome_Magma'
@@ -22,6 +24,22 @@ interface TrackConfig {
 }
 
 const TRACK_CONFIGS: Record<Exclude<MusicTrackId, 'none'>, TrackConfig> = {
+  menu_theme: {
+    intervalMs: 460,
+    notes: [220, 261.63, 329.63, 392, 329.63, 440, 392, 293.66],
+    bassNotes: [110, 110, 146.83, 164.81],
+    wave: 'triangle',
+    harmonyWave: 'sine',
+    gainScale: 0.28,
+  },
+  refuge_ambience: {
+    intervalMs: 640,
+    notes: [261.63, 293.66, 329.63, 392, 329.63, 293.66, 261.63, 220],
+    bassNotes: [130.81, 130.81, 98, 130.81],
+    wave: 'sine',
+    harmonyWave: 'sine',
+    gainScale: 0.21,
+  },
   biome_Verdes: {
     intervalMs: 580,
     notes: [196, 220, 261.63, 293.66, 329.63, 293.66, 261.63, 220],
@@ -93,6 +111,9 @@ class SoundEngine {
   private musicGain: GainNode | null = null;
   private _enabled = true;
   private _volume = 0.35;
+  private _musicVolume = 1;
+  private _sfxVolume = 1;
+  private _ambientVolume = 1;
   private userUnlocked = false;
   private unlockBound = false;
 
@@ -103,6 +124,8 @@ class SoundEngine {
   private musicStep = 0;
   private activeTrack: MusicTrackId = 'none';
   private desiredExplorationActive = false;
+  private _inMenu = false;
+  private _inRefuge = false;
   private ambientBiome: BiomeId = 'Verdes';
   private inCombat = false;
   private combatIsBoss = false;
@@ -128,6 +151,40 @@ class SoundEngine {
   public set volume(val: number) {
     const clamped = Math.max(0, Math.min(1, Number.isFinite(val) ? val : 0.35));
     this._volume = clamped;
+    this.updateMusicGainNode();
+  }
+
+  public get musicVolume(): number {
+    return this._musicVolume;
+  }
+
+  public set musicVolume(val: number) {
+    this._musicVolume = Math.max(0, Math.min(1, Number.isFinite(val) ? val : 1));
+    this.updateMusicGainNode();
+  }
+
+  public get sfxVolume(): number {
+    return this._sfxVolume;
+  }
+
+  public set sfxVolume(val: number) {
+    this._sfxVolume = Math.max(0, Math.min(1, Number.isFinite(val) ? val : 1));
+  }
+
+  public get ambientVolume(): number {
+    return this._ambientVolume;
+  }
+
+  public set ambientVolume(val: number) {
+    this._ambientVolume = Math.max(0, Math.min(1, Number.isFinite(val) ? val : 1));
+    this.updateMusicGainNode();
+  }
+
+  private isAmbientTrack(track: MusicTrackId): boolean {
+    return track === 'refuge_ambience' || track.startsWith('biome_');
+  }
+
+  private updateMusicGainNode(): void {
     if (this.musicGain && this.ctx && this._enabled) {
       try {
         this.musicGain.gain.setTargetAtTime(this.getTargetMusicGain(), this.ctx.currentTime, 0.08);
@@ -169,7 +226,10 @@ class SoundEngine {
   }
 
   private getTargetMusicGain(): number {
-    return Math.max(0.001, Math.min(0.32, this._volume * 0.42));
+    const channelMult = this.isAmbientTrack(this.activeTrack) ? this._ambientVolume : this._musicVolume;
+    const scaled = this._volume * channelMult * 0.42;
+    if (scaled <= 0.0005) return 0.0001;
+    return Math.max(0.001, Math.min(0.32, scaled));
   }
 
   private ensureContext(fromUserAction = false): AudioContext | null {
@@ -205,6 +265,8 @@ class SoundEngine {
     gainMult = 1,
     channel: 'sfx' | 'music' = 'sfx'
   ): void {
+    const channelVol = channel === 'sfx' ? this._sfxVolume : 1;
+    if (channelVol <= 0.001 || this._volume <= 0.001) return;
     const ctx = this.ensureContext(channel === 'sfx');
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -215,8 +277,8 @@ class SoundEngine {
     if (endFreq !== freq) {
       osc.frequency.exponentialRampToValueAtTime(Math.max(30, endFreq), now + duration);
     }
-    const baseScale = channel === 'music' ? 0.32 : 0.25;
-    const peak = Math.max(0.006, Math.min(0.45, this._volume * baseScale * gainMult));
+    const baseScale = channel === 'music' ? 0.32 : 0.25 * channelVol;
+    const peak = Math.max(0.001, Math.min(0.45, this._volume * baseScale * gainMult));
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.linearRampToValueAtTime(peak, now + Math.min(0.02, duration * 0.2));
     gain.gain.exponentialRampToValueAtTime(0.0008, now + duration);
@@ -374,8 +436,14 @@ class SoundEngine {
     if (this.inCombat) {
       return this.combatIsBoss ? 'duel_boss' : 'duel_normal';
     }
+    if (this._inMenu) {
+      return 'menu_theme';
+    }
     if (!this.desiredExplorationActive) {
       return 'none';
+    }
+    if (this._inRefuge) {
+      return 'refuge_ambience';
     }
     return `biome_${this.ambientBiome}` as MusicTrackId;
   }
@@ -476,9 +544,29 @@ class SoundEngine {
     this.startTrackLoop(desired);
   }
 
+  public setMenuMode(active: boolean): void {
+    this._inMenu = Boolean(active);
+    if (this._inMenu) {
+      this.desiredExplorationActive = false;
+    }
+    if (!this.inCombat) {
+      this.syncActiveMusicTrack(false);
+    }
+  }
+
+  public setInRefuge(inRefuge: boolean): void {
+    this._inRefuge = Boolean(inRefuge);
+    if (!this.inCombat && !this._inMenu) {
+      this.syncActiveMusicTrack(false);
+    }
+  }
+
   public setAmbientBiome(biome: BiomeId, explorationActive = true): void {
     this.ambientBiome = biome;
     this.desiredExplorationActive = explorationActive;
+    if (explorationActive) {
+      this._inMenu = false;
+    }
     // Combat and boss music maintain priority over ambient biome changes
     if (!this.inCombat) {
       this.syncActiveMusicTrack(false);
@@ -507,6 +595,8 @@ class SoundEngine {
   public stopAllMusic(): void {
     this.inCombat = false;
     this.combatIsBoss = false;
+    this._inMenu = false;
+    this._inRefuge = false;
     this.desiredExplorationActive = false;
     this.syncActiveMusicTrack(true);
   }
@@ -526,6 +616,7 @@ class SoundEngine {
         if (this.inCombat) {
           this.stopDuelMusic();
         } else {
+          this._inMenu = false;
           this.desiredExplorationActive = true;
           this.syncActiveMusicTrack(false);
         }
@@ -559,8 +650,13 @@ class SoundEngine {
     ambientBiome: BiomeId;
     inCombat: boolean;
     combatIsBoss: boolean;
+    inMenu: boolean;
+    inRefuge: boolean;
     enabled: boolean;
     volume: number;
+    musicVolume: number;
+    sfxVolume: number;
+    ambientVolume: number;
     cueHistory: AudioCueMood[];
   } {
     return {
@@ -569,8 +665,13 @@ class SoundEngine {
       ambientBiome: this.ambientBiome,
       inCombat: this.inCombat,
       combatIsBoss: this.combatIsBoss,
+      inMenu: this._inMenu,
+      inRefuge: this._inRefuge,
       enabled: this._enabled,
       volume: this._volume,
+      musicVolume: this._musicVolume,
+      sfxVolume: this._sfxVolume,
+      ambientVolume: this._ambientVolume,
       cueHistory: [...this.cueHistory],
     };
   }

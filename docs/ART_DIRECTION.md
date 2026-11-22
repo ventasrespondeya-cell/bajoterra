@@ -1,72 +1,65 @@
-# Bajoterra 4.0 — Guía de Dirección Artística Principal
+# Bajoterra 4.0 — Guía de Dirección Artística y Análisis de Referencias (Parte 1)
 
-> **Inspiración creativa**: Mundo subterráneo de *Slugterra* y duelos dinámicos de bláster tipo *Battle for Slugterra*.  
-> **Regla de originalidad**: Todos los trazos, sprites pixel-art, retratos vectoriales, transformaciones, interfaces y efectos son creaciones originales diseñadas para este proyecto.
-
----
-
-## 1. Principios de Estilo Visual
-
-1. **Identidad Subterránea Bioluminiscente**:
-   - Contraste claro entre la penumbra de las cavernas (`#060d14` – `#1f1932`) y los núcleos vibrantes de las babosas y cristales.
-   - Regla de color **60 / 30 / 10**: 60% caverna y terreno legible, 30% arquitectura/vegetación/roca estructurada, 10% acentos elementales y señales de acción.
-2. **Iluminación Direccional Unificada (`-45°`)**:
-   - Todas las criaturas, personajes y bloques reciben luz clave desde la **esquina superior izquierda (`-45°`)** con un brillorim especular en el borde superior izquierdo y sombra de contacto elíptica debajo.
-   - Contorno tintado oscuro (`#060c14`) para garantizar lectura instantánea tanto sobre roca clara de *Cuevas Heladas* como sobre obsidiana de *Magma* o penumbra *Sombría*.
-3. **Proporciones y Escalas**:
-   - **Protoforma (Hogar, Estuche, Cámara de Bláster, Mundo)**: Criaturas compactas expresivas (`24×24 px` en mapa RPG / `32×32 viewBox` en retrato SVG). Nunca una plantilla única recoloreada: varían ancho de torso, curvatura craneal, postura (erguida, acorazada al ras del suelo, esbelta, flotante), extremidades/crestas y cola.
-   - **Transformación por Velocidad (Velocimorph)**: Al superar la distancia crítica de aceleración en combate, la babosa sufre anticipación, estiramiento cinético y expansión progresiva (`1.0× → 1.48×`), desplegando alas, taladros, cuernos o filamentos exclusivos.
-   - **Megamorph (Tramo Avanzado / Final)**: Reservado estrictamente para el tramo avanzado (`Nv. 6+`, `Amistad 60+`, catalizador raro). Suma corona cristalina dorada, placas de energía y estela amplificada; nunca aparece como estado inicial ni desbloqueo temprano.
+> **Principio rector**: Todos los activos en el juego son creaciones originales diseñadas para un RPG 2D cel-shaded subterráneo con iluminación direccional `-45°`, contornos tintados oscuros (`#060c14`) y lectura cromática `60 / 30 / 10`. Ninguna lámina de referencia se incrusta directamente como imagen estática en el mundo jugable.
 
 ---
 
-## 2. Sistema Reutilizable de Animación (`SlugAnimationSystem`)
+## 1. Análisis de Referencias Visuales
 
-Todas las pantallas (Hogar, Colección/Babosapedia, Ficha de Detalle, Captura, HUD y Duelo) comparten el evaluador determinista `sampleSlugAnimationFrame(speciesId, animState, timeSec, reducedMotion)`:
+### A. Diseño de Cuerpo Completo de Babosas (Láminas de criaturas y alas articuladas)
+- **Siluetas diferenciadas por anatomía**: Cada especie posee proporción propia de torso/cabeza/extremidades (`widthScale` y `heightScale` propios), evitando plantillas clónicas:
+  - *Acorazados* (`Frostcrawler`, `Armashelt`, `Rammstone`): caparazones segmentados en placas, hombreras blindadas, mandíbulas y mazas caudales.
+  - *Ígneos / Voladores* (`Infurnus`, `Flaringo`): cuerpo estilizado ascendente, cresta tricolor en flama y cola estilizada en lengua de fuego.
+  - *Eléctricos velocistas* (`Tazerling`, `Voltrix`): postura inclinada adelante, carrillos conductores luminosos, antenas en zigzag y colas bífidas.
+  - *Acuáticos / Sanadores* (`Aquabeak`, `Doc`, `Bubbaleone`): aletas pectorales con motas luminosas, picos o halos curativos, antenas sensoriales.
+  - *Insectoides y Alados* (inspirados en la hoja *Hoverbug*): placas dorsales segmentadas con franjas de energía, abdomen bioluminiscente semitransparente y **alas venadas cian/doradas** articuladas en estados `wing_flap`, `float`, `transform` y `Megamorph`.
+  - *Malvadas (Ghoul)* (`Darkfurnus`, `Umbrospect`): pigmentación violeta/carmesí oscura, ojos rojos rasgados, colmillos descubiertos y venas de energía corrupta.
+- **Clasificación honesta**: Se mantienen exactamente las **20 especies del proyecto**, conservando la distinción explícita entre canon de la serie (`serie_canon`) y adaptaciones originales del RPG (`adaptacion_juego`).
 
-- **Estados soportados**: `idle`, `walk`, `happy`, `play`, `eat`, `rest`, `sleep`, `react`, `charge`, `fire`, `flight`, `transform`, `attack`, `hit`, `ko`, `victory`.
-- **Cadencia por personalidad**:
-  - *Tazerling* / *Voltrix*: pulsos rápidos, micro-vibraciones eléctricas y parpadeos breves.
-  - *Frostcrawler* / *Lariat* / *Piroclasto*: respiración pesada, paso firme con poco rebote vertical y compresión sólida.
-  - *Infurnus* / *Flaringo*: flotación cálida ascendente, oscilación rítmica de cresta ígnea.
-- **Accesibilidad y rendimiento móvil**: Respeta `reducedMotion` suprimiendo sacudidas y reduciendo amplitud sin perder legibilidad; el renderizado Canvas reutiliza sprites cacheados (`24×24` / `28×28`) y limita partículas en modo `lightingQuality: 'eco'`.
+### B. Diseño Facial y Expresividad de Babosas
+- **Ojos grandes expresivos** con brillo blanco superior-izquierdo y cejas inclinadas en estados `charge`, `attack`, `fire` y `transform`; ojos en cíclope resplandeciente para `Doc` y `Enigmo`; cierre curvo en `sleep` y aspas en `hit`/`ko`.
+- **Bocas articuladas**: sonrisas pícaras con colmillos laterales en combate, apertura energética al cargar disparo y sonrisa relajada en el refugio.
 
----
+### C. Diseño de Personajes y Jefes (Héroes, Banda de Shane, Mercenarios y Señores de Bioma)
+- **Proporciones estilizadas de aventura 2D** con cabeza expresiva, torso blindado/equipado, cinturón con **cápsulas gemelas de babosas**, hombreras y arma característica:
+  - **Eli Shane**: cabello azul-índigo en puntas, hombreras naranjas con peto oscuro, doble cápsula cian en el pecho y bláster Shane naranja/plata.
+  - **Kord Zane**: Trol de las cavernas azul robusto, cuernos laterales, gafas en la frente, arnés naranja cruzado y lanzador pesado.
+  - **Trixie Sting**: cabello carmesí con banda verde, uniforme turquesa de cronista, bláster/Chromecorder luminoso.
+  - **Pronto**: Molenoide verde de baja estatura, hocico rosado, gafas de explorador y mochila de rastreo.
+  - **Will Shane**: eco holográfico azul cian con manto protector.
+  - **Rivales y Villanos**: *Garfio Rojo* (parche, garfio metálico, abrigo pirata), *Twist* (capucha verde/negra, guanteletes sombríos), *Soldado/Mercenario de Blakk* (casco táctico con visor rojo), *Dr. Thaddius Blakk* y *Comandante Blakk* (cuello alto carmesí, bandolera diagonal y ametralladora Ghoul violeta-rojo).
+  - **5 Jefes de Bioma (`80×80`)**: *Leviatán Abisal* (corona de coral y tridente hidro-abanico), *Titán Piroclasto* (placas de obsidiana y fragua pectoral), *Reina Glaciomita* (tiara prismática y cetro glacial), *Oráculo Prisma* (halo de prismas orbitantes), *Espectro del Abismo* (cráneo cornudo sombrío y capa espectral).
+- **Animación y 4 direcciones**: Todos distinguen `down`, `up` (mochila/capa trasera/cabello posterior), `left` y `right` (perfil lateral real con brazo lanzador adelantado) en estados `idle`, `walk`, `interact`, `combat`, `hit` y `special`.
 
-## 3. Prototipo Visual Prioritario (Trío Fundacional)
-
-Antes de ampliar al resto del catálogo, se validó la diferenciación total sobre tres arquetipos opuestos:
-
-### 01 · Infurnus *(Fuego · Cuevas Verdes)* — *Prototipo Ágil Ígneo*
-- **Silueta y anatomía**: Cuerpo esbelto y erguido (`width 0.88×`, `height 1.12×`), cresta flamígera tricolor escalonada sobre la coronilla, antenas finas y cola afilada como lengua de fuego.
-- **Expresión y rasgos**: Ojos rasgados decididos con ceja firme, sonrisa pícara con colmillo lateral, vientre dorado incandescente (`ember_skin`).
-- **Transformación**: *Fénix Solar* — alas amplias articuladas de fuego que baten en vuelo y cola bifurcada en cometa.
-- **Efecto elemental**: Brasas ascendentes, destellos naranja-dorados y ondas térmicas concéntricas.
-
-### 02 · Frostcrawler *(Hielo · Cuevas Heladas)* — *Prototipo Acorazado Pesado*
-- **Silueta y anatomía**: Cuerpo ancho y bajo pegado al suelo (`width 1.24×`, `height 0.88×`), coraza dorsal segmentada en placas hexagonales, tres cuernos prismáticos de escarcha, mandíbulas laterales robustas y cola en maza helada.
-- **Expresión y rasgos**: Ojos entrecerrados ámbar/hielo bajo ceja blindada, boca gruñona firme, acabado en quitina escarchada (`frosted_chitin`).
-- **Transformación**: *Taladro Escarcha* — punta cónica giratoria con aristas cristalinas, propulsores laterales y placas dorsales desplegadas.
-- **Efecto elemental**: Copos cristalinos rotatorios, estela de fragmentos gélidos e impacto de anillo escarchado.
-
-### 03 · Tazerling *(Eléctrico · Cuevas Verdes)* — *Prototipo Velocista Hiperactivo*
-- **Silueta y anatomía**: Cuerpo ágil ligeramente inclinado hacia adelante (`width 0.86×`, `height 0.96×`), antenas gemelas en zigzag de alto voltaje, carrillos cargados redondeados y cola bífida en forma de rayo.
-- **Expresión y rasgos**: Ojos circulares enormes muy expresivos llenos de energía y boca abierta entusiasmada (`conductive_gel`).
-- **Transformación**: *Depredador Voltio* — silueta afilada aerodinámica con aletas conductoras y arco eléctrico constante.
-- **Efecto elemental**: Rayos quebrados en zigzag, chispas amarillo neón y anillo de descarga rápida.
-
----
-
-## 4. Orden Narrativo del Catálogo (Progresión de Historia)
-
-1. **Etapa 1 — Cuevas Verdes (Inicio y Refugio)**: `Infurnus`, `Aquabeak`, `Tazerling`, `Musgacorn`, `Doc`.
-2. **Etapa 2 — Cuevas Heladas**: `Frostcrawler`, `Glaciomita`, `Voltrix`.
-3. **Etapa 3 — Cavernas de Magma**: `Flaringo`, `Lariat`, `Piroclasto`.
-4. **Etapa 4 — Cavernas Sombrías (Tramo Final)**: `Enigmo`, `Darkfurnus`, `Umbrospect`, `Aetherion` *(+ Megamorph en tramo avanzado)*.
+### D. Entornos, Biomas y Arquitectura de Caverna
+- **Profundidad 2.5D**: Muros y acantilados con cara vertical estratificada al sur, sombra de caída proyectada, **enredaderas y musgo colgante** en cornisas y **abismo con neblina paralaje** debajo de las simas (`CHASM`).
+- **Transiciones suaves de terreno**: Los bordes entre agua, lava, hielo, adoquín, suelo construido y tierra natural dibujan orillas y biseles suavizados eliminando cortes duros de cuadrícula 28×28.
+- **Arquitectura emblemática**:
+  - **Refugio Shane**: inspirada en la cúpula tecnológica azul-cian hundida bajo **cascadas luminosas**, pasarela de adoquín, círculo rúnico de cristal, plataformas de madera cálida y hábitats integrados sin cuadrados planos.
+  - **Aventura Subterránea**: puentes colgantes de madera y cuerda sobre simas y ríos de lava, escaleras de madera, racimos de hongos bioluminiscentes sobre losas de piedra, pilares antiguos y hogueras de campamento.
 
 ---
 
-## 5. Mundo RPG y Criaturas Ambientales
+## 2. Arquitectura de Activos (`/src/assets/*`)
 
-- **Personajes y Jefes RPG con Sprites Propios**: Mercaderes subterráneos con farol y mochila de cristales, Mercenarios con visor oscuro y bláster lateral, y Señores de Caverna (*Ignis Rex*, *Glacius Prime*, *Sombra Vex*) con armadura y corona distintiva en lugar de iconos genéricos.
-- **Vida en el Hogar y Biomas**: Las babosas residentes caminan hacia la dirección en que miran, curiosean, se acercan a comer cerca del comedero, duermen con `Zzz`, juegan entre sí y reaccionan al jugador. Cada bioma cuenta con fauna ambiental ligera (esporas luminosas, chispas térmicas, cristales flotantes y polillas sombrías).
+| Categoría | Archivo | Dimensiones | Estados |
+| :--- | :--- | :--- | :--- |
+| Utilidades seguras | `src/assets/canvasUtils.ts` | N/A | `roundRectPath`, brillo radial, hash determinista |
+| Manifiesto | `src/assets/manifest.ts` | Global | Registro maestro y conteo de cuadros |
+| Héroes y Aliados | `src/assets/characters/characterSpritesheet.ts` | `64×64` (`72×72` Mecha) | `down/up/left/right` × `idle, walk, interact, combat, hit, special` |
+| Enemigos y Jefes | `src/assets/enemies/enemySpritesheet.ts` | `64×64` / `80×80` | `down/up/left/right` × `idle, walk, interact, combat, hit, special` |
+| Babosas HiDPI | `src/assets/slugs/slugSpritesheet.ts` | `64×64` | 20 especies × Normal/Megamorph/Ghoul × 14 estados |
+| Terreno 2.5D | `src/assets/environments/hdTileset.ts` | `56×56` (2×) | Auto-tiling 4-bit, caras sur, enredaderas, abismos |
+| Decoración Bioma | `src/assets/environments/biomeDecorations.ts` | `56×56` (2×) | Hongos en losa, cristales facetados, cascadas, basalto, algas |
+| Arquitectura | `src/assets/buildings/caveArchitecture.ts` | `56×56` (2×) + compuestos | Puentes colgantes, escaleras, hogueras, cofres, altares, cúpula Shane |
+
+---
+
+## 3. Paletas de los 6 Biomas
+
+1. **Cuevas Verdes (`Verdes`)**: tierra cálida `#4a372a`, roca estratificada `#5c4637`, musgo `#4ade80`, hongos cian/esmeralda `#2dd4bf` y cascadas cian `#22d3ee`.
+2. **Cavernas Acuáticas (`Acuaticas`)**: suelo pizarra húmedo `#173244`, agua profunda `#0284c7`, cuarzo azul `#38bdf8`, cascadas luminosas y algas `#10b981`.
+3. **Cavernas de Magma (`Magma`)**: obsidiana `#241414`, roca volcánica `#43201b`, ríos incandescentes `#f97316` / `#fde047`, columnas de basalto hexagonal.
+4. **Cuevas Heladas (`Heladas`)**: hielo translúcido `#5ea8d4`, cristal glacial `#e0f2fe`, muros azul cobalto `#0e7490` y ventisca tenue.
+5. **Cavernas Cristalinas (`Cristalinas`)**: pizarra violeta profunda `#231a3d`, espiras prismáticas `#a78bfa` y vetas de energía `#67e8f9`.
+6. **Cavernas Sombrías (`Sombrias`)**: suelo abisal `#161124`, ladrillo antiguo oscuro `#3b2d4a`, hongos neón `#a855f7` y acentos carmesí `#f43f5e`.

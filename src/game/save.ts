@@ -46,6 +46,7 @@ import {
   reconcileStoryProgress,
 } from './storyEngine';
 import type { StoryChapterStatus, StoryMissionLifecycleState, StoryProgressState } from './storyTypes';
+import { validatePartialKeyBindings } from './inputManager';
 import {
   TileType,
   type BiomeId,
@@ -71,6 +72,7 @@ import {
 } from './types';
 
 export const V4_SAVE_KEY = 'bajoterra-v4-save';
+export const V4_BACKUP_KEY = 'bajoterra-v4-save-backup';
 export const V4_DB_NAME = 'Bajoterra4DB';
 export const V3_SAVE_KEY = 'bajoterra-v2';
 export const V3_DB_NAME = 'BajoterraDB';
@@ -321,10 +323,18 @@ function lsSetSafe(key: string, payload: string, revision?: number): BackendWrit
     if (typeof localStorage === 'undefined') {
       return { ok: false, error: 'localStorage no disponible' };
     }
+    const existingRaw = lsGetSafe(key);
     if (typeof revision === 'number') {
-      const existingRev = getRevisionFromRawJson(lsGetSafe(key));
+      const existingRev = getRevisionFromRawJson(existingRaw);
       if (existingRev > revision) {
         return { ok: true }; // Newer revision already present
+      }
+    }
+    if (key === V4_SAVE_KEY && existingRaw && getRevisionFromRawJson(existingRaw) >= 0) {
+      try {
+        localStorage.setItem(V4_BACKUP_KEY, existingRaw);
+      } catch {
+        // Ignore quota failure on secondary backup copy
       }
     }
     localStorage.setItem(key, payload);
@@ -680,6 +690,20 @@ export async function loadGameV4Detailed(opts?: { syncStores?: boolean }): Promi
   if (lsCorrupt && lsParsed.error) warnings.push(`Copia en localStorage dañada: ${lsParsed.error}`);
 
   if (!idbParsed.valid && !lsParsed.valid) {
+    const backupParsed = tryParseAndValidateV4Raw(lsGetSafe(V4_BACKUP_KEY));
+    if (backupParsed.valid && backupParsed.state) {
+      warnings.push('Copia primaria dañada; partida restaurada desde respaldo local automático.');
+      if (shouldSync) {
+        await syncStoresWithWinner(backupParsed.state, true, true);
+      }
+      return {
+        state: backupParsed.state,
+        source: 'localstorage',
+        recoveredFromCorruption: true,
+        syncedStores: shouldSync,
+        warnings,
+      };
+    }
     return {
       state: null,
       source: 'none',
@@ -1258,6 +1282,24 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
       }
       validOptions.volume = o.volume;
     }
+    if (o.musicVolume !== undefined) {
+      if (!isFiniteNum(o.musicVolume) || o.musicVolume < 0 || o.musicVolume > 1) {
+        return { ok: false, error: 'Volumen de música fuera de rango (0..1).' };
+      }
+      validOptions.musicVolume = o.musicVolume;
+    }
+    if (o.sfxVolume !== undefined) {
+      if (!isFiniteNum(o.sfxVolume) || o.sfxVolume < 0 || o.sfxVolume > 1) {
+        return { ok: false, error: 'Volumen de efectos fuera de rango (0..1).' };
+      }
+      validOptions.sfxVolume = o.sfxVolume;
+    }
+    if (o.ambientVolume !== undefined) {
+      if (!isFiniteNum(o.ambientVolume) || o.ambientVolume < 0 || o.ambientVolume > 1) {
+        return { ok: false, error: 'Volumen ambiental fuera de rango (0..1).' };
+      }
+      validOptions.ambientVolume = o.ambientVolume;
+    }
     if (o.touchControls !== undefined) {
       if (o.touchControls !== 'auto' && o.touchControls !== 'on' && o.touchControls !== 'off') {
         return { ok: false, error: 'Modo de controles táctiles inválido.' };
@@ -1279,6 +1321,27 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
         return { ok: false, error: 'Opción de movimiento reducido inválida.' };
       }
       validOptions.reducedMotion = o.reducedMotion;
+    }
+    if (o.screenShake !== undefined) {
+      if (typeof o.screenShake !== 'boolean') {
+        return { ok: false, error: 'Opción de vibración de cámara inválida.' };
+      }
+      validOptions.screenShake = o.screenShake;
+    }
+    if (o.uiScale !== undefined) {
+      if (o.uiScale !== 'compact' && o.uiScale !== 'normal' && o.uiScale !== 'large') {
+        return { ok: false, error: 'Escala de interfaz inválida.' };
+      }
+      validOptions.uiScale = o.uiScale;
+    }
+    if (o.keyBindings !== undefined) {
+      const kbRes = validatePartialKeyBindings(o.keyBindings);
+      if (!kbRes.ok) {
+        return { ok: false, error: kbRes.error };
+      }
+      validOptions.keyBindings = kbRes.value;
+    } else {
+      delete validOptions.keyBindings;
     }
   }
 
