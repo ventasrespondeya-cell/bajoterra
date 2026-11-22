@@ -460,6 +460,50 @@ class SpriteAtlas {
         p(9, 6, 1, 3, '#bae6fd');
         break;
       }
+      case TileType.CHASM: {
+        p(0, 0, 14, 14, '#030711');
+        p(1, 2, 12, 1, '#0c182e');
+        break;
+      }
+      case TileType.ROPE_BRIDGE: {
+        p(0, 0, 14, 14, '#030711');
+        p(0, 2, 14, 10, '#78350f');
+        p(0, 2, 14, 1, '#d97706');
+        p(0, 11, 14, 1, '#d97706');
+        p(2, 3, 2, 8, '#92400e');
+        p(6, 3, 2, 8, '#92400e');
+        p(10, 3, 2, 8, '#92400e');
+        break;
+      }
+      case TileType.WOOD_STAIRS: {
+        p(2, 0, 2, 14, '#5c2c0e');
+        p(10, 0, 2, 14, '#5c2c0e');
+        p(3, 2, 8, 2, '#b45309');
+        p(3, 6, 8, 2, '#b45309');
+        p(3, 10, 8, 2, '#b45309');
+        break;
+      }
+      case TileType.COBBLESTONE: {
+        p(0, 0, 14, 14, '#1e293b');
+        p(1, 1, 5, 5, '#475569');
+        p(7, 1, 6, 5, '#334155');
+        p(1, 7, 6, 6, '#334155');
+        p(8, 7, 5, 6, '#475569');
+        break;
+      }
+      case TileType.RUIN_PILLAR:
+      case TileType.BASALT_COLUMN: {
+        p(3, 2, 8, 11, tile === TileType.BASALT_COLUMN ? '#3f2e2c' : '#64748b');
+        p(4, 1, 6, 3, tile === TileType.BASALT_COLUMN ? '#7c2d12' : '#94a3b8');
+        p(6, 5, 2, 5, tile === TileType.BASALT_COLUMN ? '#fb923c' : '#38bdf8');
+        break;
+      }
+      case TileType.CAMPFIRE: {
+        p(4, 7, 6, 4, '#475569');
+        p(5, 3, 4, 5, '#f97316');
+        p(6, 5, 2, 3, '#fde047');
+        break;
+      }
       default:
         break;
     }

@@ -6,7 +6,26 @@ import { sprites, type SlugSpritePose } from './sprites';
 import { STORY_CHAPTERS_BY_ID, STORY_ROUTES, STORY_SCENARIOS } from './storyData';
 import { canAccessRoute, ensureStoryState } from './storyEngine';
 import { TileType, type BiomeId, type GameState, type RoamingEntity } from './types';
-import { ChunkManager, getBiomeAt } from './world';
+import { ChunkManager, WORLD_REGIONS, getBiomeAt, type WorldRegionDef, type WorldRegionKind } from './world';
+
+export interface FullWorldMapRenderOptions {
+  zoom?: number;
+  panX?: number;
+  panY?: number;
+  filterKind?: 'all' | WorldRegionKind;
+  selectedRegionId?: string | null;
+  selectedScenarioId?: string | null;
+}
+
+export interface WorldMapHitTarget {
+  kind: 'scenario' | 'region' | 'boss' | 'secret';
+  id: string;
+  name: string;
+  scenarioId?: string;
+  regionId?: string;
+  worldX: number;
+  worldY: number;
+}
 
 interface Particle {
   active: boolean;
@@ -243,7 +262,7 @@ export class WorldRenderer {
     entities: RoamingEntity[],
     targetTile: { x: number; y: number } | null
   ): void {
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = true;
     ctx.clearRect(0, 0, vw, vh);
 
     const reduced =
@@ -252,19 +271,39 @@ export class WorldRenderer {
         typeof window.matchMedia === 'function' &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const visualTime = reduced ? 0 : timeSec;
-    const sxShake = !reduced && this.shakeTime > 0 ? (Math.random() - 0.5) * 2 * this.shakeMag : 0;
-    const syShake = !reduced && this.shakeTime > 0 ? (Math.random() - 0.5) * 2 * this.shakeMag : 0;
+    const sxShake = !reduced && this.shakeTime > 0 ? Math.sin(timeSec * 52) * this.shakeMag : 0;
+    const syShake = !reduced && this.shakeTime > 0 ? Math.cos(timeSec * 47) * this.shakeMag : 0;
+
+    // Tactile diorama zoom so HiDPI characters, slugs & 2.5D cliffs read crisply on desktop & mobile
+    const camZoom = vw < 540 ? 1.14 : 1.24;
     const ox = Math.floor(this.camX - vw / 2 + TILE_PX / 2 + sxShake);
     const oy = Math.floor(this.camY - vh / 2 + TILE_PX / 2 + syShake);
 
-    const x0 = Math.max(0, Math.floor(ox / TILE_PX) - 1);
-    const y0 = Math.max(0, Math.floor(oy / TILE_PX) - 1);
-    const x1 = Math.min(WORLD_W - 1, Math.ceil((ox + vw) / TILE_PX) + 1);
-    const y1 = Math.min(WORLD_H - 1, Math.ceil((oy + vh) / TILE_PX) + 1);
+    const halfViewTilesX = Math.ceil((vw / camZoom) / TILE_PX / 2) + 3;
+    const halfViewTilesY = Math.ceil((vh / camZoom) / TILE_PX / 2) + 3;
+    const centerTileX = Math.floor((ox + vw / 2) / TILE_PX);
+    const centerTileY = Math.floor((oy + vh / 2) / TILE_PX);
+    const x0 = Math.max(0, centerTileX - halfViewTilesX);
+    const y0 = Math.max(0, centerTileY - halfViewTilesY);
+    const x1 = Math.min(WORLD_W - 1, centerTileX + halfViewTilesX);
+    const y1 = Math.min(WORLD_H - 1, centerTileY + halfViewTilesY);
 
     const lightSources: Array<{ sx: number; sy: number; r: number; color: string }> = [];
 
-    // 1. Tiles pass
+    const toScreenX = (worldPxX: number) => (worldPxX - vw / 2) * camZoom + vw / 2;
+    const toScreenY = (worldPxY: number) => (worldPxY - vh / 2) * camZoom + vh / 2;
+
+    ctx.save();
+    ctx.translate(vw / 2, vh / 2);
+    ctx.scale(camZoom, camZoom);
+    ctx.translate(-vw / 2, -vh / 2);
+
+    const isAutoMatchTile = (candidate: TileType, target: TileType): boolean => {
+      if (target === TileType.CHASM) return candidate === TileType.CHASM;
+      return isOpaqueWallTile(candidate) || candidate === TileType.ICE;
+    };
+
+    // 1. HiDPI 2.5D Autotiled Terrain & Architectural Pass
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
         const tile = chunks.getTile(tx, ty);
@@ -274,10 +313,22 @@ export class WorldRenderer {
         const sx = tx * TILE_PX - ox;
         const sy = ty * TILE_PX - oy;
 
-        const sprite = sprites.getTileSprite(tile, biome, variant);
-        ctx.drawImage(sprite, sx, sy);
+        const maskBits = encodeAutoTileMask({
+          n: ty > 0 ? isAutoMatchTile(chunks.getTile(tx, ty - 1), tile) : true,
+          e: tx + 1 < WORLD_W ? isAutoMatchTile(chunks.getTile(tx + 1, ty), tile) : true,
+          s: ty + 1 < WORLD_H ? isAutoMatchTile(chunks.getTile(tx, ty + 1), tile) : true,
+          w: tx > 0 ? isAutoMatchTile(chunks.getTile(tx - 1, ty), tile) : true,
+        });
 
-        // Deterministic micro-details on plain open floors so corridors feel hand-dressed
+        const hdTile = getHdTileSprite(tile, biome, variant, maskBits);
+        if (hdTile) {
+          ctx.drawImage(hdTile, 0, 0, hdTile.width, hdTile.height, sx, sy, TILE_PX, TILE_PX);
+        } else {
+          const sprite = sprites.getTileSprite(tile, biome, variant);
+          ctx.drawImage(sprite, sx, sy);
+        }
+
+        // Deterministic micro-details on open cavern floors
         if (tile === TileType.FLOOR && (hash & 7) === 0) {
           ctx.fillStyle =
             biome === 'Magma'
@@ -297,110 +348,99 @@ export class WorldRenderer {
           ctx.fillRect(sx + pxOff + 4, sy + pyOff + 2, 2, 2);
         }
 
-        // 2.5D Wall Drop-Shadows & South-Face Bevel Rim
+        // 2.5D Elevation Drop Shadows beneath south-facing cliff walls
         const isWallHere = isOpaqueWallTile(tile);
-        if (!isWallHere) {
+        if (!isWallHere && tile !== TileType.CHASM) {
           if (ty > 0 && isOpaqueWallTile(chunks.getTile(tx, ty - 1))) {
-            ctx.fillStyle = 'rgba(2, 6, 12, 0.36)';
-            ctx.fillRect(sx, sy, TILE_PX, 5);
+            ctx.fillStyle = 'rgba(2, 6, 12, 0.42)';
+            ctx.fillRect(sx, sy, TILE_PX, 6);
           }
           if (tx > 0 && isOpaqueWallTile(chunks.getTile(tx - 1, ty))) {
-            ctx.fillStyle = 'rgba(2, 6, 12, 0.2)';
-            ctx.fillRect(sx, sy, 3, TILE_PX);
+            ctx.fillStyle = 'rgba(2, 6, 12, 0.22)';
+            ctx.fillRect(sx, sy, 3.5, TILE_PX);
           }
-        } else if (ty + 1 < WORLD_H && !isOpaqueWallTile(chunks.getTile(tx, ty + 1))) {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-          ctx.fillRect(sx + 1, sy + TILE_PX - 3, TILE_PX - 2, 2);
         }
 
-        // Animated shimmer & unmistakable interactive halos (distinct from passive flora/rock)
+        // Animated water, waterfalls, campfires, interactive beacons & biome illumination
+        const lsx = toScreenX(sx + 14);
+        const lsy = toScreenY(sy + 14);
+
         if (tile === TileType.LAVA) {
           const pulse = 0.18 + Math.sin(visualTime * 4 + tx + ty) * 0.1;
           ctx.fillStyle = `rgba(253, 224, 71, ${pulse})`;
           ctx.fillRect(sx + 4, sy + 6, 12, 6);
-          const bubbleY = sy + 18 - ((visualTime * 12 + tx * 5 + ty * 7) % 10);
-          ctx.fillStyle = 'rgba(254, 240, 138, 0.52)';
-          ctx.fillRect(sx + 8 + ((tx * 3) % 8), bubbleY, 3, 3);
           if ((tx + ty) % 3 === 0) {
-            lightSources.push({ sx: sx + 14, sy: sy + 14, r: 78, color: 'rgba(251, 146, 60, 0.6)' });
+            lightSources.push({ sx: lsx, sy: lsy, r: 92, color: 'rgba(251, 146, 60, 0.65)' });
           }
         } else if (tile === TileType.WATER) {
           const shimmer = 0.14 + Math.sin(visualTime * 3 + tx * 0.8) * 0.08;
           ctx.fillStyle = `rgba(186, 230, 253, ${shimmer})`;
           ctx.fillRect(sx + 4, sy + 7 + Math.sin(visualTime * 2.2 + ty) * 2, 11, 2);
-          ctx.fillStyle = `rgba(125, 211, 252, ${shimmer * 0.85})`;
-          ctx.fillRect(sx + 11, sy + 16 + Math.cos(visualTime * 2.4 + tx) * 2, 9, 2);
         } else if (tile === TileType.WATERFALL) {
-          const flow = reduced ? 0 : Math.floor((visualTime * 18 + tx * 3) % 12);
-          ctx.fillStyle = 'rgba(224, 242, 254, 0.55)';
-          ctx.fillRect(sx + 8, sy + ((flow + 2) % 20), 4, 6);
-          ctx.fillRect(sx + 16, sy + ((flow + 10) % 20), 4, 6);
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.68)';
-          ctx.fillRect(sx + 5, sy + 22, 18, 3);
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 74, color: 'rgba(34, 211, 238, 0.62)' });
+          const flow = reduced ? 0 : Math.floor((visualTime * 20 + tx * 3) % 12);
+          ctx.fillStyle = 'rgba(224, 242, 254, 0.62)';
+          ctx.fillRect(sx + 7, sy + ((flow + 2) % 20), 4, 7);
+          ctx.fillRect(sx + 16, sy + ((flow + 10) % 20), 4, 7);
+          ctx.fillStyle = 'rgba(236, 254, 255, 0.72)';
+          ctx.beginPath();
+          ctx.ellipse(sx + 14, sy + 24, 11, 4, 0, 0, Math.PI * 2);
+          ctx.fill();
+          lightSources.push({ sx: lsx, sy: lsy, r: 94, color: 'rgba(34, 211, 238, 0.7)' });
+        } else if (tile === TileType.CAMPFIRE) {
+          const flicker = reduced ? 0 : Math.sin(visualTime * 16 + tx * 3) * 4;
+          ctx.fillStyle = 'rgba(254, 240, 138, 0.75)';
+          ctx.beginPath();
+          ctx.arc(sx + 14, sy + 13 + flicker * 0.25, 3.2, 0, Math.PI * 2);
+          ctx.fill();
+          lightSources.push({ sx: lsx, sy: lsy, r: 145 + flicker * 2, color: 'rgba(251, 146, 60, 0.92)' });
         } else if (tile === TileType.CRYSTAL_SPIRE) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 92, color: 'rgba(167, 139, 250, 0.72)' });
-          if (!reduced && Math.sin(visualTime * 4.5 + tx * 1.3) > 0.45) {
-            ctx.fillStyle = 'rgba(243, 232, 255, 0.78)';
-            ctx.fillRect(sx + 12, sy + 4, 3, 4);
-          }
+          lightSources.push({ sx: lsx, sy: lsy, r: 108, color: 'rgba(167, 139, 250, 0.76)' });
         } else if (tile === TileType.TORCH) {
           const flick = reduced ? 6 : 6 + Math.sin(visualTime * 14 + tx * 3) * 2.5;
-          lightSources.push({ sx: sx + 14, sy: sy + 10, r: 112 + flick, color: 'rgba(253, 186, 116, 0.88)' });
+          lightSources.push({ sx: lsx, sy: toScreenY(sy + 10), r: 124 + flick, color: 'rgba(253, 186, 116, 0.88)' });
         } else if (tile === TileType.CHEST_CLOSED) {
-          const glintAlpha = 0.34 + Math.sin(visualTime * 4.5 + tx) * 0.16;
+          const glintAlpha = 0.42 + Math.sin(visualTime * 4.5 + tx) * 0.22;
           ctx.strokeStyle = `rgba(251, 191, 36, ${glintAlpha})`;
-          ctx.lineWidth = 1.4;
-          ctx.strokeRect(sx + 2, sy + 5, TILE_PX - 4, TILE_PX - 7);
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 62, color: 'rgba(251, 191, 36, 0.55)' });
+          ctx.lineWidth = 1.6;
+          ctx.strokeRect(sx + 2, sy + 4, TILE_PX - 4, TILE_PX - 6);
+          lightSources.push({ sx: lsx, sy: lsy, r: 78, color: 'rgba(251, 191, 36, 0.65)' });
         } else if (tile === TileType.CRACKED_WALL) {
-          const seamAlpha = 0.42 + Math.sin(visualTime * 4 + tx + ty) * 0.18;
+          const seamAlpha = 0.45 + Math.sin(visualTime * 4 + tx + ty) * 0.2;
           ctx.strokeStyle = `rgba(103, 232, 249, ${seamAlpha})`;
-          ctx.lineWidth = 1.4;
+          ctx.lineWidth = 1.5;
           ctx.strokeRect(sx + 2, sy + 2, TILE_PX - 4, TILE_PX - 4);
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 58, color: 'rgba(56, 189, 248, 0.52)' });
+          lightSources.push({ sx: lsx, sy: lsy, r: 72, color: 'rgba(56, 189, 248, 0.58)' });
         } else if (tile === TileType.DOOR_CLOSED) {
-          ctx.strokeStyle = 'rgba(251, 191, 36, 0.38)';
-          ctx.lineWidth = 1.2;
+          ctx.strokeStyle = 'rgba(251, 191, 36, 0.46)';
+          ctx.lineWidth = 1.3;
           ctx.strokeRect(sx + 2, sy + 2, TILE_PX - 4, TILE_PX - 4);
         } else if (tile === TileType.ENERGY_CRYSTAL || tile === TileType.ALTAR || tile === TileType.ICE_CRYSTAL) {
           lightSources.push({
-            sx: sx + 14,
-            sy: sy + 14,
-            r: tile === TileType.ICE_CRYSTAL ? 68 : 88,
-            color: tile === TileType.ICE_CRYSTAL ? 'rgba(125, 211, 252, 0.6)' : 'rgba(45, 212, 191, 0.68)',
+            sx: lsx,
+            sy: lsy,
+            r: tile === TileType.ICE_CRYSTAL ? 84 : 108,
+            color: tile === TileType.ICE_CRYSTAL ? 'rgba(125, 211, 252, 0.65)' : 'rgba(45, 212, 191, 0.72)',
           });
-          if (!reduced && Math.sin(visualTime * 5 + tx) > 0.65) {
-            ctx.fillStyle = 'rgba(255,255,255,0.72)';
-            ctx.fillRect(sx + 11, sy + 5, 3, 3);
-          }
           if (tile === TileType.ALTAR) {
-            ctx.strokeStyle = `rgba(94, 234, 212, ${0.34 + Math.sin(visualTime * 4) * 0.16})`;
-            ctx.lineWidth = 1.4;
+            ctx.strokeStyle = `rgba(94, 234, 212, ${0.42 + Math.sin(visualTime * 4) * 0.18})`;
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.arc(sx + 14, sy + 14, 11 + Math.sin(visualTime * 3) * 1.5, 0, Math.PI * 2);
+            ctx.arc(sx + 14, sy + 14, 12 + Math.sin(visualTime * 3) * 1.4, 0, Math.PI * 2);
             ctx.stroke();
           }
         } else if (tile === TileType.SHADOW_CRYSTAL) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 78, color: 'rgba(192, 132, 252, 0.62)' });
+          lightSources.push({ sx: lsx, sy: lsy, r: 92, color: 'rgba(192, 132, 252, 0.65)' });
         } else if (tile === TileType.EVO_STONE_VEIN) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 96, color: 'rgba(250, 204, 21, 0.78)' });
+          lightSources.push({ sx: lsx, sy: lsy, r: 108, color: 'rgba(250, 204, 21, 0.8)' });
         } else if (tile === TileType.NEON_MUSHROOM) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 66, color: 'rgba(34, 211, 238, 0.58)' });
-        } else if (tile === TileType.MAGMA_COAL) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 46, color: 'rgba(249, 115, 22, 0.44)' });
+          lightSources.push({ sx: lsx, sy: lsy, r: 84, color: 'rgba(168, 85, 247, 0.62)' });
+        } else if (tile === TileType.MUSHROOM) {
+          lightSources.push({ sx: lsx, sy: lsy, r: 68, color: 'rgba(52, 211, 153, 0.5)' });
         } else if (tile === TileType.RECHARGE_STATION) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 120, color: 'rgba(56, 189, 248, 0.85)' });
-          const scanAlpha = 0.35 + Math.sin(visualTime * 6 + tx) * 0.2;
+          lightSources.push({ sx: lsx, sy: lsy, r: 138, color: 'rgba(56, 189, 248, 0.88)' });
+          const scanAlpha = 0.4 + Math.sin(visualTime * 6 + tx) * 0.2;
           ctx.fillStyle = `rgba(125, 211, 252, ${scanAlpha})`;
           ctx.fillRect(sx + 7, sy + 9 + Math.round((Math.sin(visualTime * 4) + 1) * 4), 14, 2);
-          ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
-          ctx.lineWidth = 1.2;
-          ctx.beginPath();
-          ctx.arc(sx + 14, sy + 14, 13, 0, Math.PI * 2);
-          ctx.stroke();
-        } else if (tile === TileType.MUSHROOM) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 52, color: 'rgba(52, 211, 153, 0.42)' });
         } else if (
           (tile === TileType.ORE ||
             tile === TileType.THERMAL_COPPER ||
@@ -426,8 +466,8 @@ export class WorldRenderer {
       ctx.fillStyle = hab.floorTint;
       ctx.fillRect(hsx - 10, hsy - 10, TILE_PX + 20, TILE_PX + 20);
       ctx.strokeStyle = hab.accentColor;
-      ctx.globalAlpha = 0.55;
-      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 1.6;
       ctx.strokeRect(hsx - 9, hsy - 9, TILE_PX + 18, TILE_PX + 18);
       ctx.globalAlpha = 1;
     }
@@ -439,7 +479,12 @@ export class WorldRenderer {
         const fsy = furn.y * TILE_PX - oy;
         ctx.drawImage(sprites.getFurnitureSprite(furn.kind), fsx, fsy);
         if (FURNITURE_DEFS[furn.kind]?.emitsLight) {
-          lightSources.push({ sx: fsx + 14, sy: fsy + 14, r: 102, color: 'rgba(94, 234, 212, 0.78)' });
+          lightSources.push({
+            sx: toScreenX(fsx + 14),
+            sy: toScreenY(fsy + 14),
+            r: 120,
+            color: 'rgba(94, 234, 212, 0.8)',
+          });
         }
       }
     }
@@ -448,60 +493,49 @@ export class WorldRenderer {
     if (targetTile) {
       const tsx = targetTile.x * TILE_PX - ox;
       const tsy = targetTile.y * TILE_PX - oy;
-      const pulseAlpha = 0.65 + Math.sin(visualTime * 6) * 0.25;
+      const pulseAlpha = 0.7 + Math.sin(visualTime * 6) * 0.25;
       ctx.fillStyle = `rgba(94, 234, 212, ${pulseAlpha})`;
-      // Top-left bracket
       ctx.fillRect(tsx, tsy, 7, 2);
       ctx.fillRect(tsx, tsy, 2, 7);
-      // Top-right bracket
       ctx.fillRect(tsx + TILE_PX - 7, tsy, 7, 2);
       ctx.fillRect(tsx + TILE_PX - 2, tsy, 2, 7);
-      // Bottom-left bracket
       ctx.fillRect(tsx, tsy + TILE_PX - 2, 7, 2);
       ctx.fillRect(tsx, tsy + TILE_PX - 7, 2, 7);
-      // Bottom-right bracket
       ctx.fillRect(tsx + TILE_PX - 7, tsy + TILE_PX - 2, 7, 2);
       ctx.fillRect(tsx + TILE_PX - 2, tsy + TILE_PX - 7, 2, 7);
     }
 
-    // 3. Roaming wild slugs, bosses, mercenaries, merchant
-    const animFrame = reduced ? 0 : (Math.floor(timeSec * 5) & 3);
+    // 3. HiDPI Entities: Wild Slugs, Story NPCs, Merchants, Mercenaries & Bosses
+    const animFrame = reduced ? 0 : (Math.floor(timeSec * 6) & 3);
 
     for (const ent of entities) {
       const ex = ent.x * TILE_PX - ox;
       const ey = ent.y * TILE_PX - oy;
-      if (ex < -40 || ey < -40 || ex > vw + 40 || ey > vh + 40) continue;
+      if (ex < -48 || ey < -48 || ex > vw + 48 || ey > vh + 48) continue;
 
-      // Ground contact shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
-      ctx.beginPath();
-      ctx.ellipse(ex + 14, ey + 23, ent.kind === 'boss' ? 11 : 9, 4, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      const bob = reduced ? 0 : Math.sin(timeSec * 4.2 + ent.x) * 2.2;
+      const bob = reduced ? 0 : Math.sin(timeSec * 4.2 + ent.x) * 2;
       if (ent.kind === 'wild' && ent.speciesId) {
         const sp = getSpecies(ent.speciesId);
         const anim = sampleSlugAnimationFrame(ent.speciesId, 'walk', visualTime, reduced);
         const flipLeft = Math.cos(ent.dir) < 0;
-        // Subtle elemental shimmer ring
-        ctx.strokeStyle = sp.accent;
-        ctx.globalAlpha = 0.35 + Math.sin(visualTime * 3.5 + ent.y) * 0.15;
-        ctx.lineWidth = 1.25;
-        ctx.beginPath();
-        ctx.ellipse(ex + 14, ey + 22, 10, 4.5, 0, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-
-        const spr = sprites.getSpeciesSlugSprite(ent.speciesId, false, 'walk', animFrame);
+        const hdSlug = getHdSlugSprite(ent.speciesId, false, 'walk', animFrame, flipLeft ? 'left' : 'right');
         ctx.save();
         ctx.translate(ex + 14 + anim.offsetX, ey + 14 + anim.offsetY);
         ctx.rotate((anim.tiltDeg * Math.PI) / 180);
-        ctx.scale((flipLeft ? -1 : 1) * anim.scaleX, anim.scaleY);
-        ctx.drawImage(spr, -12, -12);
+        ctx.scale(anim.scaleX, anim.scaleY);
+        if (hdSlug) {
+          ctx.drawImage(hdSlug, 0, 0, hdSlug.width, hdSlug.height, -16, -18, 32, 32);
+        } else {
+          const spr = sprites.getSpeciesSlugSprite(ent.speciesId, false, 'walk', animFrame);
+          ctx.scale(flipLeft ? -1 : 1, 1);
+          ctx.drawImage(spr, -12, -12);
+        }
         ctx.restore();
-
         if (!reduced) {
           this.drawSpeciesWorldMicroVfx(ctx, ent.speciesId, ex + 14, ey + 14 + anim.offsetY, timeSec);
+        }
+        if (sp.type === 'Luz' || sp.type === 'Fuego') {
+          lightSources.push({ sx: toScreenX(ex + 14), sy: toScreenY(ey + 14), r: 48, color: sp.accent });
         }
       } else if (
         ent.kind === 'boss' ||
@@ -509,40 +543,58 @@ export class WorldRenderer {
         ent.kind === 'merchant' ||
         ent.kind === 'story_npc'
       ) {
-        // Boss / Mercenary / Merchant / Story NPC articulated RPG pixel character
         if (ent.kind === 'boss') {
-          ctx.strokeStyle = 'rgba(248, 113, 113, 0.72)';
+          ctx.strokeStyle = 'rgba(248, 113, 113, 0.78)';
           ctx.lineWidth = 1.8;
           ctx.beginPath();
-          ctx.ellipse(ex + 14, ey + 22, 12, 5.5, 0, 0, Math.PI * 2);
+          ctx.ellipse(ex + 14, ey + 23, 15, 6, 0, 0, Math.PI * 2);
           ctx.stroke();
         } else if (ent.kind === 'merchant') {
-          lightSources.push({ sx: ex + 14, sy: ey + 14, r: 84, color: 'rgba(52, 211, 153, 0.68)' });
+          lightSources.push({ sx: toScreenX(ex + 14), sy: toScreenY(ey + 14), r: 102, color: 'rgba(52, 211, 153, 0.75)' });
         } else if (ent.kind === 'story_npc') {
-          ctx.strokeStyle = 'rgba(45, 212, 191, 0.72)';
-          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = 'rgba(45, 212, 191, 0.75)';
+          ctx.lineWidth = 1.6;
           ctx.beginPath();
-          ctx.ellipse(ex + 14, ey + 22, 11, 4.5, 0, 0, Math.PI * 2);
+          ctx.ellipse(ex + 14, ey + 23, 12, 4.5, 0, 0, Math.PI * 2);
           ctx.stroke();
-          lightSources.push({ sx: ex + 14, sy: ey + 14, r: 82, color: 'rgba(45, 212, 191, 0.65)' });
+          lightSources.push({ sx: toScreenX(ex + 14), sy: toScreenY(ey + 14), r: 96, color: 'rgba(45, 212, 191, 0.72)' });
         }
-        const npcSpr =
-          ent.kind === 'story_npc'
-            ? sprites.getStoryCharacterSprite(ent.characterId || 'trixie', animFrame & 1)
-            : sprites.getNpcCharacterSprite(ent.kind, ent.bossId, animFrame & 1);
-        ctx.drawImage(npcSpr, ex, ey - 1 + bob * 0.55);
-      }
 
-      if (
-        ent.kind === 'boss' ||
-        ent.kind === 'mercenary' ||
-        ent.kind === 'merchant' ||
-        ent.kind === 'story_npc'
-      ) {
+        const charId =
+          ent.kind === 'boss'
+            ? ent.bossId || 'boss_acuaticas'
+            : ent.kind === 'merchant'
+            ? 'merchant'
+            : ent.kind === 'mercenary'
+            ? 'mercenary'
+            : ent.characterId || 'trixie';
+        const hdNpc = getHdCharacterSprite(charId, 'down', 'idle', animFrame);
+        if (hdNpc) {
+          const drawSize = ent.kind === 'boss' ? 48 : 38;
+          const off = (drawSize - TILE_PX) / 2;
+          ctx.drawImage(
+            hdNpc,
+            0,
+            0,
+            hdNpc.width,
+            hdNpc.height,
+            ex - off,
+            ey - off - 4 + bob * 0.45,
+            drawSize,
+            drawSize
+          );
+        } else {
+          const npcSpr =
+            ent.kind === 'story_npc'
+              ? sprites.getStoryCharacterSprite(ent.characterId || 'trixie', animFrame & 1)
+              : sprites.getNpcCharacterSprite(ent.kind, ent.bossId, animFrame & 1);
+          ctx.drawImage(npcSpr, ex, ey - 1 + bob * 0.55);
+        }
+
         const label = ent.name;
         const plaqueW = Math.max(54, label.length * 6.2 + 12);
-        ctx.fillStyle = 'rgba(5, 11, 18, 0.82)';
-        ctx.fillRect(ex + 14 - plaqueW / 2, ey - 14 + bob, plaqueW, 13);
+        ctx.fillStyle = 'rgba(5, 11, 18, 0.85)';
+        ctx.fillRect(ex + 14 - plaqueW / 2, ey - 18 + bob, plaqueW, 13);
         ctx.strokeStyle =
           ent.kind === 'boss'
             ? '#f87171'
@@ -552,7 +604,7 @@ export class WorldRenderer {
             ? '#2dd4bf'
             : '#fbbf24';
         ctx.lineWidth = 1;
-        ctx.strokeRect(ex + 14 - plaqueW / 2, ey - 14 + bob, plaqueW, 13);
+        ctx.strokeRect(ex + 14 - plaqueW / 2, ey - 18 + bob, plaqueW, 13);
 
         ctx.font = 'bold 10px sans-serif';
         ctx.textAlign = 'center';
@@ -564,19 +616,19 @@ export class WorldRenderer {
             : ent.kind === 'story_npc'
             ? '#99f6e4'
             : '#fef08a';
-        ctx.fillText(label, ex + 14, ey - 4 + bob);
+        ctx.fillText(label, ex + 14, ey - 8 + bob);
         if (ent.kind === 'boss') {
-          lightSources.push({ sx: ex + 14, sy: ey + 14, r: 102, color: 'rgba(248, 113, 113, 0.68)' });
+          lightSources.push({ sx: toScreenX(ex + 14), sy: toScreenY(ey + 14), r: 120, color: 'rgba(248, 113, 113, 0.72)' });
         }
       }
     }
 
-    // 3.5 Living home companion slugs roaming in the shelter
+    // 3.5 HiDPI Living Home Companion Slugs roaming in the shelter
     if (state.home?.residents) {
       for (const res of state.home.residents) {
         const rsx = res.x * TILE_PX - ox;
         const rsy = res.y * TILE_PX - oy;
-        if (rsx < -40 || rsy < -40 || rsx > vw + 40 || rsy > vh + 40) continue;
+        if (rsx < -44 || rsy < -44 || rsx > vw + 44 || rsy > vh + 44) continue;
 
         const sp = getSpecies(res.slug.id);
         const activity = res.visualActivity;
@@ -605,35 +657,34 @@ export class WorldRenderer {
         const anim = sampleSlugAnimationFrame(res.slug.id, animKind, visualTime, reduced);
         const bob = anim.offsetY;
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.36)';
-        ctx.beginPath();
-        ctx.ellipse(rsx + 14, rsy + 23, 8, 3.5, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        const pose: SlugSpritePose = isEating
+        const hdPose: SlugAnimState = isEating
           ? 'eat'
           : isSleeping
-          ? 'rest'
+          ? 'sleep'
           : isPlaying
-          ? 'play'
-          : isLooking
-          ? 'react'
+          ? 'wing_flap'
           : nearPlayer || res.reactionText
-          ? 'happy'
+          ? 'victory'
           : isWalking
-          ? 'walk'
+          ? 'hop'
           : 'idle';
-        const spr = sprites.getSpeciesSlugSprite(res.slug.id, res.slug.mega, pose, animFrame);
-        const faceDir = (res.facingX ?? 1) < 0 ? -1 : 1;
+        const faceDir = (res.facingX ?? 1) < 0 ? 'left' : 'right';
+        const hdResident = getHdSlugSprite(res.slug.id, res.slug.mega, hdPose, animFrame, faceDir);
 
         ctx.save();
         ctx.translate(rsx + 14 + anim.offsetX, rsy + 14 + bob);
         ctx.rotate((anim.tiltDeg * Math.PI) / 180);
-        ctx.scale(faceDir * anim.scaleX, anim.scaleY);
-        ctx.drawImage(spr, -12, -12);
+        ctx.scale(anim.scaleX, anim.scaleY);
+        if (hdResident) {
+          ctx.drawImage(hdResident, 0, 0, hdResident.width, hdResident.height, -15, -17, 30, 30);
+        } else {
+          const pose: SlugSpritePose = isEating ? 'eat' : isSleeping ? 'rest' : isPlaying ? 'play' : isLooking ? 'react' : nearPlayer ? 'happy' : isWalking ? 'walk' : 'idle';
+          const spr = sprites.getSpeciesSlugSprite(res.slug.id, res.slug.mega, pose, animFrame);
+          ctx.scale(faceDir === 'left' ? -1 : 1, 1);
+          ctx.drawImage(spr, -12, -12);
+        }
         ctx.restore();
 
-        // Living micro-feedback per activity & priority species
         if (!reduced) {
           if (isSleeping) {
             const zy = (timeSec * 14 + res.x * 5) % 14;
@@ -641,25 +692,7 @@ export class WorldRenderer {
             ctx.fillStyle = `rgba(186, 230, 253, ${1 - zy / 14})`;
             ctx.fillText('Z', rsx + 22, rsy + 4 - zy);
           } else {
-            this.drawSpeciesWorldMicroVfx(
-              ctx,
-              res.slug.id,
-              rsx + 14 + anim.offsetX,
-              rsy + 14 + bob,
-              timeSec
-            );
-            if (isEating) {
-              ctx.fillStyle = '#fde047';
-              ctx.fillRect(rsx + 14 + faceDir * 7, rsy + 16 + (animFrame & 1) * 2, 2, 2);
-              ctx.fillStyle = '#fb923c';
-              ctx.fillRect(rsx + 14 + faceDir * 9, rsy + 18 - (animFrame & 1) * 2, 2, 2);
-            } else if (activity === 'social') {
-              ctx.fillStyle = '#f472b6';
-              ctx.fillRect(rsx + 13, rsy - 2 + Math.sin(timeSec * 8) * 2, 3, 3);
-            } else if (isLooking) {
-              ctx.fillStyle = '#fde047';
-              ctx.fillRect(rsx + 14 + faceDir * 8, rsy + 2, 2, 2);
-            }
+            this.drawSpeciesWorldMicroVfx(ctx, res.slug.id, rsx + 14 + anim.offsetX, rsy + 14 + bob, timeSec);
           }
         }
 
@@ -692,7 +725,7 @@ export class WorldRenderer {
         ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(6, 13, 20, 0.82)';
         const bw = Math.max(46, badge.length * 5.6 + 10);
-        ctx.fillRect(rsx + 14 - bw / 2, rsy - 13 + bob, bw, 12);
+        ctx.fillRect(rsx + 14 - bw / 2, rsy - 15 + bob, bw, 12);
         ctx.fillStyle = res.reactionText
           ? '#fef08a'
           : res.mood === 'hambrienta'
@@ -700,71 +733,99 @@ export class WorldRenderer {
           : isSleeping || res.mood === 'cansada'
           ? '#bae6fd'
           : '#a7f3d0';
-        ctx.fillText(badge, rsx + 14, rsy - 4 + bob);
+        ctx.fillText(badge, rsx + 14, rsy - 6 + bob);
 
         if (sp.type === 'Fuego' || sp.type === 'Luz' || sp.type === 'Electrico' || sp.type === 'Energia' || res.slug.mega) {
-          lightSources.push({ sx: rsx + 14, sy: rsy + 14, r: res.slug.mega ? 58 : 46, color: sp.accent });
+          lightSources.push({
+            sx: toScreenX(rsx + 14),
+            sy: toScreenY(rsy + 14),
+            r: res.slug.mega ? 68 : 54,
+            color: sp.accent,
+          });
         }
       }
     }
 
-    // 3.8 Ambient subterranean biome critters (lightweight life in every biome)
+    // 3.8 Ambient subterranean biome critters
     const curBiome = getBiomeAt(Math.round(state.player.x), Math.round(state.player.y), state.worldSeed);
     this.renderAmbientCritters(ctx, vw, vh, curBiome, visualTime, state.options.lightingQuality, reduced);
 
-    // 4. Companion Slug following player
+    // 4. HiDPI Companion Slug following Eli
     const activeSlug = state.party[state.activePartyIndex] || state.party[0];
     if (activeSlug) {
       const sp = getSpecies(activeSlug.id);
       const compAnim = sampleSlugAnimationFrame(activeSlug.id, 'walk', visualTime, reduced);
       const csx = this.companionX - ox;
       const csy = this.companionY - oy + compAnim.offsetY;
-      ctx.fillStyle = 'rgba(0,0,0,0.34)';
-      ctx.beginPath();
-      ctx.ellipse(csx + 12, csy + 21 - compAnim.offsetY, 7, 3, 0, 0, Math.PI * 2);
-      ctx.fill();
-      const compFace = state.player.facingX < 0 ? -1 : 1;
+      const compDir = state.player.facingX < 0 ? 'left' : 'right';
+      const hdComp = getHdSlugSprite(activeSlug.id, activeSlug.mega, activeSlug.mega ? 'wing_flap' : 'hop', animFrame, compDir);
+
       ctx.save();
-      ctx.translate(csx + 12 + compAnim.offsetX, csy + 12);
+      ctx.translate(csx + 14 + compAnim.offsetX, csy + 14);
       ctx.rotate((compAnim.tiltDeg * Math.PI) / 180);
-      ctx.scale(compFace * compAnim.scaleX, compAnim.scaleY);
-      ctx.drawImage(sprites.getSpeciesSlugSprite(activeSlug.id, activeSlug.mega, 'walk', animFrame), -12, -12);
+      ctx.scale(compAnim.scaleX, compAnim.scaleY);
+      if (hdComp) {
+        ctx.drawImage(hdComp, 0, 0, hdComp.width, hdComp.height, -15, -17, 30, 30);
+      } else {
+        ctx.scale(compDir === 'left' ? -1 : 1, 1);
+        ctx.drawImage(sprites.getSpeciesSlugSprite(activeSlug.id, activeSlug.mega, 'walk', animFrame), -12, -12);
+      }
       ctx.restore();
       if (!reduced) {
-        this.drawSpeciesWorldMicroVfx(ctx, activeSlug.id, csx + 12 + compAnim.offsetX, csy + 12, visualTime);
+        this.drawSpeciesWorldMicroVfx(ctx, activeSlug.id, csx + 14 + compAnim.offsetX, csy + 14, visualTime);
       }
       if (activeSlug.mega) {
-        lightSources.push({ sx: csx + 12, sy: csy + 12, r: 52, color: 'rgba(251, 191, 36, 0.55)' });
+        lightSources.push({ sx: toScreenX(csx + 14), sy: toScreenY(csy + 14), r: 62, color: 'rgba(251, 191, 36, 0.6)' });
       } else if (sp.type === 'Luz' || sp.type === 'Fuego' || sp.type === 'Energia') {
-        lightSources.push({ sx: csx + 12, sy: csy + 12, r: 38, color: sp.accent });
+        lightSources.push({ sx: toScreenX(csx + 14), sy: toScreenY(csy + 14), r: 44, color: sp.accent });
       }
     }
 
-    // 5. Player Explorer (+ mounted Mecha overlay when active)
+    // 5. HiDPI Player Explorer Eli Shane (+ mounted Mecha Shane when active)
     const psx = state.player.x * TILE_PX - ox;
     const psy = state.player.y * TILE_PX - oy;
     const mechaMounted = Boolean(state.mecha?.unlocked && state.mecha?.active);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-    ctx.beginPath();
-    ctx.ellipse(psx + 14, psy + 25, mechaMounted ? 12 : 9, mechaMounted ? 5 : 4, 0, 0, Math.PI * 2);
-    ctx.fill();
+    const dirKey: CharacterFacingDir =
+      Math.abs(state.player.facingX) > Math.abs(state.player.facingY)
+        ? state.player.facingX >= 0
+          ? 'right'
+          : 'left'
+        : state.player.facingY < 0
+        ? 'up'
+        : 'down';
+    const walkFrame = Math.floor(state.stats.steps * 2.4) % 4;
+    const playerAnim: CharacterAnimState = Math.abs(state.stats.steps * 10) % 10 > 0 ? 'walk' : 'idle';
 
     if (mechaMounted && state.mecha) {
-      const mechaSpr = sprites.getMechaOverlaySprite(
-        state.mecha.theme,
-        state.mecha.tier,
-        state.player.facingX,
-        state.player.facingY
-      );
-      ctx.drawImage(mechaSpr, psx - 3, psy - 1);
+      const hdMecha = getHdMechaSprite(state.mecha.tier, state.mecha.theme, dirKey, playerAnim, walkFrame);
+      if (hdMecha) {
+        ctx.drawImage(hdMecha, 0, 0, hdMecha.width, hdMecha.height, psx - 10, psy - 14, 48, 48);
+      } else {
+        const mechaSpr = sprites.getMechaOverlaySprite(
+          state.mecha.theme,
+          state.mecha.tier,
+          state.player.facingX,
+          state.player.facingY
+        );
+        ctx.drawImage(mechaSpr, psx - 3, psy - 1);
+      }
+    } else {
+      const hdPlayer = getHdCharacterSprite('eli', dirKey, playerAnim, walkFrame);
+      if (hdPlayer) {
+        ctx.drawImage(hdPlayer, 0, 0, hdPlayer.width, hdPlayer.height, psx - 6, psy - 10, 40, 40);
+      } else {
+        const playerSprite = sprites.getExplorerSprite(state.player.facingX, state.player.facingY, walkFrame);
+        ctx.drawImage(playerSprite, psx, psy);
+      }
     }
 
-    const walkFrame = Math.floor(state.stats.steps * 2.2);
-    const playerSprite = sprites.getExplorerSprite(state.player.facingX, state.player.facingY, walkFrame);
-    ctx.drawImage(playerSprite, psx, mechaMounted ? psy - 4 : psy);
-
-    // Player headlamp light
-    lightSources.push({ sx: psx + 14, sy: psy + 14, r: 162, color: 'rgba(186, 230, 253, 0.94)' });
+    // Player headlamp spotlight
+    lightSources.push({
+      sx: toScreenX(psx + 14),
+      sy: toScreenY(psy + 14),
+      r: 205,
+      color: 'rgba(186, 230, 253, 0.96)',
+    });
 
     // Pulse exploration ring
     if (this.pulseRing > 0) {
@@ -796,15 +857,11 @@ export class WorldRenderer {
     }
     ctx.globalAlpha = 1;
 
-    // 7. Modern Vector Lighting Pass
-    const currentBiome = getBiomeAt(Math.round(state.player.x), Math.round(state.player.y), state.worldSeed);
-    this.renderLightingPass(ctx, vw, vh, currentBiome, lightSources, state.options.lightingQuality);
-
-    // 8. Floating world labels (always legible above lighting pass)
+    // 8. Floating world labels inside scaled world space
     for (const lbl of this.labels) {
       ctx.save();
       ctx.globalAlpha = Math.min(1, lbl.life * 1.4);
-      ctx.font = 'bold 12px sans-serif';
+      ctx.font = 'bold 11px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = '#060d14';
       ctx.fillText(lbl.text, lbl.x - ox + 1, lbl.y - oy + 1);
@@ -812,6 +869,12 @@ export class WorldRenderer {
       ctx.fillText(lbl.text, lbl.x - ox, lbl.y - oy);
       ctx.restore();
     }
+
+    ctx.restore();
+
+    // 7. Fullscreen Atmospheric Lighting & Bloom Pass
+    const currentBiome = getBiomeAt(Math.round(state.player.x), Math.round(state.player.y), state.worldSeed);
+    this.renderLightingPass(ctx, vw, vh, currentBiome, lightSources, state.options.lightingQuality);
   }
 
   private renderLightingPass(
@@ -1031,7 +1094,11 @@ export class WorldRenderer {
     g.strokeRect(0.5, 0.5, w - 1, h - 1);
   }
 
-  public renderFullWorldMap(canvas: HTMLCanvasElement, state: GameState): void {
+  public renderFullWorldMap(
+    canvas: HTMLCanvasElement,
+    state: GameState,
+    options?: FullWorldMapRenderOptions
+  ): void {
     const g = canvas.getContext('2d');
     if (!g) return;
     const w = canvas.width;
@@ -1040,68 +1107,124 @@ export class WorldRenderer {
     g.fillStyle = '#050b13';
     g.fillRect(0, 0, w, h);
 
-    const chunksPerSide = WORLD_W / 16; // 20
-    const cw = w / chunksPerSide;
-    const ch = h / chunksPerSide;
+    const zoom = Math.max(1, Math.min(3.5, options?.zoom ?? 1));
+    const panX = options?.panX ?? 0;
+    const panY = options?.panY ?? 0;
+    const filterKind = options?.filterKind ?? 'all';
+    const selectedRegionId = options?.selectedRegionId ?? null;
+    const selectedScenarioId = options?.selectedScenarioId ?? null;
 
-    // 1. Contiguous subterranean biome terrain with smooth fog-of-war veil (no blocky grid gaps)
+    const toScreen = (wx: number, wy: number) => {
+      const bx = (wx / WORLD_W) * w;
+      const by = (wy / WORLD_H) * h;
+      return {
+        x: (bx - w / 2) * zoom + w / 2 + panX,
+        y: (by - h / 2) * zoom + h / 2 + panY,
+      };
+    };
+
+    const chunksPerSide = WORLD_W / 16; // 20
+    const cw = (w / chunksPerSide) * zoom;
+    const ch = (h / chunksPerSide) * zoom;
+    const originX = (0 - w / 2) * zoom + w / 2 + panX;
+    const originY = (0 - h / 2) * zoom + h / 2 + panY;
+
+    // 1. Contiguous subterranean biome terrain with smooth fog-of-war veil
     for (let cy = 0; cy < chunksPerSide; cy++) {
       for (let cx = 0; cx < chunksPerSide; cx++) {
+        const rx = originX + cx * cw;
+        const ry = originY + cy * ch;
+        if (rx + cw < -4 || ry + ch < -4 || rx > w + 4 || ry > h + 4) continue;
         const wx = cx * 16 + 8;
         const wy = cy * 16 + 8;
         const b = getBiomeAt(wx, wy, state.worldSeed);
         const explored = !!state.exploredChunks[`${cx},${cy}`];
         g.fillStyle = BIOME_INFO[b].mapColor;
-        g.globalAlpha = explored ? 0.88 : 0.22;
-        g.fillRect(cx * cw, cy * ch, cw + 0.6, ch + 0.6);
+        g.globalAlpha = explored ? 0.9 : 0.24;
+        g.fillRect(rx, ry, cw + 0.8, ch + 0.8);
 
-        // Subtle subterranean contour edge where two distinct biomes meet
+        // Subterranean topographic contour rim between adjacent biomes
         const bRight = cx + 1 < chunksPerSide ? getBiomeAt((cx + 1) * 16 + 8, wy, state.worldSeed) : b;
         const bDown = cy + 1 < chunksPerSide ? getBiomeAt(wx, (cy + 1) * 16 + 8, state.worldSeed) : b;
-        g.globalAlpha = 0.34;
+        g.globalAlpha = 0.36;
         g.fillStyle = '#03070e';
         if (bRight !== b) {
-          g.fillRect((cx + 1) * cw - 1, cy * ch, 2, ch + 0.5);
+          g.fillRect(rx + cw - 1, ry, 2, ch + 0.6);
         }
         if (bDown !== b) {
-          g.fillRect(cx * cw, (cy + 1) * ch - 1, cw + 0.5, 2);
+          g.fillRect(rx, ry + ch - 1, cw + 0.6, 2);
         }
       }
     }
     g.globalAlpha = 1;
 
-    // Subtle geological grid lines for depth scale
-    g.strokeStyle = 'rgba(148, 163, 184, 0.08)';
+    // Subtle geological coordinate grid
+    g.strokeStyle = 'rgba(148, 163, 184, 0.09)';
     g.lineWidth = 1;
     for (let i = 1; i < 4; i++) {
-      const gx = (w * i) / 4;
-      const gy = (h * i) / 4;
+      const top = toScreen((WORLD_W * i) / 4, 0);
+      const bot = toScreen((WORLD_W * i) / 4, WORLD_H);
+      const lft = toScreen(0, (WORLD_H * i) / 4);
+      const rgt = toScreen(WORLD_W, (WORLD_H * i) / 4);
       g.beginPath();
-      g.moveTo(gx, 0);
-      g.lineTo(gx, h);
-      g.moveTo(0, gy);
-      g.lineTo(w, gy);
+      g.moveTo(top.x, Math.max(0, top.y));
+      g.lineTo(bot.x, Math.min(h, bot.y));
+      g.moveTo(Math.max(0, lft.x), lft.y);
+      g.lineTo(Math.min(w, rgt.x), rgt.y);
       g.stroke();
     }
 
-    // 2. Interconnected cavern routes with dark halo so unlocked vs locked routes read crisply
+    // Secondary organic subterranean arteries connecting settlements & landmarks
+    const secondaryLinks: Array<[string, string]> = [
+      ['reg_refugio_shane', 'reg_santuario_musgo'],
+      ['reg_valle_verde', 'reg_paso_rio'],
+      ['reg_paso_rio', 'reg_marea_azul'],
+      ['reg_marea_azul', 'reg_muelle_oscuro'],
+      ['reg_marea_azul', 'reg_ruinas_cascada'],
+      ['reg_camp_termal', 'reg_fragua_magma'],
+      ['reg_camp_termal', 'reg_puente_grieta'],
+      ['reg_puente_deshielo', 'reg_catacumba_glacial'],
+      ['reg_escalinata_norte', 'reg_sendero_agujas'],
+      ['reg_sendero_agujas', 'reg_vigia_prisma'],
+      ['reg_vigia_prisma', 'reg_templo_cuarzo'],
+      ['reg_torre_voltaica', 'reg_templo_cuarzo'],
+      ['reg_gran_falla', 'reg_galeria_ecos'],
+      ['reg_galeria_ecos', 'reg_bastion_sombrio'],
+    ];
+    const regionsById = new Map<string, WorldRegionDef>();
+    for (const r of WORLD_REGIONS) regionsById.set(r.id, r);
+    g.save();
+    g.strokeStyle = 'rgba(45, 212, 191, 0.2)';
+    g.lineWidth = 1.4;
+    for (const [aId, bId] of secondaryLinks) {
+      const ra = regionsById.get(aId);
+      const rb = regionsById.get(bId);
+      if (!ra || !rb) continue;
+      const p1 = toScreen(ra.x, ra.y);
+      const p2 = toScreen(rb.x, rb.y);
+      g.beginPath();
+      g.moveTo(p1.x, p1.y);
+      g.lineTo(p2.x, p2.y);
+      g.stroke();
+    }
+    g.restore();
+
+    // 2. Interconnected cavern story routes with dark halo so unlocked vs locked routes read crisply
     const story = ensureStoryState(state);
     const activeChapter = STORY_CHAPTERS_BY_ID[story.currentChapterId];
     for (const route of Object.values(STORY_ROUTES)) {
       const fromSc = STORY_SCENARIOS[route.fromScenarioId];
       const toSc = STORY_SCENARIOS[route.toScenarioId];
       if (!fromSc || !toSc) continue;
-      const x1 = (fromSc.worldAnchor.x / WORLD_W) * w;
-      const y1 = (fromSc.worldAnchor.y / WORLD_H) * h;
-      const x2 = (toSc.worldAnchor.x / WORLD_W) * w;
-      const y2 = (toSc.worldAnchor.y / WORLD_H) * h;
+      const p1 = toScreen(fromSc.worldAnchor.x, fromSc.worldAnchor.y);
+      const p2 = toScreen(toSc.worldAnchor.x, toSc.worldAnchor.y);
       const access = canAccessRoute(state, route.id);
       g.save();
       g.beginPath();
-      g.strokeStyle = 'rgba(4, 10, 18, 0.72)';
+      g.strokeStyle = 'rgba(4, 10, 18, 0.75)';
       g.lineWidth = access.allowed ? 4.4 : 2.8;
-      g.moveTo(x1, y1);
-      g.lineTo(x2, y2);
+      g.moveTo(p1.x, p1.y);
+      g.lineTo(p2.x, p2.y);
       g.stroke();
 
       g.beginPath();
@@ -1113,8 +1236,8 @@ export class WorldRenderer {
         g.strokeStyle = 'rgba(94, 234, 212, 0.85)';
         g.lineWidth = 2.3;
       }
-      g.moveTo(x1, y1);
-      g.lineTo(x2, y2);
+      g.moveTo(p1.x, p1.y);
+      g.lineTo(p2.x, p2.y);
       g.stroke();
       g.restore();
     }
@@ -1122,20 +1245,20 @@ export class WorldRenderer {
     // 3. Discovered POIs only (undiscovered chambers/ruins stay hidden until explored)
     if (state.discoveredPOIs) {
       for (const poi of state.discoveredPOIs) {
-        const px = (poi.x / WORLD_W) * w;
-        const py = (poi.y / WORLD_H) * h;
+        const pt = toScreen(poi.x, poi.y);
+        if (pt.x < -8 || pt.y < -8 || pt.x > w + 8 || pt.y > h + 8) continue;
         g.fillStyle = poi.kind === 'crystal_chamber' ? '#38bdf8' : poi.kind === 'ancient_ruins' ? '#c084fc' : '#2dd4bf';
-        g.fillRect(px - 2.5, py - 2.5, 5, 5);
+        g.fillRect(pt.x - 2.5, pt.y - 2.5, 5, 5);
       }
     }
 
     // 4. Discovered hidden shrines ONLY (never reveal undiscovered secrets prematurely)
     for (const sec of HIDDEN_DISCOVERIES) {
       if (!sec.worldCoords || !state.discoveredSecrets?.includes(sec.id)) continue;
-      const sxSec = (sec.worldCoords.x / WORLD_W) * w;
-      const sySec = (sec.worldCoords.y / WORLD_H) * h;
+      const pt = toScreen(sec.worldCoords.x, sec.worldCoords.y);
+      if (pt.x < -12 || pt.y < -12 || pt.x > w + 12 || pt.y > h + 12) continue;
       g.save();
-      g.translate(sxSec, sySec);
+      g.translate(pt.x, pt.y);
       g.rotate(Math.PI / 4);
       g.fillStyle = '#c084fc';
       g.fillRect(-3, -3, 6, 6);
@@ -1155,70 +1278,165 @@ export class WorldRenderer {
       g.fillText(txt, lx, ly);
     };
 
-    // 5. Story Scenario nodes (visited / accessible / locked + active chapter objective)
-    for (const sc of Object.values(STORY_SCENARIOS)) {
-      const mx = (sc.worldAnchor.x / WORLD_W) * w;
-      const my = (sc.worldAnchor.y / WORLD_H) * h;
-      const isRefugio = sc.id === 'esc_refugio_shane';
-      const isCurrent = story.currentScenarioId === sc.id;
-      const isVisited = story.visitedScenarioIds.includes(sc.id);
-      const isUnlocked = story.unlockedScenarioIds.includes(sc.id);
-      const isObjective = activeChapter?.scenarioIds.includes(sc.id);
+    // 4.5 WORLD_REGIONS Nodes (Settlements, Dungeons, Enemy Bases & Explored Landmarks)
+    for (const reg of WORLD_REGIONS) {
+      if (filterKind !== 'all' && reg.kind !== filterKind) continue;
+      const pt = toScreen(reg.x, reg.y);
+      if (pt.x < -16 || pt.y < -16 || pt.x > w + 16 || pt.y > h + 16) continue;
+      const cx = Math.floor(reg.x / 16);
+      const cy = Math.floor(reg.y / 16);
+      const chunkExplored = Boolean(state.exploredChunks[`${cx},${cy}`]);
+      const isSelected = selectedRegionId === reg.id;
 
-      if (isObjective) {
-        g.strokeStyle = '#fbbf24';
-        g.lineWidth = 1.8;
+      // Keep story scenario anchors clean from double-markers unless filtered specifically
+      if (reg.scenarioId && filterKind === 'all' && !isSelected) continue;
+
+      if (isSelected) {
+        g.strokeStyle = '#facc15';
+        g.lineWidth = 2;
         g.beginPath();
-        g.arc(mx, my, isRefugio ? 9.5 : 8, 0, Math.PI * 2);
+        g.arc(pt.x, pt.y, 10, 0, Math.PI * 2);
         g.stroke();
       }
 
-      if (isRefugio) {
-        g.fillStyle = '#fde047';
-        g.beginPath();
-        g.arc(mx, my, 5.5, 0, Math.PI * 2);
-        g.fill();
+      if (reg.kind === 'settlement') {
+        // Warm amber house icon (using only stub-safe moveTo/lineTo/fill/stroke)
+        g.fillStyle = '#fbbf24';
         g.strokeStyle = '#060c14';
-        g.lineWidth = 1.3;
-        g.stroke();
-        g.font = 'bold 11px sans-serif';
-        drawLabel('Refugio', mx - 9, my + 4, '#fef08a', 'right');
-      } else {
-        g.fillStyle = isCurrent
-          ? '#38bdf8'
-          : isVisited
-          ? '#2dd4bf'
-          : isUnlocked
-          ? '#fbbf24'
-          : '#475569';
+        g.lineWidth = 1.1;
         g.beginPath();
-        g.arc(mx, my, 4.4, 0, Math.PI * 2);
+        g.moveTo(pt.x, pt.y - 5.5);
+        g.lineTo(pt.x + 5, pt.y - 0.5);
+        g.lineTo(pt.x + 3.5, pt.y - 0.5);
+        g.lineTo(pt.x + 3.5, pt.y + 4.5);
+        g.lineTo(pt.x - 3.5, pt.y + 4.5);
+        g.lineTo(pt.x - 3.5, pt.y - 0.5);
+        g.lineTo(pt.x - 5, pt.y - 0.5);
+        g.lineTo(pt.x, pt.y - 5.5);
         g.fill();
-        g.strokeStyle = '#060c14';
-        g.lineWidth = 1.2;
         g.stroke();
+      } else if (reg.kind === 'dungeon') {
+        // Violet/cyan temple arch diamond
+        g.fillStyle = '#c084fc';
+        g.strokeStyle = '#060c14';
+        g.lineWidth = 1.1;
+        g.beginPath();
+        g.moveTo(pt.x, pt.y - 5.5);
+        g.lineTo(pt.x + 5, pt.y);
+        g.lineTo(pt.x, pt.y + 5.5);
+        g.lineTo(pt.x - 5, pt.y);
+        g.lineTo(pt.x, pt.y - 5.5);
+        g.fill();
+        g.stroke();
+      } else if (reg.kind === 'enemy_base') {
+        // Crimson fortified turret diamond
+        g.fillStyle = '#ef4444';
+        g.strokeStyle = '#060c14';
+        g.lineWidth = 1.1;
+        g.beginPath();
+        g.moveTo(pt.x - 4, pt.y - 4.5);
+        g.lineTo(pt.x + 4, pt.y - 4.5);
+        g.lineTo(pt.x + 4, pt.y + 4.5);
+        g.lineTo(pt.x - 4, pt.y + 4.5);
+        g.lineTo(pt.x - 4, pt.y - 4.5);
+        g.fill();
+        g.stroke();
+      } else if (chunkExplored || zoom >= 1.3 || filterKind === 'landmark' || isSelected) {
+        g.fillStyle = chunkExplored ? '#5eead4' : 'rgba(148, 163, 184, 0.55)';
+        g.beginPath();
+        g.arc(pt.x, pt.y, isSelected ? 3.6 : 2.3, 0, Math.PI * 2);
+        g.fill();
+      }
 
-        const alignRight =
-          mx > w * 0.65 ||
-          sc.id === 'esc_caverna_descenso' ||
-          sc.id === 'esc_caverna_magma';
-        const tx = alignRight ? mx - 7 : mx + 7;
-        g.font = 'bold 9.5px sans-serif';
-        const shortLabel = isUnlocked || isVisited ? sc.name : `🔒 ${sc.name}`;
-        const labelOffsetY =
-          sc.id === 'esc_templo_cristalino'
-            ? my - 10
-            : sc.id === 'esc_puesto_agua_oscura' || sc.id === 'esc_pueblo_valle_verde'
-            ? my - 8
-            : my - 7;
-        drawLabel(shortLabel, tx, labelOffsetY, isUnlocked || isVisited ? '#f1f5f9' : '#94a3b8', alignRight ? 'right' : 'left');
+      const showRegionLabel =
+        isSelected ||
+        (!reg.scenarioId &&
+          ((reg.kind !== 'landmark' && (zoom >= 1.32 || filterKind === reg.kind)) ||
+            (reg.kind === 'landmark' && (zoom >= 1.75 || filterKind === 'landmark'))));
+      if (showRegionLabel) {
+        const alignRight = pt.x > w * 0.68;
+        g.font = 'bold 9px sans-serif';
+        const lblColor =
+          reg.kind === 'settlement'
+            ? '#fde68a'
+            : reg.kind === 'dungeon'
+            ? '#e9d5ff'
+            : reg.kind === 'enemy_base'
+            ? '#fca5a5'
+            : '#99f6e4';
+        drawLabel(reg.name, alignRight ? pt.x - 7 : pt.x + 7, pt.y + 3, lblColor, alignRight ? 'right' : 'left');
+      }
+    }
+
+    // 5. Story Scenario nodes (visited / accessible / locked + active chapter objective)
+    if (filterKind === 'all') {
+      for (const sc of Object.values(STORY_SCENARIOS)) {
+        const pt = toScreen(sc.worldAnchor.x, sc.worldAnchor.y);
+        const mx = pt.x;
+        const my = pt.y;
+        const isRefugio = sc.id === 'esc_refugio_shane';
+        const isCurrent = story.currentScenarioId === sc.id;
+        const isSelectedSc = selectedScenarioId === sc.id;
+        const isVisited = story.visitedScenarioIds.includes(sc.id);
+        const isUnlocked = story.unlockedScenarioIds.includes(sc.id);
+        const isObjective = activeChapter?.scenarioIds.includes(sc.id);
+
+        if (isObjective || isSelectedSc) {
+          g.strokeStyle = isSelectedSc ? '#67e8f9' : '#fbbf24';
+          g.lineWidth = 1.8;
+          g.beginPath();
+          g.arc(mx, my, isRefugio ? 9.5 : 8, 0, Math.PI * 2);
+          g.stroke();
+        }
+
+        if (isRefugio) {
+          g.fillStyle = '#fde047';
+          g.beginPath();
+          g.arc(mx, my, 5.5, 0, Math.PI * 2);
+          g.fill();
+          g.strokeStyle = '#060c14';
+          g.lineWidth = 1.3;
+          g.stroke();
+          g.font = 'bold 11px sans-serif';
+          drawLabel('Refugio', mx - 9, my + 4, '#fef08a', 'right');
+        } else {
+          g.fillStyle = isCurrent
+            ? '#38bdf8'
+            : isVisited
+            ? '#2dd4bf'
+            : isUnlocked
+            ? '#fbbf24'
+            : '#475569';
+          g.beginPath();
+          g.arc(mx, my, 4.4, 0, Math.PI * 2);
+          g.fill();
+          g.strokeStyle = '#060c14';
+          g.lineWidth = 1.2;
+          g.stroke();
+
+          const alignRight =
+            mx > w * 0.65 ||
+            sc.id === 'esc_caverna_descenso' ||
+            sc.id === 'esc_caverna_magma';
+          const tx = alignRight ? mx - 7 : mx + 7;
+          g.font = 'bold 9.5px sans-serif';
+          const shortLabel = isUnlocked || isVisited ? sc.name : `🔒 ${sc.name}`;
+          const labelOffsetY =
+            sc.id === 'esc_templo_cristalino'
+              ? my - 10
+              : sc.id === 'esc_puesto_agua_oscura' || sc.id === 'esc_pueblo_valle_verde'
+              ? my - 8
+              : my - 7;
+          drawLabel(shortLabel, tx, labelOffsetY, isUnlocked || isVisited ? '#f1f5f9' : '#94a3b8', alignRight ? 'right' : 'left');
+        }
       }
     }
 
     // 6. Bosses (placed below node marker so scenario titles above never collide)
     for (const boss of BOSS_DEFINITIONS) {
-      const bx = (boss.x / WORLD_W) * w;
-      const by = (boss.y / WORLD_H) * h;
+      const pt = toScreen(boss.x, boss.y);
+      const bx = pt.x;
+      const by = pt.y;
       const defeated = state.defeatedBosses.includes(boss.id);
       const alignRight = bx > w * 0.65 || boss.id === 'boss_crystal';
       const tx = alignRight ? bx - 7 : bx + 7;
@@ -1238,21 +1456,127 @@ export class WorldRenderer {
     g.textAlign = 'left';
 
     // 7. Player marker
-    const px = (state.player.x / WORLD_W) * w;
-    const py = (state.player.y / WORLD_H) * h;
+    const playerPt = toScreen(state.player.x, state.player.y);
     g.strokeStyle = 'rgba(56, 189, 248, 0.55)';
     g.lineWidth = 2;
     g.beginPath();
-    g.arc(px, py, 9, 0, Math.PI * 2);
+    g.arc(playerPt.x, playerPt.y, 9, 0, Math.PI * 2);
     g.stroke();
 
     g.fillStyle = '#38bdf8';
     g.strokeStyle = '#ffffff';
     g.lineWidth = 2;
     g.beginPath();
-    g.arc(px, py, 5.2, 0, Math.PI * 2);
+    g.arc(playerPt.x, playerPt.y, 5.2, 0, Math.PI * 2);
     g.fill();
     g.stroke();
+
+    // 8. Subtle Compass Rose in top-left corner
+    g.fillStyle = 'rgba(5, 11, 19, 0.72)';
+    g.fillRect(6, 6, 26, 26);
+    g.strokeStyle = 'rgba(94, 234, 212, 0.4)';
+    g.lineWidth = 1;
+    g.strokeRect(6, 6, 26, 26);
+    g.font = 'bold 9px sans-serif';
+    g.textAlign = 'left';
+    g.fillStyle = '#5eead4';
+    g.fillText('N', 16, 17);
+    g.fillStyle = '#94a3b8';
+    g.fillText('O', 9, 27);
+    g.fillText('E', 22, 27);
+  }
+
+  public hitTestWorldMapNode(
+    w: number,
+    h: number,
+    clickX: number,
+    clickY: number,
+    state: GameState,
+    options?: FullWorldMapRenderOptions
+  ): WorldMapHitTarget | null {
+    const zoom = Math.max(1, Math.min(3.5, options?.zoom ?? 1));
+    const panX = options?.panX ?? 0;
+    const panY = options?.panY ?? 0;
+    const filterKind = options?.filterKind ?? 'all';
+    const toScreen = (wx: number, wy: number) => {
+      const bx = (wx / WORLD_W) * w;
+      const by = (wy / WORLD_H) * h;
+      return {
+        x: (bx - w / 2) * zoom + w / 2 + panX,
+        y: (by - h / 2) * zoom + h / 2 + panY,
+      };
+    };
+
+    let best: { dist: number; target: WorldMapHitTarget } | null = null;
+    const consider = (dist: number, target: WorldMapHitTarget) => {
+      if (dist <= 16 && (!best || dist < best.dist)) {
+        best = { dist, target };
+      }
+    };
+
+    // Priority 1: Story Scenarios (when shown)
+    if (filterKind === 'all') {
+      for (const sc of Object.values(STORY_SCENARIOS)) {
+        const pt = toScreen(sc.worldAnchor.x, sc.worldAnchor.y);
+        const d = Math.hypot(pt.x - clickX, pt.y - clickY);
+        const matchingRegion = WORLD_REGIONS.find((r) => r.scenarioId === sc.id);
+        consider(d, {
+          kind: 'scenario',
+          id: sc.id,
+          name: sc.name,
+          scenarioId: sc.id,
+          regionId: matchingRegion?.id,
+          worldX: sc.worldAnchor.x,
+          worldY: sc.worldAnchor.y,
+        });
+      }
+    }
+
+    // Priority 2: WORLD_REGIONS nodes matching active filter
+    for (const reg of WORLD_REGIONS) {
+      if (filterKind !== 'all' && reg.kind !== filterKind) continue;
+      const pt = toScreen(reg.x, reg.y);
+      const d = Math.hypot(pt.x - clickX, pt.y - clickY);
+      consider(d, {
+        kind: 'region',
+        id: reg.id,
+        name: reg.name,
+        scenarioId: reg.scenarioId,
+        regionId: reg.id,
+        worldX: reg.x,
+        worldY: reg.y,
+      });
+    }
+
+    // Priority 3: Discovered secrets
+    for (const sec of HIDDEN_DISCOVERIES) {
+      if (!sec.worldCoords || !state.discoveredSecrets?.includes(sec.id)) continue;
+      const pt = toScreen(sec.worldCoords.x, sec.worldCoords.y);
+      const d = Math.hypot(pt.x - clickX, pt.y - clickY);
+      consider(d, {
+        kind: 'secret',
+        id: sec.id,
+        name: sec.title,
+        scenarioId: sec.scenarioId,
+        worldX: sec.worldCoords.x,
+        worldY: sec.worldCoords.y,
+      });
+    }
+
+    // Priority 4: Bosses
+    for (const boss of BOSS_DEFINITIONS) {
+      const pt = toScreen(boss.x, boss.y);
+      const d = Math.hypot(pt.x - clickX, pt.y - clickY);
+      consider(d, {
+        kind: 'boss',
+        id: boss.id,
+        name: boss.name,
+        worldX: boss.x,
+        worldY: boss.y,
+      });
+    }
+
+    return best ? (best as { dist: number; target: WorldMapHitTarget }).target : null;
   }
 
   private drawSpeciesWorldMicroVfx(

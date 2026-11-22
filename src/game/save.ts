@@ -112,7 +112,7 @@ const VALID_STAT_KEYS = new Set<string>([
   'megaUnlocked',
   'steps',
 ]);
-const MAX_TILE_ID = TileType.CRYSTAL_SPIRE;
+const MAX_TILE_ID = TileType.CAMPFIRE;
 const MAX_CHUNK_X = Math.ceil(WORLD_W / CHUNK_SIZE);
 const MAX_CHUNK_Y = Math.ceil(WORLD_H / CHUNK_SIZE);
 const IDB_TIMEOUT_MS = 4500;

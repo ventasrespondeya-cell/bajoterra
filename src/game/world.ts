@@ -89,6 +89,225 @@ export function getChunkStructureMeta(cx: number, cy: number, seed = 74192): Chu
   return { id, name: 'Cámara de Cristales', kind: 'crystal_chamber', biome, cx, cy, centerX, centerY, hasGuardian: true };
 }
 
+export type WorldRegionKind = 'settlement' | 'dungeon' | 'enemy_base' | 'landmark';
+
+export interface WorldRegionDef {
+  id: string;
+  name: string;
+  kind: WorldRegionKind;
+  biome: BiomeId;
+  x: number;
+  y: number;
+  radius: number;
+  description: string;
+  scenarioId?: string;
+}
+
+export const WORLD_REGIONS: WorldRegionDef[] = [
+  // ---- 5 ASENTAMIENTOS ----
+  {
+    id: 'reg_refugio_shane',
+    name: 'Refugio Shane',
+    kind: 'settlement',
+    biome: 'Verdes',
+    x: 160,
+    y: 160,
+    radius: 12,
+    description: 'Base familiar de Eli Shane con hábitats vivos, estación de recarga y pasarela al valle.',
+    scenarioId: 'esc_refugio_shane',
+  },
+  {
+    id: 'reg_valle_verde',
+    name: 'Puesto del Valle Verde',
+    kind: 'settlement',
+    biome: 'Verdes',
+    x: 185,
+    y: 160,
+    radius: 11,
+    description: 'Asentamiento comercial de adoquín donde se reúnen Kord, Trixie y los viajeros.',
+    scenarioId: 'esc_pueblo_valle_verde',
+  },
+  {
+    id: 'reg_marea_azul',
+    name: 'Aldea Marea Azul',
+    kind: 'settlement',
+    biome: 'Acuaticas',
+    x: 242,
+    y: 206,
+    radius: 11,
+    description: 'Poblado palafítico junto a lagunas luminosas conectado por puentes colgantes.',
+  },
+  {
+    id: 'reg_camp_termal',
+    name: 'Campamento Termal Trol',
+    kind: 'settlement',
+    biome: 'Magma',
+    x: 134,
+    y: 234,
+    radius: 11,
+    description: 'Campamento fortificado con hogueras y pilares de basalto antes de la gran fragua.',
+  },
+  {
+    id: 'reg_vigia_prisma',
+    name: 'Vigía del Cuarto Prisma',
+    kind: 'settlement',
+    biome: 'Cristalinas',
+    x: 104,
+    y: 88,
+    radius: 10,
+    description: 'Puesto avanzado cristalino elevado sobre acantilados de cuarzo resonante.',
+  },
+
+  // ---- 6 MAZMORRAS / TEMPLOS / RUINAS PRINCIPALES ----
+  {
+    id: 'reg_santuario_musgo',
+    name: 'Santuario de Musgo Antiguo',
+    kind: 'dungeon',
+    biome: 'Verdes',
+    x: 132,
+    y: 178,
+    radius: 10,
+    description: 'Ruinas cubiertas de hiedra luminosa y pilares grabados al suroeste del refugio.',
+  },
+  {
+    id: 'reg_ruinas_cascada',
+    name: 'Ruinas Sumergidas de la Cascada',
+    kind: 'dungeon',
+    biome: 'Acuaticas',
+    x: 250,
+    y: 232,
+    radius: 12,
+    description: 'Templo rodeado de cascadas cian brillantes donde habita el Leviatán Abisal.',
+    scenarioId: 'esc_gruta_acuatica',
+  },
+  {
+    id: 'reg_catacumba_glacial',
+    name: 'Catacumba del Santuario Helado',
+    kind: 'dungeon',
+    biome: 'Heladas',
+    x: 42,
+    y: 162,
+    radius: 12,
+    description: 'Cámara milenaria de hielo y cristal custodiada por la Reina Glaciomita.',
+    scenarioId: 'esc_caverna_helada',
+  },
+  {
+    id: 'reg_fragua_magma',
+    name: 'Forja de Cavernas de Magma',
+    kind: 'dungeon',
+    biome: 'Magma',
+    x: 162,
+    y: 252,
+    radius: 12,
+    description: 'Antigua fragua subterránea rodeada de magma y vigilada por el Titán Piroclasto.',
+    scenarioId: 'esc_forja_magma',
+  },
+  {
+    id: 'reg_templo_cuarzo',
+    name: 'Templo de Cuarzo Resonante',
+    kind: 'dungeon',
+    biome: 'Cristalinas',
+    x: 78,
+    y: 66,
+    radius: 12,
+    description: 'Santuario sagrado de cristal donde resuena el eco de Will Shane y el Oráculo Prisma.',
+    scenarioId: 'esc_templo_cristalino',
+  },
+  {
+    id: 'reg_galeria_ecos',
+    name: 'Galería de Ecos Antiguos',
+    kind: 'dungeon',
+    biome: 'Sombrias',
+    x: 230,
+    y: 82,
+    radius: 11,
+    description: 'Corredor ceremonial oscuro iluminado por hongos neón y obeliscos de sombra.',
+  },
+
+  // ---- 5 BASES E INSTALACIONES ENEMIGAS ----
+  {
+    id: 'reg_puesto_contrabando',
+    name: 'Puesto de Contrabando Oscuro',
+    kind: 'enemy_base',
+    biome: 'Verdes',
+    x: 196,
+    y: 136,
+    radius: 10,
+    description: 'Fortín clandestino controlado por Garfio Rojo y traficantes de babosas malvadas.',
+    scenarioId: 'esc_puesto_agua_oscura',
+  },
+  {
+    id: 'reg_muelle_oscuro',
+    name: 'Muelle de Agua Oscura',
+    kind: 'enemy_base',
+    biome: 'Acuaticas',
+    x: 270,
+    y: 212,
+    radius: 10,
+    description: 'Dique de carga donde Blakk Industries embarca contenedores corruptos.',
+  },
+  {
+    id: 'reg_planta_termica',
+    name: 'Cámara del Acelerador 200 MPH',
+    kind: 'enemy_base',
+    biome: 'Magma',
+    x: 196,
+    y: 248,
+    radius: 11,
+    description: 'Complejo de ingeniería térmica conectado por puentes sobre la lava.',
+    scenarioId: 'esc_taller_acelerador',
+  },
+  {
+    id: 'reg_torre_voltaica',
+    name: 'Torre de Bloqueo Voltaico',
+    kind: 'enemy_base',
+    biome: 'Cristalinas',
+    x: 56,
+    y: 98,
+    radius: 10,
+    description: 'Emplazamiento de mercenarios que drenan la energía de las agujas de cuarzo.',
+  },
+  {
+    id: 'reg_bastion_sombrio',
+    name: 'Bastión de las Cavernas Sombrías',
+    kind: 'enemy_base',
+    biome: 'Sombrias',
+    x: 276,
+    y: 54,
+    radius: 13,
+    description: 'Cuartel principal del Dr. Blakk protegido por murallas y puentes sobre abismos.',
+    scenarioId: 'esc_bastion_sombrio',
+  },
+
+  // ---- 26 PUNTOS DE REFERENCIA, PUENTES, CASCADAS Y MIRADORES ----
+  { id: 'reg_caverna_descenso', name: 'Caverna del Descenso', kind: 'landmark', biome: 'Verdes', x: 160, y: 140, radius: 9, description: 'Punto de caída desde la superficie hacia las 99 Cavernas.', scenarioId: 'esc_caverna_descenso' },
+  { id: 'reg_puente_abismo_verde', name: 'Puente Colgante del Abismo', kind: 'landmark', biome: 'Verdes', x: 160, y: 120, radius: 7, description: 'Pasarela de cuerdas suspendida sobre una profunda grieta verdosa.' },
+  { id: 'reg_arboleda_esporas', name: 'Arboleda Bioluminiscente', kind: 'landmark', biome: 'Verdes', x: 140, y: 124, radius: 8, description: 'Bosquecillo de hongos gigantes cian y esporas flotantes.' },
+  { id: 'reg_mirador_musgo', name: 'Mirador del Valle Sur', kind: 'landmark', biome: 'Verdes', x: 178, y: 184, radius: 8, description: 'Acantilado elevado con hoguera de orientación hacia las grutas acuáticas.' },
+  { id: 'reg_paso_rio', name: 'Paso del Río Subterráneo', kind: 'landmark', biome: 'Verdes', x: 212, y: 186, radius: 7, description: 'Puente de madera sobre corrientes que descienden hacia Marea Azul.' },
+  { id: 'reg_puente_marea', name: 'Puente de Marea Alta', kind: 'landmark', biome: 'Acuaticas', x: 226, y: 224, radius: 7, description: 'Cruza las lagunas profundas de caverna en dirección a las ruinas.' },
+  { id: 'reg_catarata_luminosa', name: 'Catarata Luminosa', kind: 'landmark', biome: 'Acuaticas', x: 264, y: 244, radius: 8, description: 'Caída de agua resplandeciente con bruma continua.' },
+  { id: 'reg_laguna_perlas', name: 'Laguna de Cristal Líquido', kind: 'landmark', biome: 'Acuaticas', x: 278, y: 258, radius: 8, description: 'Remanso tranquilo rico en minerales azules y babosas de agua.' },
+  { id: 'reg_bahia_kelp', name: 'Bahía de Algas Gigantes', kind: 'landmark', biome: 'Acuaticas', x: 228, y: 254, radius: 8, description: 'Orilla cubierta de vegetación acuática fluorescente.' },
+  { id: 'reg_puente_deshielo', name: 'Puente del Deshielo', kind: 'landmark', biome: 'Heladas', x: 84, y: 160, radius: 7, description: 'Puente de madera tensada sobre la sima helada occidental.' },
+  { id: 'reg_garganta_escarcha', name: 'Garganta de Escarcha', kind: 'landmark', biome: 'Heladas', x: 64, y: 176, radius: 8, description: 'Paso escarpado flanqueado por bloques y cristales glaciales.' },
+  { id: 'reg_lago_espejo', name: 'Lago Espejo Helado', kind: 'landmark', biome: 'Heladas', x: 34, y: 138, radius: 9, description: 'Superficie congelada reflectante bajo columnas de hielo.' },
+  { id: 'reg_escalinata_norte', name: 'Escalinata del Ventisquero', kind: 'landmark', biome: 'Heladas', x: 54, y: 130, radius: 7, description: 'Tramo de escaleras antiguas que ascienden hacia las Cavernas Cristalinas.' },
+  { id: 'reg_calzada_basalto', name: 'Calzada de Basalto Hexagonal', kind: 'landmark', biome: 'Magma', x: 160, y: 214, radius: 8, description: 'Sendero de columnas volcánicas que cruza el umbral ardiente.' },
+  { id: 'reg_puente_grieta', name: 'Puente sobre la Grieta Ígnea', kind: 'landmark', biome: 'Magma', x: 178, y: 232, radius: 7, description: 'Pasarela colgante reforzada sobre un canal de lava activa.' },
+  { id: 'reg_caldera_obsidiana', name: 'Caldera de Obsidiana', kind: 'landmark', biome: 'Magma', x: 140, y: 266, radius: 9, description: 'Cráter humeante rico en cobre térmico y carbón de magma.' },
+  { id: 'reg_rio_escoria', name: 'Mirador del Río de Escoria', kind: 'landmark', biome: 'Magma', x: 192, y: 268, radius: 8, description: 'Plataforma rocosa sobre los lagos incandescentes del sur.' },
+  { id: 'reg_sendero_agujas', name: 'Sendero de Agujas Azules', kind: 'landmark', biome: 'Cristalinas', x: 108, y: 108, radius: 8, description: 'Avenida flanqueada por espiras de cuarzo luminoso.' },
+  { id: 'reg_puente_cuarzo', name: 'Puente del Precipicio Cuarzo', kind: 'landmark', biome: 'Cristalinas', x: 92, y: 86, radius: 7, description: 'Conecta la Vigía del Prisma con las escaleras hacia el templo.' },
+  { id: 'reg_anfiteatro_resonante', name: 'Anfiteatro Resonante', kind: 'landmark', biome: 'Cristalinas', x: 64, y: 74, radius: 8, description: 'Cavidad acústica natural usada para entrenar velocidad 200 MPH.' },
+  { id: 'reg_invernadero_neon', name: 'Jardín de Hongos Neón', kind: 'landmark', biome: 'Cristalinas', x: 96, y: 52, radius: 8, description: 'Gruta húmeda donde florecen hongos bioluminiscentes violetas.' },
+  { id: 'reg_sima_lamentos', name: 'Sima de los Lamentos', kind: 'landmark', biome: 'Sombrias', x: 216, y: 98, radius: 8, description: 'Borde de un profundo abismo envuelto en neblina violeta.' },
+  { id: 'reg_puente_negro', name: 'Puente de Piedra Negra', kind: 'landmark', biome: 'Sombrias', x: 246, y: 68, radius: 7, description: 'Acceso angosto hacia el Bastión del Comandante Blakk.' },
+  { id: 'reg_paramo_maldito', name: 'Páramo de Cristales Malditos', kind: 'landmark', biome: 'Sombrias', x: 254, y: 92, radius: 9, description: 'Llanura corrupta saturada de minerales oscuros.' },
+  { id: 'reg_acantilado_eclipse', name: 'Acantilado del Eclipse', kind: 'landmark', biome: 'Sombrias', x: 288, y: 80, radius: 8, description: 'Balcón rocoso orientado hacia el santuario abisal oriental.' },
+  { id: 'reg_gran_falla', name: 'Cruce de la Gran Falla', kind: 'landmark', biome: 'Sombrias', x: 196, y: 96, radius: 8, description: 'Intersección entre el norte de Cuevas Verdes y la frontera sombría.' },
+];
+
 export function isTileSolid(tile: TileType): boolean {
   return (
     tile === TileType.ROCK ||
@@ -113,7 +332,11 @@ export function isTileSolid(tile: TileType): boolean {
     tile === TileType.VOLCANIC_ROCK ||
     tile === TileType.EVO_STONE_VEIN ||
     tile === TileType.WATERFALL ||
-    tile === TileType.CRYSTAL_SPIRE
+    tile === TileType.CRYSTAL_SPIRE ||
+    tile === TileType.CHASM ||
+    tile === TileType.RUIN_PILLAR ||
+    tile === TileType.BASALT_COLUMN ||
+    tile === TileType.CAMPFIRE
   );
 }
 
@@ -128,15 +351,15 @@ export function getTileLabel(tile: TileType): string {
     case TileType.WATER:
       return 'Lago subterráneo';
     case TileType.ROCK:
-      return 'Roca sólida';
+      return 'Acantilado / Roca';
     case TileType.WOOD_PILLAR:
-      return 'Pilar de raíces';
+      return 'Pilar de madera y raíces';
     case TileType.MUSHROOM:
-      return 'Hongo luminoso';
+      return 'Racimo de hongos luminosos';
     case TileType.ORE:
       return 'Veta de mineral';
     case TileType.CRACKED_WALL:
-      return 'Muro agrietado';
+      return 'Muro agrietado secreto';
     case TileType.LAVA:
       return 'Río de lava';
     case TileType.ICE:
@@ -144,15 +367,15 @@ export function getTileLabel(tile: TileType): string {
     case TileType.SHADOW_CRYSTAL:
       return 'Cristal sombrío';
     case TileType.WALL:
-      return 'Pared de refugio';
+      return 'Muralla de madera y piedra';
     case TileType.BUILT_FLOOR:
-      return 'Suelo de refugio';
+      return 'Suelo de madera tratada';
     case TileType.RECHARGE_STATION:
       return 'Estación de recarga';
     case TileType.ENERGY_CRYSTAL:
       return 'Cristal de energía';
     case TileType.TORCH:
-      return 'Antorcha';
+      return 'Antorcha de caverna';
     case TileType.DOOR_CLOSED:
       return 'Puerta cerrada';
     case TileType.DOOR_OPEN:
@@ -162,11 +385,11 @@ export function getTileLabel(tile: TileType): string {
     case TileType.CHEST_OPEN:
       return 'Cofre abierto';
     case TileType.ALTAR:
-      return 'Altar antiguo';
+      return 'Altar rúnico antiguo';
     case TileType.ICE_FLOOR:
       return 'Suelo helado';
     case TileType.ANCIENT_BRICK:
-      return 'Ruina antigua';
+      return 'Muro de ruinas antiguas';
     case TileType.MAGMA_COAL:
       return 'Carbón de magma';
     case TileType.THERMAL_COPPER:
@@ -182,13 +405,27 @@ export function getTileLabel(tile: TileType): string {
     case TileType.KELP:
       return 'Algas subterráneas';
     case TileType.VOLCANIC_ROCK:
-      return 'Roca volcánica';
+      return 'Acantilado volcánico';
     case TileType.EVO_STONE_VEIN:
       return 'Veta de Piedra Evolutiva';
     case TileType.WATERFALL:
       return 'Cascada subterránea';
     case TileType.CRYSTAL_SPIRE:
       return 'Aguja cristalina';
+    case TileType.CHASM:
+      return 'Abismo subterráneo';
+    case TileType.ROPE_BRIDGE:
+      return 'Puente colgante de madera';
+    case TileType.WOOD_STAIRS:
+      return 'Escalera de madera';
+    case TileType.COBBLESTONE:
+      return 'Calzada de adoquín';
+    case TileType.RUIN_PILLAR:
+      return 'Pilar de ruina antigua';
+    case TileType.BASALT_COLUMN:
+      return 'Columna de basalto';
+    case TileType.CAMPFIRE:
+      return 'Hoguera de campamento';
     default:
       return 'Terreno';
   }
@@ -344,29 +581,48 @@ export class ChunkManager {
       return TileType.ROCK;
     }
 
-    // Main cardinal arteries + two ring tunnels so all 4 biomes & outer routes stay reliably connected
     const dx = x - SPAWN_X;
     const dy = y - SPAWN_Y;
     const dist = Math.hypot(dx, dy);
-    const onHorizontalRoad = Math.abs(dy) <= 1;
-    const onVerticalRoad = Math.abs(dx) <= 1;
-    const onInnerRing = Math.abs(dist - 72) <= 1.2;
-    const onOuterRing = Math.abs(dist - 118) <= 1.2;
-    if (onHorizontalRoad || onVerticalRoad || onInnerRing || onOuterRing) {
-      if (hash2D(x, y, this.worldSeed + 41) < 0.03) return TileType.MUSHROOM;
-      return TileType.FLOOR;
-    }
+    // Natural sinuous curve outside central shelter corridor so roads wind like real cavern galleries
+    const waveX = dist > 26 ? Math.sin(y * 0.085) * 3.2 : 0;
+    const waveY = dist > 26 ? Math.cos(x * 0.085) * 3.2 : 0;
+    const onHorizontalRoad = Math.abs(dy + waveY) <= 1.5;
+    const onVerticalRoad = Math.abs(dx + waveX) <= 1.5;
+    const ringNoise = Math.sin(Math.atan2(dy, dx) * 5) * 3.5;
+    const onInnerRing = Math.abs(dist - (72 + ringNoise)) <= 1.6;
+    const onOuterRing = Math.abs(dist - (118 + ringNoise)) <= 1.6;
 
     const b = getBiomeAt(x, y, this.worldSeed);
     const caveNoise = fbm(x, y, this.worldSeed);
     const lakeNoise = fbm(x + 400, y + 400, this.worldSeed + 313);
+    const chasmBand = smoothNoise(x * 0.045, y * 0.045, this.worldSeed + 881);
     const r = hash2D(x, y, this.worldSeed + 17);
 
-    // Cave walls vs open passages
-    if (caveNoise > 0.67) {
+    // Chasm ravines in deep zones; main arteries cross them via sturdy wooden ROPE_BRIDGEs!
+    const inChasmTrench =
+      dist > 34 &&
+      ((chasmBand > 0.77 && chasmBand < 0.83) ||
+        (Math.abs(dist - 40) <= 1.3 && Math.abs(dx) < 8 && dy < 0) ||
+        (Math.abs(dx + 76) <= 1.4 && Math.abs(dy) < 9));
+
+    if (onHorizontalRoad || onVerticalRoad || onInnerRing || onOuterRing) {
+      if (inChasmTrench) return TileType.ROPE_BRIDGE;
+      if (r < 0.032) return TileType.MUSHROOM;
+      if (r < 0.055 && (onInnerRing || dist < 34)) return TileType.COBBLESTONE;
+      return TileType.FLOOR;
+    }
+
+    if (inChasmTrench && caveNoise < 0.65) {
+      return TileType.CHASM;
+    }
+
+    // Organic cliff walls and mineral formations
+    if (caveNoise > 0.66) {
       if (b === 'Magma') {
         if (r < 0.14) return TileType.MAGMA_COAL;
         if (r < 0.22) return TileType.THERMAL_COPPER;
+        if (r < 0.34) return TileType.BASALT_COLUMN;
         return TileType.VOLCANIC_ROCK;
       }
       if (b === 'Heladas') {
@@ -376,108 +632,109 @@ export class ChunkManager {
         return TileType.ROCK;
       }
       if (b === 'Acuaticas') {
-        if (r < 0.14) return TileType.WATERFALL;
-        if (r < 0.26) return TileType.BLUE_QUARTZ;
-        if (r < 0.34) return TileType.ORE;
+        if (r < 0.16) return TileType.WATERFALL;
+        if (r < 0.28) return TileType.BLUE_QUARTZ;
+        if (r < 0.36) return TileType.ORE;
         return TileType.ROCK;
       }
       if (b === 'Cristalinas') {
-        if (r < 0.22) return TileType.CRYSTAL_SPIRE;
-        if (r < 0.34) return TileType.BLUE_QUARTZ;
-        if (r < 0.44) return TileType.ENERGY_CRYSTAL;
-        if (r < 0.465) return TileType.EVO_STONE_VEIN;
+        if (r < 0.24) return TileType.CRYSTAL_SPIRE;
+        if (r < 0.36) return TileType.BLUE_QUARTZ;
+        if (r < 0.46) return TileType.ENERGY_CRYSTAL;
+        if (r < 0.485) return TileType.EVO_STONE_VEIN;
         return TileType.ROCK;
       }
       if (b === 'Sombrias') {
         if (r < 0.14) return TileType.DARK_IRON;
-        if (r < 0.24) return TileType.SHADOW_CRYSTAL;
-        if (r < 0.252) return TileType.EVO_STONE_VEIN;
+        if (r < 0.25) return TileType.SHADOW_CRYSTAL;
+        if (r < 0.32) return TileType.RUIN_PILLAR;
+        if (r < 0.335) return TileType.EVO_STONE_VEIN;
         return TileType.ROCK;
       }
-      if (r < 0.16) return TileType.ORE;
+      if (r < 0.15) return TileType.ORE;
+      if (r < 0.2) return TileType.RUIN_PILLAR;
       return TileType.ROCK;
     }
 
-    // Underground lakes & lava pools (with navigable shoreline)
+    // Underground lakes, waterfalls & lava rivers
     if (lakeNoise < 0.25) {
       if (b === 'Magma') return TileType.LAVA;
       if (b === 'Heladas') {
         return lakeNoise < 0.15 ? TileType.WATER : TileType.ICE_FLOOR;
       }
       if (b === 'Acuaticas') {
-        if (lakeNoise > 0.222 && r < 0.22) return TileType.WATERFALL;
+        if (lakeNoise > 0.22 && r < 0.24) return TileType.WATERFALL;
         return TileType.WATER;
       }
-      if (b === 'Verdes' && lakeNoise > 0.225 && r < 0.08) return TileType.WATERFALL;
+      if (b === 'Verdes' && lakeNoise > 0.225 && r < 0.09) return TileType.WATERFALL;
       return TileType.WATER;
     }
     if (lakeNoise < 0.29 && (b === 'Verdes' || b === 'Heladas' || b === 'Acuaticas') && r < 0.28) {
       return TileType.KELP;
     }
 
-    // Biome flora, ores & crystals
+    // Lush biome props, glowing mushroom clusters, basalt, ruins & flora
     if (b === 'Verdes') {
-      if (r < 0.036) return TileType.WOOD_PILLAR;
-      if (r < 0.078) return TileType.ORE;
-      if (r < 0.135) return TileType.MUSHROOM;
-      if (r < 0.148) return TileType.ENERGY_CRYSTAL;
+      if (r < 0.032) return TileType.WOOD_PILLAR;
+      if (r < 0.056) return TileType.RUIN_PILLAR;
+      if (r < 0.088) return TileType.ORE;
+      if (r < 0.155) return TileType.MUSHROOM;
+      if (r < 0.168) return TileType.ENERGY_CRYSTAL;
       return TileType.FLOOR;
     }
 
     if (b === 'Acuaticas') {
       if (r < 0.045) return TileType.WATER;
-      if (r < 0.068) return TileType.WATERFALL;
-      if (r < 0.135) return TileType.KELP;
-      if (r < 0.175) return TileType.BLUE_QUARTZ;
-      if (r < 0.205) return TileType.ENERGY_CRYSTAL;
-      if (r < 0.23) return TileType.ORE;
+      if (r < 0.072) return TileType.WATERFALL;
+      if (r < 0.145) return TileType.KELP;
+      if (r < 0.185) return TileType.BLUE_QUARTZ;
+      if (r < 0.215) return TileType.MUSHROOM;
+      if (r < 0.24) return TileType.ORE;
       return TileType.FLOOR;
     }
 
     if (b === 'Magma') {
       if (r < 0.045) return TileType.LAVA;
-      if (r < 0.088) return TileType.MAGMA_COAL;
-      if (r < 0.12) return TileType.THERMAL_COPPER;
-      if (r < 0.155) return TileType.VOLCANIC_ROCK;
-      if (r < 0.175) return TileType.ORE;
-      if (r < 0.188) return TileType.ENERGY_CRYSTAL;
+      if (r < 0.085) return TileType.MAGMA_COAL;
+      if (r < 0.118) return TileType.BASALT_COLUMN;
+      if (r < 0.148) return TileType.THERMAL_COPPER;
+      if (r < 0.175) return TileType.VOLCANIC_ROCK;
+      if (r < 0.19) return TileType.ENERGY_CRYSTAL;
       return TileType.FLOOR;
     }
 
     if (b === 'Heladas') {
       if (r < 0.05) return TileType.ICE;
       if (r < 0.09) return TileType.ICE_CRYSTAL;
-      if (r < 0.122) return TileType.BLUE_QUARTZ;
+      if (r < 0.125) return TileType.BLUE_QUARTZ;
       if (r < 0.155) return TileType.ORE;
-      if (r < 0.28) return TileType.ICE_FLOOR;
-      if (r < 0.295) return TileType.ENERGY_CRYSTAL;
+      if (r < 0.285) return TileType.ICE_FLOOR;
+      if (r < 0.3) return TileType.ENERGY_CRYSTAL;
       return TileType.FLOOR;
     }
 
     if (b === 'Cristalinas') {
-      if (r < 0.046) return TileType.CRYSTAL_SPIRE;
-      if (r < 0.092) return TileType.ENERGY_CRYSTAL;
-      if (r < 0.132) return TileType.BLUE_QUARTZ;
-      if (r < 0.165) return TileType.NEON_MUSHROOM;
-      if (r < 0.195) return TileType.ORE;
+      if (r < 0.052) return TileType.CRYSTAL_SPIRE;
+      if (r < 0.098) return TileType.ENERGY_CRYSTAL;
+      if (r < 0.14) return TileType.BLUE_QUARTZ;
+      if (r < 0.175) return TileType.NEON_MUSHROOM;
+      if (r < 0.205) return TileType.RUIN_PILLAR;
       return TileType.FLOOR;
     }
 
     // Sombrias
-    if (r < 0.042) return TileType.SHADOW_CRYSTAL;
-    if (r < 0.08) return TileType.DARK_IRON;
-    if (r < 0.115) return TileType.NEON_MUSHROOM;
-    if (r < 0.14) return TileType.ENERGY_CRYSTAL;
-    if (r < 0.17) return TileType.ORE;
-    if (r < 0.185) return TileType.ANCIENT_BRICK;
+    if (r < 0.046) return TileType.SHADOW_CRYSTAL;
+    if (r < 0.082) return TileType.DARK_IRON;
+    if (r < 0.122) return TileType.NEON_MUSHROOM;
+    if (r < 0.148) return TileType.RUIN_PILLAR;
+    if (r < 0.178) return TileType.ORE;
     return TileType.FLOOR;
   }
 
   private clearEntranceApproach(tiles: Uint8Array): void {
-    // Guarantee unobstructed walkable courtyard south of the structure entrance (lx 5..9, ly 12..14)
     for (let ly = 12; ly <= 14; ly++) {
       for (let lx = 5; lx <= 9; lx++) {
-        tiles[ly * CHUNK_SIZE + lx] = TileType.FLOOR;
+        tiles[ly * CHUNK_SIZE + lx] = lx === 7 ? TileType.COBBLESTONE : TileType.FLOOR;
       }
     }
   }
@@ -523,76 +780,86 @@ export class ChunkManager {
   }
 
   private carveSecretRoom(tiles: Uint8Array): void {
-    for (let ly = 4; ly <= 11; ly++) {
-      for (let lx = 4; lx <= 11; lx++) {
-        const isBorder = lx === 4 || lx === 11 || ly === 4 || ly === 11;
-        if (isBorder) {
+    // Organic octagonal ancient vault (instead of boxy square)
+    for (let ly = 3; ly <= 11; ly++) {
+      for (let lx = 3; lx <= 11; lx++) {
+        const d = Math.hypot(lx - 7, ly - 7);
+        if (d > 4.6) continue;
+        if (d > 3.5) {
           tiles[ly * CHUNK_SIZE + lx] = lx === 7 && ly === 11 ? TileType.CRACKED_WALL : TileType.ANCIENT_BRICK;
         } else {
-          tiles[ly * CHUNK_SIZE + lx] = TileType.BUILT_FLOOR;
+          tiles[ly * CHUNK_SIZE + lx] = TileType.COBBLESTONE;
         }
       }
     }
-    tiles[7 * CHUNK_SIZE + 7] = TileType.CHEST_CLOSED;
+    tiles[7 * CHUNK_SIZE + 7] = TileType.ALTAR;
+    tiles[5 * CHUNK_SIZE + 7] = TileType.CHEST_CLOSED;
     tiles[6 * CHUNK_SIZE + 9] = TileType.ENERGY_CRYSTAL;
-    tiles[9 * CHUNK_SIZE + 6] = TileType.ALTAR;
+    tiles[9 * CHUNK_SIZE + 5] = TileType.TORCH;
   }
 
   private carveOutpost(tiles: Uint8Array): void {
-    for (let ly = 3; ly <= 11; ly++) {
-      for (let lx = 3; lx <= 11; lx++) {
-        const isBorder = lx === 3 || lx === 11 || ly === 3 || ly === 11;
-        if (isBorder) {
-          tiles[ly * CHUNK_SIZE + lx] = lx === 7 && ly === 11 ? TileType.DOOR_CLOSED : TileType.ANCIENT_BRICK;
+    // Timber-and-stone organic camp plaza + campfire + stairs
+    for (let ly = 2; ly <= 12; ly++) {
+      for (let lx = 2; lx <= 12; lx++) {
+        const d = Math.hypot(lx - 7, ly - 7);
+        if (d > 5.4) continue;
+        if (d > 4.2 && ly < 10) {
+          tiles[ly * CHUNK_SIZE + lx] = TileType.WALL;
         } else {
-          tiles[ly * CHUNK_SIZE + lx] = TileType.BUILT_FLOOR;
+          tiles[ly * CHUNK_SIZE + lx] = d < 2.6 ? TileType.COBBLESTONE : TileType.BUILT_FLOOR;
         }
       }
     }
-    tiles[5 * CHUNK_SIZE + 5] = TileType.TORCH;
+    tiles[11 * CHUNK_SIZE + 7] = TileType.WOOD_STAIRS;
+    tiles[7 * CHUNK_SIZE + 7] = TileType.CAMPFIRE;
+    tiles[5 * CHUNK_SIZE + 5] = TileType.WOOD_PILLAR;
     tiles[5 * CHUNK_SIZE + 9] = TileType.CHEST_CLOSED;
-    tiles[8 * CHUNK_SIZE + 7] = TileType.RECHARGE_STATION;
+    tiles[8 * CHUNK_SIZE + 5] = TileType.RECHARGE_STATION;
   }
 
   private carveAbandonedMine(tiles: Uint8Array, biome: BiomeId): void {
     const vein = this.getBiomeVeinTile(biome);
     const supportWall = biome === 'Magma' ? TileType.VOLCANIC_ROCK : TileType.ROCK;
-    for (let ly = 3; ly <= 11; ly++) {
-      for (let lx = 3; lx <= 11; lx++) {
-        const isBorder = lx === 3 || lx === 11 || ly === 3 || ly === 11;
-        if (isBorder) {
-          tiles[ly * CHUNK_SIZE + lx] = ly === 11 && lx >= 6 && lx <= 8 ? TileType.FLOOR : supportWall;
+    for (let ly = 2; ly <= 12; ly++) {
+      for (let lx = 2; lx <= 12; lx++) {
+        const d = Math.hypot(lx - 7, ly - 7);
+        if (d > 5.3) continue;
+        if (d > 4.2 && !(ly >= 10 && lx >= 6 && lx <= 8)) {
+          tiles[ly * CHUNK_SIZE + lx] = supportWall;
         } else {
           tiles[ly * CHUNK_SIZE + lx] = TileType.FLOOR;
         }
       }
     }
-    tiles[4 * CHUNK_SIZE + 4] = TileType.WOOD_PILLAR;
-    tiles[4 * CHUNK_SIZE + 10] = TileType.WOOD_PILLAR;
-    tiles[9 * CHUNK_SIZE + 5] = TileType.TORCH;
-    tiles[5 * CHUNK_SIZE + 5] = vein;
-    tiles[5 * CHUNK_SIZE + 9] = vein;
-    tiles[6 * CHUNK_SIZE + 7] = TileType.CHEST_CLOSED;
-    tiles[8 * CHUNK_SIZE + 9] = TileType.ORE;
+    tiles[5 * CHUNK_SIZE + 4] = TileType.WOOD_PILLAR;
+    tiles[5 * CHUNK_SIZE + 10] = TileType.WOOD_PILLAR;
+    tiles[9 * CHUNK_SIZE + 6] = TileType.TORCH;
+    tiles[5 * CHUNK_SIZE + 6] = vein;
+    tiles[5 * CHUNK_SIZE + 8] = vein;
+    tiles[7 * CHUNK_SIZE + 7] = TileType.CHEST_CLOSED;
   }
 
   private carveAncientRuins(tiles: Uint8Array, biome: BiomeId): void {
-    for (let ly = 3; ly <= 11; ly++) {
-      for (let lx = 3; lx <= 11; lx++) {
-        const isBorder = lx === 3 || lx === 11 || ly === 3 || ly === 11;
-        if (isBorder) {
-          const isOpenArch = ly === 11 && lx >= 6 && lx <= 8;
-          tiles[ly * CHUNK_SIZE + lx] = isOpenArch ? TileType.BUILT_FLOOR : TileType.ANCIENT_BRICK;
+    // Circular temple colonnade with ruined pillars & rune altar
+    for (let ly = 2; ly <= 12; ly++) {
+      for (let lx = 2; lx <= 12; lx++) {
+        const d = Math.hypot(lx - 7, ly - 7);
+        if (d > 5.5) continue;
+        if (d > 4.3 && !(ly >= 10 && lx >= 6 && lx <= 8)) {
+          tiles[ly * CHUNK_SIZE + lx] = TileType.ANCIENT_BRICK;
         } else {
-          tiles[ly * CHUNK_SIZE + lx] = TileType.BUILT_FLOOR;
+          tiles[ly * CHUNK_SIZE + lx] = d < 3.0 ? TileType.COBBLESTONE : TileType.BUILT_FLOOR;
         }
       }
     }
-    tiles[5 * CHUNK_SIZE + 5] = TileType.ANCIENT_BRICK;
-    tiles[5 * CHUNK_SIZE + 9] = TileType.ANCIENT_BRICK;
+    tiles[5 * CHUNK_SIZE + 5] = TileType.RUIN_PILLAR;
+    tiles[5 * CHUNK_SIZE + 9] = TileType.RUIN_PILLAR;
+    tiles[9 * CHUNK_SIZE + 5] = TileType.RUIN_PILLAR;
+    tiles[9 * CHUNK_SIZE + 9] = TileType.RUIN_PILLAR;
     tiles[4 * CHUNK_SIZE + 7] = TileType.CHEST_CLOSED;
-    tiles[7 * CHUNK_SIZE + 5] = TileType.ALTAR;
-    tiles[7 * CHUNK_SIZE + 9] =
+    tiles[7 * CHUNK_SIZE + 7] = TileType.ALTAR;
+    tiles[7 * CHUNK_SIZE + 10] =
       biome === 'Sombrias' ? TileType.SHADOW_CRYSTAL : TileType.ENERGY_CRYSTAL;
   }
 
@@ -602,20 +869,21 @@ export class ChunkManager {
       biome === 'Heladas'
         ? TileType.ICE_CRYSTAL
         : biome === 'Magma'
-        ? TileType.MAGMA_COAL
+        ? TileType.BASALT_COLUMN
         : biome === 'Acuaticas'
         ? TileType.BLUE_QUARTZ
         : biome === 'Cristalinas'
         ? TileType.CRYSTAL_SPIRE
         : biome === 'Sombrias'
         ? TileType.NEON_MUSHROOM
-        : TileType.ENERGY_CRYSTAL;
+        : TileType.MUSHROOM;
 
-    for (let ly = 3; ly <= 11; ly++) {
-      for (let lx = 3; lx <= 11; lx++) {
-        const isBorder = lx === 3 || lx === 11 || ly === 3 || ly === 11;
-        if (isBorder) {
-          tiles[ly * CHUNK_SIZE + lx] = ly === 11 && lx >= 6 && lx <= 8 ? TileType.FLOOR : wallTile;
+    for (let ly = 2; ly <= 12; ly++) {
+      for (let lx = 2; lx <= 12; lx++) {
+        const d = Math.hypot(lx - 7, ly - 7);
+        if (d > 5.4) continue;
+        if (d > 4.2 && !(ly >= 10 && lx >= 6 && lx <= 8)) {
+          tiles[ly * CHUNK_SIZE + lx] = wallTile;
         } else {
           tiles[ly * CHUNK_SIZE + lx] = TileType.FLOOR;
         }
@@ -623,55 +891,72 @@ export class ChunkManager {
     }
     tiles[5 * CHUNK_SIZE + 5] = TileType.ENERGY_CRYSTAL;
     tiles[5 * CHUNK_SIZE + 9] = secondaryCrystal;
-    tiles[7 * CHUNK_SIZE + 4] = secondaryCrystal;
+    tiles[8 * CHUNK_SIZE + 4] = secondaryCrystal;
     tiles[4 * CHUNK_SIZE + 7] = TileType.EVO_STONE_VEIN;
     tiles[6 * CHUNK_SIZE + 7] = TileType.CHEST_CLOSED;
   }
 
   private getHandcraftedScenarioTile(x: number, y: number): TileType | null {
+    // 0. Organic cobblestone terrace & mushroom lantern grove around Starter Refugio Shane (radius 7..13)
+    const sd = Math.hypot(x - SPAWN_X, y - SPAWN_Y);
+    if (sd > 6.5 && sd <= 12.5) {
+      if (Math.abs(y - SPAWN_Y) <= 1 && x >= SPAWN_X + 6) return TileType.COBBLESTONE;
+      if (Math.abs(x - SPAWN_X) <= 1 && y <= SPAWN_Y - 6) return TileType.COBBLESTONE;
+      if ((x === SPAWN_X - 8 && y === SPAWN_Y + 4) || (x === SPAWN_X + 8 && y === SPAWN_Y + 4)) return TileType.CAMPFIRE;
+      if ((x === SPAWN_X - 9 || x === SPAWN_X + 9) && y === SPAWN_Y - 5) return TileType.MUSHROOM;
+    }
+
     // 1. Caverna del Descenso (160, 140) + Pasaje Secreto hacia Estela de Will Shane (144, 142)
     if (x >= 142 && x <= 167 && y >= 133 && y <= 148) {
-      // Secret western shrine alcove (142..147, 139..145)
       if (x >= 142 && x <= 147 && y >= 139 && y <= 145) {
         if (x === 144 && y === 142) return TileType.ALTAR;
         if (x === 143 && y === 140) return TileType.CHEST_CLOSED;
         if (x === 146 && y === 140) return TileType.TORCH;
-        if (x === 147 && y === 142) return TileType.CRACKED_WALL; // Secret cracked barrier
+        if (x === 147 && y === 142) return TileType.CRACKED_WALL;
         if (x === 142 || x === 147 || y === 139 || y === 145) return TileType.ANCIENT_BRICK;
-        return TileType.FLOOR;
+        return TileType.COBBLESTONE;
       }
-      // Connecting western path from Caverna plaza to cracked passage
       if (y >= 141 && y <= 143 && x >= 148 && x <= 154) {
-        return TileType.FLOOR;
+        return TileType.COBBLESTONE;
       }
-      // Main Caverna del Descenso clearing (154..166, 134..147)
       if (x >= 154 && x <= 166 && y >= 134 && y <= 147) {
-        if ((x === 155 || x === 165) && (y === 135 || y === 145)) return TileType.TORCH;
+        if (x === 160 && y === 134) return TileType.WOOD_STAIRS;
+        if ((x === 155 || x === 165) && (y === 135 || y === 145)) return TileType.RUIN_PILLAR;
+        if (x === 156 && y === 144) return TileType.CAMPFIRE;
         if (x === 164 && y === 136) return TileType.CHEST_CLOSED;
-        return TileType.FLOOR;
+        return Math.hypot(x - 160, y - 140) < 3.5 ? TileType.COBBLESTONE : TileType.FLOOR;
       }
     }
 
-    // 2. Puesto del Valle Verde (185, 160) + camino conectado desde Refugio (168..178)
+    // 1b. Scenic Chasm & Wooden Rope Bridge N of Caverna del Descenso (160, 120)
+    if (x >= 151 && x <= 169 && y >= 117 && y <= 123) {
+      if (Math.abs(x - 160) <= 1) return TileType.ROPE_BRIDGE;
+      if (y >= 118 && y <= 122) return TileType.CHASM;
+    }
+
+    // 2. Puesto del Valle Verde (185, 160) + cobblestone plaza + camino desde Refugio (168..178)
     if (x >= 168 && x <= 178 && y >= 159 && y <= 161) {
-      return TileType.FLOOR;
+      return TileType.COBBLESTONE;
     }
     if (x >= 178 && x <= 192 && y >= 154 && y <= 166) {
       const border = x === 178 || x === 192 || y === 154 || y === 166;
       if (border) {
         if ((x === 178 || x === 192) && y === 160) return TileType.DOOR_OPEN;
         if ((y === 154 || y === 166) && x === 185) return TileType.DOOR_OPEN;
-        return TileType.ANCIENT_BRICK;
+        if ((x === 178 || x === 192) && (y === 154 || y === 166)) return TileType.RUIN_PILLAR;
+        return TileType.WALL;
       }
       if (x === 185 && y === 156) return TileType.RECHARGE_STATION;
       if (x === 190 && y === 156) return TileType.CHEST_CLOSED;
-      if ((x === 180 || x === 190) && y === 164) return TileType.TORCH;
+      if (x === 181 && y === 162) return TileType.CAMPFIRE;
+      if (x === 189 && y === 162) return TileType.TORCH;
+      if (Math.hypot(x - 185, y - 160) <= 2.3) return TileType.COBBLESTONE;
       return TileType.BUILT_FLOOR;
     }
 
-    // 3. Puesto de Contrabando Oscuro (196, 136) + camino desde Valle Verde (185..196, 143..154)
+    // 3. Puesto de Contrabando Oscuro (196, 136) + camino desde Valle Verde
     if (x >= 184 && x <= 197 && y >= 143 && y <= 153 && (x === 196 || y === 148)) {
-      return TileType.FLOOR;
+      return TileType.COBBLESTONE;
     }
     if (x >= 190 && x <= 202 && y >= 130 && y <= 142) {
       const border = x === 190 || x === 202 || y === 130 || y === 142;
@@ -682,11 +967,15 @@ export class ChunkManager {
       }
       if (x === 192 && y === 132) return TileType.RECHARGE_STATION;
       if (x === 200 && y === 132) return TileType.CHEST_CLOSED;
-      if (x === 192 && y === 140) return TileType.TORCH;
+      if (x === 192 && y === 140) return TileType.CAMPFIRE;
       return TileType.BUILT_FLOOR;
     }
 
-    // 4. Santuario de Cuevas Heladas (42, 162) + Archivo Cristalino (48, 148)
+    // 4. Santuario de Cuevas Heladas (42, 162) + Archivo Cristalino (48, 148) + Puente del Deshielo (84, 160)
+    if (x >= 80 && x <= 88 && y >= 156 && y <= 164) {
+      if (Math.abs(y - 160) <= 1) return TileType.ROPE_BRIDGE;
+      if (x >= 82 && x <= 86) return TileType.CHASM;
+    }
     if (x >= 35 && x <= 54 && y >= 145 && y <= 169) {
       if (x >= 46 && x <= 51 && y >= 146 && y <= 153) {
         if (x === 48 && y === 148) return TileType.ALTAR;
@@ -699,12 +988,12 @@ export class ChunkManager {
         if (x === 37 && (y === 156 || y === 167)) return TileType.ICE_CRYSTAL;
         if (x === 50 && y === 156) return TileType.CHEST_CLOSED;
         if (x === 49 && y === 166) return TileType.RECHARGE_STATION;
-        if (x === 42 && y === 162) return TileType.ICE_FLOOR;
+        if (x === 38 && y === 162) return TileType.CAMPFIRE;
         return TileType.ICE_FLOOR;
       }
     }
 
-    // 5. Forja de Cavernas de Magma (162, 252) + Taller Trol (148, 244) + puente hacia Acelerador
+    // 5. Forja de Cavernas de Magma (162, 252) + Taller Trol (148, 244)
     if (x >= 145 && x <= 171 && y >= 239 && y <= 259) {
       if (x >= 146 && x <= 152 && y >= 241 && y <= 247) {
         if (x === 148 && y === 244) return TileType.ALTAR;
@@ -713,18 +1002,19 @@ export class ChunkManager {
         if (x === 146 || x === 152 || y === 241 || y === 247) return TileType.ANCIENT_BRICK;
         return TileType.BUILT_FLOOR;
       }
-      if (x >= 153 && x <= 156 && y >= 243 && y <= 245) return TileType.BUILT_FLOOR;
+      if (x >= 153 && x <= 156 && y >= 243 && y <= 245) return TileType.COBBLESTONE;
       if (x >= 156 && x <= 169 && y >= 240 && y <= 258) {
-        if ((x === 157 || x === 167) && (y === 242 || y === 256)) return TileType.TORCH;
+        if ((x === 157 || x === 167) && (y === 242 || y === 256)) return TileType.BASALT_COLUMN;
         if (x === 167 && y === 243) return TileType.CHEST_CLOSED;
         if (x === 158 && y === 243) return TileType.RECHARGE_STATION;
         return TileType.BUILT_FLOOR;
       }
     }
 
-    // 6. Puente y Cámara del Acelerador 200 MPH (196, 248)
-    if (x >= 170 && x <= 187 && y >= 247 && y <= 249) {
-      return TileType.BUILT_FLOOR;
+    // 6. Puente colgante sobre lava + Cámara del Acelerador 200 MPH (196, 248)
+    if (x >= 170 && x <= 187 && y >= 245 && y <= 251) {
+      if (y >= 247 && y <= 249) return x >= 174 && x <= 183 ? TileType.ROPE_BRIDGE : TileType.COBBLESTONE;
+      if (x >= 174 && x <= 183) return TileType.LAVA;
     }
     if (x >= 187 && x <= 204 && y >= 241 && y <= 255) {
       const border = x === 187 || x === 204 || y === 241 || y === 255;
@@ -739,7 +1029,11 @@ export class ChunkManager {
       return TileType.BUILT_FLOOR;
     }
 
-    // 7. Bastión de las Cavernas Sombrías (276, 54) + Bóveda 200 MPH (262, 66)
+    // 7. Bastión de las Cavernas Sombrías (276, 54) + Bóveda 200 MPH (262, 66) + Puente Negro (246, 68)
+    if (x >= 242 && x <= 250 && y >= 64 && y <= 72) {
+      if (Math.abs(y - 68) <= 1) return TileType.ROPE_BRIDGE;
+      if (x >= 244 && x <= 248) return TileType.CHASM;
+    }
     if (x >= 259 && x <= 283 && y >= 46 && y <= 69) {
       if (x >= 259 && x <= 265 && y >= 63 && y <= 69) {
         if (x === 262 && y === 66) return TileType.ALTAR;
@@ -762,7 +1056,11 @@ export class ChunkManager {
       }
     }
 
-    // 8. Gruta de Cavernas Acuáticas (250, 232) + Cámara Sumergida (238, 224)
+    // 8. Gruta de Cavernas Acuáticas (250, 232) + Cámara Sumergida (238, 224) + Puente Marea (226, 224)
+    if (x >= 222 && x <= 230 && y >= 220 && y <= 228) {
+      if (Math.abs(y - 224) <= 1) return TileType.ROPE_BRIDGE;
+      if (x >= 224 && x <= 228) return TileType.WATER;
+    }
     if (x >= 235 && x <= 258 && y >= 221 && y <= 239) {
       if (x >= 235 && x <= 242 && y >= 221 && y <= 227) {
         if (x === 238 && y === 224) return TileType.ALTAR;
@@ -778,7 +1076,7 @@ export class ChunkManager {
         if (x === 255 && y === 229) return TileType.CHEST_CLOSED;
         if ((x === 244 || x === 256) && y === 236) return TileType.KELP;
         if ((x === 248 || x === 252) && y === 228) return TileType.TORCH;
-        return TileType.FLOOR;
+        return TileType.COBBLESTONE;
       }
     }
 
@@ -801,9 +1099,59 @@ export class ChunkManager {
         if (x === 74 && y === 62) return TileType.RECHARGE_STATION;
         if (x === 82 && y === 62) return TileType.CHEST_CLOSED;
         if ((x === 75 || x === 81) && y === 69) return TileType.TORCH;
-        return TileType.BUILT_FLOOR;
+        return TileType.COBBLESTONE;
       }
     }
+
+    // 10. NUEVOS ASENTAMIENTOS Y MAZMORRAS DEL MUNDO REDISEÑADO:
+    // Aldea Marea Azul (242, 206)
+    if (Math.hypot(x - 242, y - 206) <= 6.5) {
+      if (x === 242 && y === 203) return TileType.CAMPFIRE;
+      if (x === 239 && y === 206) return TileType.RECHARGE_STATION;
+      if (x === 245 && y === 206) return TileType.CHEST_CLOSED;
+      if (Math.hypot(x - 242, y - 206) > 5.4 && Math.abs(x - 242) > 1 && Math.abs(y - 206) > 1) return TileType.WOOD_PILLAR;
+      return Math.hypot(x - 242, y - 206) <= 3.5 ? TileType.COBBLESTONE : TileType.BUILT_FLOOR;
+    }
+
+    // Campamento Termal Trol (134, 234)
+    if (Math.hypot(x - 134, y - 234) <= 6.5) {
+      if (x === 134 && y === 234) return TileType.CAMPFIRE;
+      if (x === 131 && y === 231) return TileType.BASALT_COLUMN;
+      if (x === 137 && y === 231) return TileType.BASALT_COLUMN;
+      if (x === 138 && y === 235) return TileType.CHEST_CLOSED;
+      return TileType.COBBLESTONE;
+    }
+
+    // Vigía del Cuarto Prisma (104, 88)
+    if (Math.hypot(x - 104, y - 88) <= 6) {
+      if (x === 104 && y === 86) return TileType.ALTAR;
+      if (x === 101 && y === 89) return TileType.CAMPFIRE;
+      if (x === 107 && y === 89) return TileType.CRYSTAL_SPIRE;
+      return TileType.COBBLESTONE;
+    }
+
+    // Santuario de Musgo Antiguo (132, 178)
+    if (Math.hypot(x - 132, y - 178) <= 6) {
+      if (x === 132 && y === 178) return TileType.ALTAR;
+      if (Math.abs(x - 132) === 3 && Math.abs(y - 178) === 3) return TileType.RUIN_PILLAR;
+      if (x === 132 && y === 182) return TileType.CHEST_CLOSED;
+      return TileType.COBBLESTONE;
+    }
+
+    // Galería de Ecos Antiguos (230, 82)
+    if (Math.hypot(x - 230, y - 82) <= 6) {
+      if (x === 230 && y === 82) return TileType.ALTAR;
+      if (Math.abs(x - 230) === 4 && Math.abs(y - 82) <= 1) return TileType.RUIN_PILLAR;
+      if (x === 230 && y === 78) return TileType.CHEST_CLOSED;
+      return TileType.COBBLESTONE;
+    }
+
+    // 6 Secretos adicionales (sec_7 .. sec_12)
+    if (x === 140 && y === 124) return TileType.ALTAR;
+    if (x === 228 && y === 254) return TileType.ALTAR;
+    if (x === 140 && y === 266) return TileType.ALTAR;
+    if (x === 34 && y === 138) return TileType.ALTAR;
+    if (x === 64 && y === 74) return TileType.ALTAR;
 
     return null;
   }

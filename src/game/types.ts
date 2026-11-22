@@ -49,6 +49,13 @@ export enum TileType {
   EVO_STONE_VEIN = 30,
   WATERFALL = 31,
   CRYSTAL_SPIRE = 32,
+  CHASM = 33,
+  ROPE_BRIDGE = 34,
+  WOOD_STAIRS = 35,
+  COBBLESTONE = 36,
+  RUIN_PILLAR = 37,
+  BASALT_COLUMN = 38,
+  CAMPFIRE = 39,
 }
 
 export interface Chunk {
