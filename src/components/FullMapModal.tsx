@@ -31,8 +31,10 @@ const SCENARIO_ORDER = [
   'esc_caverna_descenso',
   'esc_pueblo_valle_verde',
   'esc_puesto_agua_oscura',
+  'esc_gruta_acuatica',
   'esc_caverna_helada',
   'esc_caverna_magma',
+  'esc_templo_cristalino',
   'esc_taller_acelerador',
   'esc_ciudadela_sombria',
 ];
@@ -100,21 +102,21 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
     <div className="fixed inset-0 z-30 flex items-center justify-center p-2.5 sm:p-5 bg-[#03080e]/90 backdrop-blur-sm">
       <div className="bt-panel bt-animate-modal w-full max-w-5xl rounded-2xl p-4 sm:p-5 max-h-[94dvh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between gap-2 border-b border-cyan-400/20 pb-3 mb-3 shrink-0">
-          <div>
-            <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
-              <Compass className="w-5 h-5 text-teal-300" />
+        <div className="flex items-center justify-between gap-2 border-b border-cyan-400/20 pb-2.5 mb-3 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-base sm:text-lg font-extrabold text-white flex items-center gap-2 truncate">
+              <Compass className="w-5 h-5 text-teal-300 shrink-0" />
               Mapa del Mundo Subterráneo de Bajoterra
             </h2>
-            <p className="text-xs text-slate-300 tabular-nums mt-0.5">
-              Ubicación: {snap.story.currentScenarioName} · Regiones: {snap.discoveries.length}/4 ·
-              Explorado: {exploredPct}% ({Math.round(snap.player.x)}, {Math.round(snap.player.y)})
+            <p className="text-[11px] sm:text-xs text-slate-300 tabular-nums mt-0.5 truncate">
+              {snap.story.currentScenarioName} · Biomas {snap.discoveries.length}/6 · Explorado{' '}
+              {exploredPct}%
             </p>
           </div>
           <button
             onClick={onClose}
             aria-label="Cerrar mapa"
-            className="bt-btn-secondary w-10 h-10 rounded-xl flex items-center justify-center cursor-pointer shrink-0"
+            className="bt-btn-secondary w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
@@ -122,9 +124,9 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
 
         {/* Main 2-column World Map Workspace */}
         <div className="flex-1 min-h-0 overflow-y-auto bt-scroll pr-1">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
             {/* Left Column: Map Canvas + Geography Legend */}
-            <div className="lg:col-span-6 space-y-3">
+            <div className="lg:col-span-6 space-y-2.5">
               <div className="flex justify-center bt-inset border-teal-400/30 rounded-xl p-2">
                 <canvas
                   ref={fullMapRef}
@@ -135,16 +137,16 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
               </div>
 
               {/* Biomes & Map Legend */}
-              <div className="bt-inset rounded-xl p-3 space-y-2 text-[11px] text-slate-200">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                  {(['Verdes', 'Heladas', 'Magma', 'Sombrias'] as const).map((b) => {
+              <div className="bt-inset rounded-xl p-2.5 space-y-2 text-[11px] text-slate-200">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                  {(['Verdes', 'Acuaticas', 'Heladas', 'Magma', 'Cristalinas', 'Sombrias'] as const).map((b) => {
                     const found = snap.discoveries.includes(b);
                     return (
                       <div
                         key={b}
                         className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${
                           found
-                            ? 'bg-slate-900/70 border-teal-400/30 text-white'
+                            ? 'bg-slate-900/75 border-teal-400/35 text-white'
                             : 'bg-slate-950/50 border-white/10 text-slate-400'
                         }`}
                       >
@@ -159,7 +161,7 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
                     );
                   })}
                 </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-slate-300 pt-1 border-t border-white/10">
+                <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[10px] text-slate-300 pt-1.5 border-t border-white/10">
                   <span className="flex items-center gap-1">
                     <span className="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block" /> Actual
                   </span>
@@ -167,13 +169,13 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
                     <span className="w-2.5 h-2.5 rounded-full bg-teal-400 inline-block" /> Visitado
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> Accesible / Objetivo
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> Objetivo
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block" /> Bloqueado
+                    <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block" /> Sellado
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rotate-45 bg-purple-400 inline-block" /> Secreto hallado
+                    <span className="w-2.5 h-2.5 rotate-45 bg-purple-400 inline-block" /> Secreto
                   </span>
                   <span className="flex items-center gap-1">
                     <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> Jefe

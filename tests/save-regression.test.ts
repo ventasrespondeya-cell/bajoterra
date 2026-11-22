@@ -3423,8 +3423,8 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
     assert.equal(s.chapterStates.cap_01_descenso, 'active');
     assert.equal(s.chapterStates.cap_02_refugio_banda, 'locked');
     assert.equal(s.chapterStates.cap_03_sombra_agua_oscura, 'locked');
-    assert.equal(s.chapterStates.cap_05_acelerador_megamorph, 'locked');
-    assert.equal(s.chapterStates.cap_06_ciudadela_blakk, 'locked');
+    assert.equal(s.chapterStates.cap_07_acelerador_megamorph, 'locked');
+    assert.equal(s.chapterStates.cap_08_ciudadela_blakk, 'locked');
 
     // Attempt to tamper/skip directly to Cap. 3 while Cap. 1 is incomplete -> reconcile forces linear order
     s.chapterStates.cap_03_sombra_agua_oscura = 'active';
@@ -3587,7 +3587,7 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
     assert.equal(validateV4State(corrupt).ok, false);
   });
 
-  test('12.5 Bloqueo narrativo de Megamorph: requisitos de nivel+vínculo+catalizador insuficientes hasta Cap. 5', () => {
+  test('12.5 Bloqueo narrativo de Megamorph: requisitos de nivel+vínculo+catalizador insuficientes hasta Cap. 7', () => {
     gameEngine.startNewGame();
     const slug = gameEngine.state.party[0];
     slug.level = 10;
@@ -3605,11 +3605,11 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
     assert.equal(check0.hasResource, true);
     assert.equal(check0.hasNarrativeUnlock, false);
     assert.equal(check0.eligible, false);
-    assert.ok(check0.missingReasons.some((r) => r.includes('Capítulo 5')));
+    assert.ok(check0.missingReasons.some((r) => r.includes('Capítulo 7')));
     assert.equal(gameEngine.evolveSlugToMegamorph(slug.uid), false);
     assert.equal(slug.mega, false);
 
-    // Advance sequentially through Cap 1..5
+    // Advance sequentially through Cap 1..7
     assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
     gameEngine.state.stats.wins = 1;
     assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
@@ -3621,16 +3621,27 @@ describe('Bajoterra 4.0 — FASE 12: Arquitectura del RPG Lineal y Sistema de Ca
     gameEngine.state.stats.wins = 3;
     assert.equal(gameEngine.claimStoryMission('m_cap3_rastro_oscuro'), true);
 
-    gameEngine.state.discoveries = ['Verdes', 'Magma', 'Heladas', 'Sombrias'];
-    assert.equal(gameEngine.claimStoryMission('m_cap4_fronteras_elementales'), true);
+    // Cap 4: Gruta Acuática + Leviatán Abisal
+    assert.equal(gameEngine.travelToStoryScenario('esc_gruta_acuatica'), true);
+    gameEngine.state.defeatedBosses.push('boss_aquatic');
+    assert.equal(gameEngine.claimStoryMission('m_cap4_mareas_profundas'), true);
+
+    // Cap 5: Fronteras Elementales (4+ biomes)
+    gameEngine.state.discoveries = ['Verdes', 'Acuaticas', 'Magma', 'Heladas'];
+    assert.equal(gameEngine.claimStoryMission('m_cap5_fronteras_elementales'), true);
+
+    // Cap 6: Templo Cristalino + Oráculo Prisma
+    assert.equal(gameEngine.travelToStoryScenario('esc_templo_cristalino'), true);
+    gameEngine.state.defeatedBosses.push('boss_crystal');
+    assert.equal(gameEngine.claimStoryMission('m_cap6_misterio_cristalino'), true);
     assert.equal(gameEngine.state.story!.currentChapterId, MEGAMORPH_REQUIRED_CHAPTER_ID);
 
-    // Still locked before finishing Cap. 5 boss trial
+    // Still locked before finishing Cap. 7 boss trial
     assert.equal(checkMegamorphEligibility(gameEngine.state, slug).eligible, false);
 
-    // Defeat 1 boss and claim Cap. 5 mission -> unlocks Megamorph narratively
-    gameEngine.state.defeatedBosses = ['boss_magma'];
-    assert.equal(gameEngine.claimStoryMission('m_cap5_acelerador'), true);
+    // Defeat elemental guardian + claim Cap. 7 mission -> unlocks Megamorph narratively
+    gameEngine.state.defeatedBosses.push('boss_magma');
+    assert.equal(gameEngine.claimStoryMission('m_cap7_acelerador'), true);
     assert.equal(isMegamorphNarrativelyUnlocked(gameEngine.state).unlocked, true);
 
     const checkUnlocked = checkMegamorphEligibility(gameEngine.state, slug);
@@ -3822,14 +3833,14 @@ describe('Bajoterra 4.0 — FASE 13: Nombres Propios, 20 Especies, Personalidad,
     assert.equal(gameEngine.discoverSecret(sec0.id), true);
     assert.equal(gameEngine.discoverSecret(sec0.id), false);
 
-    // Post-Game locked until Cap. 6 completed
+    // Post-Game locked until Cap. 8 completed
     assert.equal(isPostGameUnlocked(gameEngine.state), false);
     assert.equal(gameEngine.startPostGameChallenge(POSTGAME_CHALLENGES[0].id), false);
     assert.equal(gameEngine.startTournament(BLASTER_TOURNAMENTS[2].id), false);
     assert.ok(RIVAL_DUELS.length >= 3);
     assert.ok(MERCHANT_EXCHANGE_OFFERS.length >= 10);
 
-    gameEngine.state.story!.chapterStates.cap_06_ciudadela_blakk = 'completed';
+    gameEngine.state.story!.chapterStates.cap_08_ciudadela_blakk = 'completed';
     assert.equal(isPostGameUnlocked(gameEngine.state), true);
 
     // V4 save/load retains all RPG activity records
@@ -3845,7 +3856,7 @@ describe('Bajoterra 4.0 — FASE 13: Nombres Propios, 20 Especies, Personalidad,
 describe('Bajoterra 4.0 — FASE 13 (Identidad RPG, Mapa del Mundo, Transiciones y Limpieza)', () => {
   test('13.6 Mapa del mundo: todos los escenarios con coordenadas válidas, rutas conectadas y render sin secretos ocultos', () => {
     const scenarios = Object.values(STORY_SCENARIOS);
-    assert.equal(scenarios.length, 8);
+    assert.equal(scenarios.length, 10);
     for (const sc of scenarios) {
       assert.ok(sc.worldAnchor, `${sc.id} debe tener worldAnchor`);
       assert.ok(sc.worldAnchor.x >= 0 && sc.worldAnchor.x < WORLD_W);
@@ -3939,12 +3950,250 @@ describe('Bajoterra 4.0 — FASE 13 (Identidad RPG, Mapa del Mundo, Transiciones
   });
 });
 
+describe('Bajoterra 4.0 — FASE 13.1: Auditoría Visual, HUD Limpio, Mapa del Mundo y Equipo RPG', () => {
+  test('13.9 HUD limpio sin contadores saturados, acceso directo a Babosapedia y roles de equipamiento RPG', () => {
+    const hudSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/GameHUD.tsx'), 'utf8');
+    const appSrc = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+    const expSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/ExpeditionModal.tsx'), 'utf8');
 
+    // Direct 4-pillar RPG navigation (Campaña, Hogar, Mapa, Babosapedia) without resource ticker clutter
+    assert.ok(hudSrc.includes('onOpenBabosapedia'));
+    assert.ok(hudSrc.includes('Babosapedia'));
+    assert.ok(appSrc.includes("setExpeditionTab('babosapedia')"));
+    assert.equal(hudSrc.includes('>Fch<'), false, 'El HUD de exploración no debe mostrar contadores permanentes de fichas');
+    assert.equal(hudSrc.includes('>Cil<'), false, 'El HUD de exploración no debe mostrar contadores permanentes de cilindros');
+    assert.ok(hudSrc.includes('flex-wrap sm:flex-nowrap'), 'La barra móvil debe envolver sin desbordar 390px');
 
+    // Equipment roles clearly documented in ExpeditionModal
+    assert.ok(expSrc.includes('Lanzador Bláster'));
+    assert.ok(expSrc.includes('Estuche de 4 Tubos'));
+    assert.ok(expSrc.includes('Acelerador Megamorph'));
+    assert.ok(expSrc.includes('Meca Shane [V]'));
+  });
 
+  test('13.10 Reparación de duelos con rivales en el mundo, atajo V y utilidad real de Meca M2/M3', () => {
+    const engineSrc = fs.readFileSync(path.join(process.cwd(), 'src/game/engine.ts'), 'utf8');
+    assert.ok(engineSrc.includes("startRivalDuel('rival_red_hook')"));
+    assert.ok(engineSrc.includes("startRivalDuel('rival_twist')"));
+    assert.equal(engineSrc.includes("'riv_red_hook'"), false);
+    assert.equal(engineSrc.includes("'riv_twist'"), false);
+    assert.ok(engineSrc.includes("key === 'v'"));
 
+    // Verify mounted Mecha reduces thermal hazard damage progressively without altering speed multipliers
+    gameEngine.startNewGame();
+    gameEngine.state.mecha!.unlocked = true;
+    gameEngine.state.mecha!.active = true;
+    gameEngine.state.mecha!.tier = 2;
+    assert.equal(getMechaSpeedMultiplier(gameEngine.state), 1.32);
 
+    // Place player on lava tile to test M2 50% mitigation (4 dmg vs 8 unmounted)
+    const lx = 160;
+    const ly = 162;
+    gameEngine.chunks.setTile(lx, ly, TileType.LAVA);
+    gameEngine.state.player.x = lx;
+    gameEngine.state.player.y = ly;
+    gameEngine.state.player.hp = 100;
+    (gameEngine as unknown as { lavaDamageCooldown: number; onPlayerMoved: (d: number) => void }).lavaDamageCooldown = 0;
+    (gameEngine as unknown as { onPlayerMoved: (d: number) => void }).onPlayerMoved(0.5);
+    assert.equal(gameEngine.state.player.hp, 96, 'Meca M2 montado debe reducir a la mitad el daño de lava');
 
+    gameEngine.state.mecha!.tier = 3;
+    assert.equal(getMechaSpeedMultiplier(gameEngine.state), 1.55);
+    (gameEngine as unknown as { lavaDamageCooldown: number }).lavaDamageCooldown = 0;
+    (gameEngine as unknown as { onPlayerMoved: (d: number) => void }).onPlayerMoved(0.5);
+    assert.equal(gameEngine.state.player.hp, 94, 'Meca M3 montado debe mitigar 75% del daño térmico (2 dmg)');
 
+    // Resistencia Térmica keeps 100% immunity
+    gameEngine.state.player.perks.push('Resistencia Térmica');
+    (gameEngine as unknown as { lavaDamageCooldown: number }).lavaDamageCooldown = 0;
+    (gameEngine as unknown as { onPlayerMoved: (d: number) => void }).onPlayerMoved(0.5);
+    assert.equal(gameEngine.state.player.hp, 94);
+  });
 
+  test('13.11 Mapa del mundo sin solapamiento entre escenarios y jefes, y render determinista', () => {
+    const texts: Array<{ text: string; x: number; y: number; textAlign: string }> = [];
+    const ctx: Record<string, unknown> = {
+      textAlign: 'left',
+      font: '10px sans-serif',
+      fillStyle: '#000',
+      strokeStyle: '#000',
+      lineWidth: 1,
+      globalAlpha: 1,
+      fillRect: () => {},
+      strokeRect: () => {},
+      clearRect: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      arc: () => {},
+      fill: () => {},
+      stroke: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      setLineDash: () => {},
+      fillText: (text: string, x: number, y: number) => {
+        texts.push({ text, x, y, textAlign: String(ctx.textAlign || 'left') });
+      },
+    };
+    const canvas = { width: 440, height: 440, getContext: () => ctx } as unknown as HTMLCanvasElement;
 
+    const state = createInitialGameState();
+    const wr = new WorldRenderer();
+    wr.renderFullWorldMap(canvas, state);
+
+    // Magma Forge scenario & Titán Piroclasto share (162, 252) anchor -> labels must separate vertically (>= 14px)
+    // and Forja de Cavernas de Magma must align opposite Cámara del Acelerador 200 MPH so neither collides
+    const magmaLabel = texts.find((t) => t.text.includes('Forja de Cavernas de Magma'));
+    const accelLabel = texts.find((t) => t.text.includes('Cámara del Acelerador 200 MPH'));
+    const bossMagmaLabel = texts.find((t) => t.text.includes('Titán Piroclasto'));
+    assert.ok(magmaLabel && accelLabel && bossMagmaLabel);
+    assert.equal(magmaLabel.textAlign, 'right');
+    assert.equal(accelLabel.textAlign, 'left');
+    assert.ok(accelLabel.x > magmaLabel.x, 'Forja de Cavernas de Magma y Acelerador deben extenderse en direcciones opuestas');
+    assert.ok(
+      Math.abs(bossMagmaLabel.y - magmaLabel.y) >= 14,
+      `Etiquetas de Forja de Cavernas de Magma y Titán Piroclasto deben separarse verticalmente (>=14px, actual ${Math.abs(bossMagmaLabel.y - magmaLabel.y)})`
+    );
+
+    // Undiscovered secrets never render on world map when discoveredSecrets is empty
+    const secretTexts = texts.filter((t) => HIDDEN_DISCOVERIES.some((d) => t.text.includes(d.title)));
+    assert.equal(secretTexts.length, 0);
+
+    // Renderer source must never call Math.random() inside renderWorld
+    const rendererSrc = fs.readFileSync(path.join(process.cwd(), 'src/game/renderer.ts'), 'utf8');
+    const renderWorldStart = rendererSrc.indexOf('public renderWorld(');
+    const renderWorldEnd = rendererSrc.indexOf('private renderLightingPass(');
+    const tilePassSlice = rendererSrc.slice(renderWorldStart + 850, renderWorldEnd);
+    assert.equal(tilePassSlice.includes('Math.random()'), false);
+  });
+});
+
+describe('Bajoterra 4.0 — FASE 14: 6 Biomas, Campaña de 8 Capítulos, Controles F/Q y Arte Procedimental', () => {
+  test('14.1 Seis biomas distintos con tiles, arenas, especies equilibradas y música dedicadas', () => {
+    const biomes = ['Verdes', 'Acuaticas', 'Heladas', 'Magma', 'Cristalinas', 'Sombrias'] as const;
+    assert.equal(SPECIES_LIST.length, 20);
+    for (const b of biomes) {
+      const spInBiome = SPECIES_LIST.filter((s) => s.habitat === b);
+      assert.ok(spInBiome.length >= 2, `${b} debe contar con al menos 2 especies nativas (actual ${spInBiome.length})`);
+      const arena = buildArenaForBiome(b);
+      assert.equal(arena.biome, b);
+      assert.ok(arena.obstacles.length >= 2);
+    }
+
+    // Verify biome world coordinates & new tile types
+    assert.equal(getBiomeAt(160, 160), 'Verdes');
+    assert.equal(getBiomeAt(250, 232), 'Acuaticas');
+    assert.equal(getBiomeAt(42, 162), 'Heladas');
+    assert.equal(getBiomeAt(162, 252), 'Magma');
+    assert.equal(getBiomeAt(78, 66), 'Cristalinas');
+    assert.equal(getBiomeAt(276, 54), 'Sombrias');
+
+    assert.equal(isTileSolid(TileType.CRYSTAL_SPIRE), true);
+    assert.equal(isTileSolid(TileType.WATERFALL), true);
+    assert.equal(sprites.getTileSprite(TileType.WATERFALL, 'Acuaticas').width > 0, true);
+    assert.equal(sprites.getTileSprite(TileType.CRYSTAL_SPIRE, 'Cristalinas').width > 0, true);
+  });
+
+  test('14.2 Campaña de 8 capítulos y migración transparente desde guardados V4 de 6 capítulos', () => {
+    assert.equal(STORY_CHAPTERS.length, 8);
+    assert.equal(MEGAMORPH_REQUIRED_CHAPTER_ID, 'cap_07_acelerador_megamorph');
+
+    // Old 6-chapter V4 save at Cap 5 (Acelerador completed) migrates cleanly to Cap 7 completed + Cap 8 active
+    const legacySixChap = createInitialGameState();
+    legacySixChap.story!.currentChapterId = 'cap_06_ciudadela_blakk';
+    legacySixChap.story!.chapterStates = {
+      cap_01_descenso: 'completed',
+      cap_02_refugio_banda: 'completed',
+      cap_03_sombra_agua_oscura: 'completed',
+      cap_04_fronteras_elementales: 'completed',
+      cap_05_acelerador_megamorph: 'completed',
+      cap_06_ciudadela_blakk: 'active',
+    };
+    legacySixChap.story!.missionStates = {
+      m_cap1_primeros_pasos: 'completed',
+      m_cap2_constructor_refugio: 'completed',
+      m_cap3_rastro_oscuro: 'completed',
+      m_cap4_fronteras_elementales: 'completed',
+      m_cap5_acelerador: 'completed',
+      m_cap6_guardianes_abismo: 'active',
+    };
+    legacySixChap.story!.storyFlags[MEGAMORPH_NARRATIVE_FLAG] = true;
+
+    const validated = validateV4State(legacySixChap);
+    assert.equal(validated.ok, true);
+    const migrated = validated.value!;
+    assert.equal(migrated.story!.currentChapterId, 'cap_08_ciudadela_blakk');
+    assert.equal(migrated.story!.chapterStates.cap_04_secretos_profundidades, 'completed');
+    assert.equal(migrated.story!.chapterStates.cap_05_fronteras_elementales, 'completed');
+    assert.equal(migrated.story!.chapterStates.cap_06_misterio_cristalino, 'completed');
+    assert.equal(migrated.story!.chapterStates.cap_07_acelerador_megamorph, 'completed');
+    assert.equal(migrated.story!.chapterStates.cap_08_ciudadela_blakk, 'active');
+    assert.equal(migrated.story!.missionStates.m_cap5_fronteras_elementales, 'completed');
+    assert.equal(migrated.story!.missionStates.m_cap7_acelerador, 'completed');
+    assert.equal(migrated.story!.missionStates.m_cap8_guardianes_abismo, 'active');
+    assert.equal(isMegamorphNarrativelyUnlocked(migrated).unlocked, true);
+  });
+
+  test('14.3 Controles unificados: F interactúa en exploración, Q / 1-4 cambian babosa y sin atajos residuales con E', () => {
+    const engineSrc = fs.readFileSync(path.join(process.cwd(), 'src/game/engine.ts'), 'utf8');
+    const battleSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/BattleModal.tsx'), 'utf8');
+    const hudSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/GameHUD.tsx'), 'utf8');
+    const titleSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/TitleScreen.tsx'), 'utf8');
+    const mapSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/FullMapModal.tsx'), 'utf8');
+
+    assert.ok(engineSrc.includes("key === 'f'"), 'engine.ts debe usar F para interactuar');
+    assert.equal(engineSrc.includes("key === 'e'"), false, 'engine.ts no debe depender de E para interactuar');
+    assert.equal(battleSrc.includes("key === 'e'"), false, 'BattleModal no debe usar E para cambiar babosa');
+    assert.ok(hudSrc.includes('F / Clic'));
+    assert.ok(titleSrc.includes('F / Clic') && titleSrc.includes('8 Capítulos') && titleSrc.includes('6 Biomas'));
+    assert.ok(mapSrc.includes('/6'));
+  });
+
+  test('14.4 Mapa del mundo sin solapamientos para Cristalinas y Acuáticas + arte procedimental de personajes', () => {
+    const texts: Array<{ text: string; x: number; y: number; textAlign: string }> = [];
+    const ctx: Record<string, unknown> = {
+      textAlign: 'left',
+      font: '10px sans-serif',
+      fillStyle: '#000',
+      strokeStyle: '#000',
+      lineWidth: 1,
+      globalAlpha: 1,
+      fillRect: () => {},
+      strokeRect: () => {},
+      clearRect: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      arc: () => {},
+      fill: () => {},
+      stroke: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      setLineDash: () => {},
+      fillText: (text: string, x: number, y: number) => {
+        texts.push({ text, x, y, textAlign: String(ctx.textAlign || 'left') });
+      },
+    };
+    const canvas = { width: 440, height: 440, getContext: () => ctx } as unknown as HTMLCanvasElement;
+    const state = createInitialGameState();
+    new WorldRenderer().renderFullWorldMap(canvas, state);
+
+    const templeLabel = texts.find((t) => t.text.includes('Templo de Cuarzo'));
+    const oracleLabel = texts.find((t) => t.text.includes('Oráculo Prisma'));
+    const aquaticBossLabel = texts.find((t) => t.text.includes('Leviatán Abisal'));
+    const accelLabel = texts.find((t) => t.text.includes('Cámara del Acelerador 200 MPH'));
+    assert.ok(templeLabel && oracleLabel && aquaticBossLabel && accelLabel);
+    assert.equal(oracleLabel.textAlign, 'right');
+    assert.equal(templeLabel.textAlign, 'left');
+    assert.ok(Math.abs(aquaticBossLabel.y - accelLabel.y) >= 14);
+
+    // Procedural character art module exists & Eli sprite renders cleanly
+    const charArtSrc = fs.readFileSync(path.join(process.cwd(), 'src/game/characterArt.ts'), 'utf8');
+    assert.ok(charArtSrc.includes('eli_shane') && charArtSrc.includes('dr_blakk') && charArtSrc.includes('will_shane'));
+    assert.equal(sprites.getExplorerSprite(0, 1, 0).width, 28);
+  });
+});

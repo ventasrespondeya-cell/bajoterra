@@ -194,7 +194,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
     [combat, state, onSync]
   );
 
-  // Full 2D keyboard controls (WASD / Arrows move, 1-4 or Q/E switch, Z/X skills, F/Shift contextual, R pulse, Space charge/fire)
+  // Full 2D keyboard controls (WASD / Arrows move, 1-4 or Q switch, Z/X skills, F/Shift contextual, R pulse, Space charge/fire)
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!combat.battle || introPaused || isEditableEventTarget(e.target)) return;
@@ -219,8 +219,6 @@ export const BattleModal: React.FC<BattleModalProps> = ({
           onSync();
         }
       } else if (key === 'q') {
-        if (combat.cycleSlug(state, -1)) onSync();
-      } else if (key === 'e') {
         if (combat.cycleSlug(state, 1)) onSync();
       } else if (key === 'z') {
         selectOrFireMode(0);
@@ -1014,8 +1012,8 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               <strong className="text-teal-200">WASD / Flechas</strong> mover ·{' '}
               <strong className="text-teal-200">Ratón</strong> apuntar ·{' '}
               <strong className="text-teal-200">Clic / Espacio</strong> cargar y disparar ·{' '}
-              <strong className="text-teal-200">Q / E</strong> cambiar babosa ·{' '}
-              <strong className="text-teal-200">F</strong> acción
+              <strong className="text-teal-200">Q / 1–4</strong> cambiar babosa ·{' '}
+              <strong className="text-teal-200">F / Clic der.</strong> acción/escudo
             </div>
 
             {/* Contextual Primary Action + Secondary Menu */}

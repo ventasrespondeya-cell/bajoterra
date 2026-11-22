@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Backpack,
+  BookOpen,
   ChevronUp,
   Compass,
   DoorOpen,
@@ -35,6 +36,7 @@ interface GameHUDProps {
   onOpenExpedition: () => void;
   onOpenHome: () => void;
   onOpenMap: () => void;
+  onOpenBabosapedia: () => void;
   onOpenPause: () => void;
   onToggleSound: () => void;
   onToggleMecha: () => void;
@@ -89,6 +91,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onOpenExpedition,
   onOpenHome,
   onOpenMap,
+  onOpenBabosapedia,
   onOpenPause,
   onToggleSound,
   onToggleMecha,
@@ -197,14 +200,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     >
       {/* TOP BAR: Compact Telemetry Left | Grouped Command Icons & Minimap Right */}
       <div className="flex items-start justify-between gap-1.5 sm:gap-2">
-        {/* Top-Left: Explorer Vital Telemetry */}
-        <div className="pointer-events-auto bt-hud-panel rounded-xl px-2 py-2 sm:px-3 flex-1 min-w-0 max-w-[172px] min-[420px]:max-w-[196px] sm:flex-none sm:w-[248px] sm:max-w-none">
-          <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold mb-1.5 gap-1.5">
+        {/* Top-Left: Clean Explorer Vital & Objective Card (no resource clutter) */}
+        <div className="pointer-events-auto bt-hud-panel rounded-xl px-2.5 py-2 sm:px-3 flex-1 min-w-0 max-w-[172px] min-[420px]:max-w-[196px] sm:flex-none sm:w-[244px] sm:max-w-none">
+          <div className="flex items-start justify-between text-[11px] sm:text-xs font-bold mb-1.5 gap-1.5">
             <div className="min-w-0">
-              <div className="text-white truncate">
+              <div className="text-white truncate leading-tight">
                 {snap.story?.currentScenarioName || biomeInfo.name}
               </div>
-              <div className="text-[10px] font-semibold truncate" style={{ color: biomeInfo.accent }}>
+              <div className="text-[10px] font-semibold truncate leading-tight" style={{ color: biomeInfo.accent }}>
                 {biomeInfo.name}
               </div>
             </div>
@@ -222,13 +225,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 style={{ width: `${hpPct}%` }}
               />
             </div>
-            <span className="tabular-nums text-slate-100 font-semibold w-11 text-right">
+            <span className="tabular-nums text-slate-100 font-semibold w-10 text-right">
               {Math.ceil(snap.player.hp)}/{snap.player.maxHp}
             </span>
           </div>
 
           {/* Stamina Gauge */}
-          <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] mb-1.5">
+          <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px]">
             <span className="w-5 text-amber-300 font-extrabold">EN</span>
             <div className="flex-1 h-1.5 bg-[#050b12] border border-white/10 rounded-full overflow-hidden">
               <div
@@ -236,29 +239,23 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 style={{ width: `${staminaPct}%` }}
               />
             </div>
-            <span className="tabular-nums text-slate-300 w-11 text-right">
+            <span className="tabular-nums text-slate-300 w-10 text-right">
               {Math.round(snap.player.stamina)}%
             </span>
           </div>
 
-          {/* Minimal Campaign & Supply Ticker */}
-          <div className="grid grid-cols-4 gap-1 text-[10px] text-slate-200 border-t border-cyan-400/15 pt-1 tabular-nums">
-            <span title="Fichas de Caverna">
-              <span className="text-amber-300 font-bold">Fch</span> {snap.cavernTokens}
-            </span>
-            <span title="Cilindros de Captura">
-              <span className="text-sky-300 font-bold">Cil</span> {snap.inventory.capsules}
-            </span>
-            <span title="Bayas">
-              <span className="text-emerald-300 font-bold">Bay</span> {snap.inventory.berries}
-            </span>
-            <span title="Capítulo Actual">
-              <span className="text-teal-300 font-bold">Cap</span> {snap.story.currentChapterOrder}/{snap.story.totalChapters}
-            </span>
-          </div>
+          {snap.mecha.unlocked && snap.mecha.active && (
+            <div className="mt-1.5 text-[10px] text-amber-300 font-bold flex items-center justify-between border-t border-cyan-400/15 pt-1">
+              <span className="flex items-center gap-1">
+                <Zap className="w-3 h-3 shrink-0" />
+                Meca M{snap.mecha.tier} activo
+              </span>
+              <span className="hidden sm:inline text-slate-400">[V]</span>
+            </div>
+          )}
 
           {snap.story && (
-            <div className="mt-1 text-[10px] text-amber-200/95 truncate border-t border-cyan-400/15 pt-1 flex items-center gap-1">
+            <div className="mt-1.5 text-[10px] text-amber-200/95 truncate border-t border-cyan-400/15 pt-1 flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-amber-300 shrink-0" />
               <span className="truncate">
                 Cap.{snap.story.currentChapterOrder} · {snap.story.mainObjectiveText}
@@ -267,14 +264,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           )}
         </div>
 
-        {/* Top-Right: Grouped Menu Access + Compact Minimap */}
-        <div className="pointer-events-auto flex flex-col items-end gap-2 shrink-0">
-          <div className="bt-hud-panel rounded-xl p-1 flex items-center gap-0.5 min-[420px]:gap-1">
+        {/* Top-Right: Direct 4-Pillar RPG Navigation + Mecha/Sound/Pause + Minimap */}
+        <div className="pointer-events-auto flex flex-col items-end gap-1.5 sm:gap-2 shrink-0">
+          <div className="bt-hud-panel rounded-xl p-1 flex flex-wrap sm:flex-nowrap items-center justify-end gap-0.5 min-[420px]:gap-1 max-w-[186px] sm:max-w-none">
             <button
               onClick={onOpenExpedition}
-              title="Campaña, Estuche y Babosas (I)"
-              aria-label="Campaña y Estuche"
-              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap"
+              title="Campaña, Misiones y Estuche (I)"
+              aria-label="Campaña"
+              className="bt-btn-secondary w-10 h-10 min-[420px]:w-11 min-[420px]:h-11 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap"
             >
               <Backpack className="w-4 h-4 text-amber-300" />
               <span className="hidden md:inline">Campaña</span>
@@ -282,18 +279,36 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <button
               onClick={onOpenHome}
               title="Hogar y Hábitats"
-              aria-label="Hogar y Hábitats"
-              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap"
+              aria-label="Hogar"
+              className="bt-btn-secondary w-10 h-10 min-[420px]:w-11 min-[420px]:h-11 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap"
             >
               <Home className="w-4 h-4 text-emerald-300" />
               <span className="hidden md:inline">Hogar</span>
             </button>
+            <button
+              onClick={onOpenMap}
+              title="Mapa del Mundo Subterráneo (M)"
+              aria-label="Mapa"
+              className="bt-btn-secondary w-10 h-10 min-[420px]:w-11 min-[420px]:h-11 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap"
+            >
+              <Compass className="w-4 h-4 text-cyan-300" />
+              <span className="hidden md:inline">Mapa</span>
+            </button>
+            <button
+              onClick={onOpenBabosapedia}
+              title="Babosapedia y Especies"
+              aria-label="Babosapedia"
+              className="bt-btn-secondary w-10 h-10 min-[420px]:w-11 min-[420px]:h-11 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap"
+            >
+              <BookOpen className="w-4 h-4 text-sky-300" />
+              <span className="hidden md:inline">Babosapedia</span>
+            </button>
             {snap.mecha.unlocked && (
               <button
                 onClick={onToggleMecha}
-                title={snap.mecha.active ? 'Desmontar Meca' : 'Montar Meca'}
+                title={snap.mecha.active ? 'Desmontar Meca (V)' : 'Montar Meca (V)'}
                 aria-label={snap.mecha.active ? 'Desmontar Meca' : 'Montar Meca'}
-                className={`w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap ${
+                className={`w-10 h-10 min-[420px]:w-11 min-[420px]:h-11 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap ${
                   snap.mecha.active ? 'bt-btn-amber' : 'bt-btn-secondary'
                 }`}
               >
@@ -302,19 +317,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               </button>
             )}
             <button
-              onClick={onOpenMap}
-              title="Mapa del subsuelo (M)"
-              aria-label="Mapa"
-              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 md:w-auto md:px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap"
-            >
-              <Compass className="w-4 h-4 text-cyan-300" />
-              <span className="hidden md:inline">Mapa</span>
-            </button>
-            <button
               onClick={onToggleSound}
               aria-label={snap.options.soundEnabled ? 'Silenciar sonido' : 'Activar sonido'}
               title={snap.options.soundEnabled ? 'Silenciar sonido' : 'Activar sonido'}
-              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 rounded-lg flex items-center justify-center cursor-pointer"
+              className="bt-btn-secondary w-10 h-10 min-[420px]:w-11 min-[420px]:h-11 rounded-lg flex items-center justify-center cursor-pointer"
             >
               {snap.options.soundEnabled ? (
                 <Volume2 className="w-4 h-4 text-teal-300" />
@@ -326,7 +332,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               onClick={onOpenPause}
               aria-label="Opciones y Pausa"
               title="Opciones y Pausa (Esc)"
-              className="bt-btn-secondary w-8 h-8 min-[420px]:w-9 min-[420px]:h-9 rounded-lg flex items-center justify-center cursor-pointer"
+              className="bt-btn-secondary w-10 h-10 min-[420px]:w-11 min-[420px]:h-11 rounded-lg flex items-center justify-center cursor-pointer"
             >
               <Pause className="w-4 h-4 text-slate-100" />
             </button>
@@ -481,6 +487,12 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   {HOTBAR_SLOTS.map((slot, idx) => {
                     const selected = snap.selectedHotbar === idx;
                     const qty = slot.itemKey ? snap.inventory[slot.itemKey] : null;
+                    const roleHint =
+                      slot.id === 'pulse'
+                        ? 'Escáner'
+                        : slot.id === 'berry'
+                        ? 'Curar equipo'
+                        : 'Recarga';
                     return (
                       <button
                         key={slot.id}
@@ -490,7 +502,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                           if (slot.id === 'pulse') onPulse();
                           setToolMenuOpen(false);
                         }}
-                        className={`relative flex flex-col items-center justify-center rounded-xl px-1 py-2 min-h-[58px] border cursor-pointer transition-colors ${
+                        className={`relative flex flex-col items-center justify-center rounded-xl px-1 py-2 min-h-[62px] border cursor-pointer transition-colors ${
                           selected
                             ? 'bg-teal-500/25 border-teal-300 text-white shadow-[0_0_12px_rgba(45,212,191,0.28)]'
                             : 'bt-btn-secondary border-slate-700/70'
@@ -500,11 +512,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                         <span className="text-[10px] font-bold mt-1 whitespace-nowrap">
                           {slot.label}
                         </span>
-                        {qty !== null && (
-                          <span className="text-[9px] font-extrabold text-amber-300 tabular-nums leading-none mt-0.5">
-                            {qty}
-                          </span>
-                        )}
+                        <span className="text-[9px] text-slate-300 leading-tight">
+                          {qty !== null ? `${roleHint} · ${qty}` : roleHint}
+                        </span>
                         {slot.id === 'pulse' && snap.pulseCooldownPct < 1 && (
                           <span
                             className="absolute inset-x-1 bottom-0.5 h-1 bg-teal-400/85 rounded-full"
@@ -563,7 +573,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 onAction();
               }}
               aria-label={`${ctxAction.label}: ${ctxAction.detail}`}
-              title={`${ctxAction.label} (${ctxAction.detail}) · E / Clic`}
+              title={`${ctxAction.label} (${ctxAction.detail}) · F / Clic`}
               className={`h-14 min-w-[116px] sm:min-w-[132px] px-3.5 rounded-2xl border flex items-center justify-center gap-2.5 cursor-pointer transition-all ${
                 ctxAction.canAct
                   ? ctxAction.kind === 'combat' || ctxAction.kind === 'open_chest'

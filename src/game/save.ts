@@ -32,12 +32,19 @@ import {
   normalizeSlugNickname,
 } from './progression';
 import {
+  LEGACY_CHAPTER_ID_MAP,
+  LEGACY_MISSION_ID_MAP,
   STORY_CHAPTERS_BY_ID,
   STORY_MISSIONS_BY_ID,
   STORY_ROUTES,
   STORY_SCENARIOS,
 } from './storyData';
-import { createInitialStoryState, migrateLegacyProgressToStory, reconcileStoryProgress } from './storyEngine';
+import {
+  createInitialStoryState,
+  migrateLegacyProgressToStory,
+  normalizeLegacyStorySchema,
+  reconcileStoryProgress,
+} from './storyEngine';
 import type { StoryChapterStatus, StoryMissionLifecycleState, StoryProgressState } from './storyTypes';
 import {
   TileType,
@@ -69,7 +76,7 @@ export const V3_SAVE_KEY = 'bajoterra-v2';
 export const V3_DB_NAME = 'BajoterraDB';
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024; // 2 MB limit to prevent browser freeze
 
-const VALID_BIOMES = new Set<BiomeId>(['Verdes', 'Magma', 'Heladas', 'Sombrias']);
+const VALID_BIOMES = new Set<BiomeId>(['Verdes', 'Acuaticas', 'Magma', 'Heladas', 'Cristalinas', 'Sombrias']);
 const VALID_POI_KINDS = new Set<POIKind>([
   'secret_chamber',
   'outpost',
@@ -105,7 +112,7 @@ const VALID_STAT_KEYS = new Set<string>([
   'megaUnlocked',
   'steps',
 ]);
-const MAX_TILE_ID = TileType.EVO_STONE_VEIN;
+const MAX_TILE_ID = TileType.CRYSTAL_SPIRE;
 const MAX_CHUNK_X = Math.ceil(WORLD_W / CHUNK_SIZE);
 const MAX_CHUNK_Y = Math.ceil(WORLD_H / CHUNK_SIZE);
 const IDB_TIMEOUT_MS = 4500;
@@ -1712,7 +1719,11 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     if (rs.schemaVersion !== undefined && rs.schemaVersion !== 1) {
       return { ok: false, error: 'Versión de esquema narrativo incompatible.' };
     }
-    if (typeof rs.currentChapterId !== 'string' || !VALID_CHAPTER_IDS.has(rs.currentChapterId)) {
+    const rawCurrentChapterId =
+      typeof rs.currentChapterId === 'string'
+        ? LEGACY_CHAPTER_ID_MAP[rs.currentChapterId] || rs.currentChapterId
+        : rs.currentChapterId;
+    if (typeof rawCurrentChapterId !== 'string' || !VALID_CHAPTER_IDS.has(rawCurrentChapterId)) {
       return { ok: false, error: 'Capítulo actual inválido en progreso narrativo.' };
     }
     if (typeof rs.currentScenarioId !== 'string' || !VALID_SCENARIO_IDS.has(rs.currentScenarioId)) {
@@ -1723,13 +1734,14 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     }
     const validChapterStates: Record<string, StoryChapterStatus> = {};
     for (const [cId, cStat] of Object.entries(rs.chapterStates)) {
-      if (!VALID_CHAPTER_IDS.has(cId)) {
+      const mappedChId = LEGACY_CHAPTER_ID_MAP[cId] || cId;
+      if (!VALID_CHAPTER_IDS.has(mappedChId)) {
         return { ok: false, error: `Capítulo desconocido en guardado: ${cId}.` };
       }
       if (typeof cStat !== 'string' || !VALID_CHAPTER_STATUSES.has(cStat as StoryChapterStatus)) {
         return { ok: false, error: `Estado inválido para capítulo ${cId}.` };
       }
-      validChapterStates[cId] = cStat as StoryChapterStatus;
+      validChapterStates[mappedChId] = cStat as StoryChapterStatus;
     }
 
     if (!isPlainObject(rs.missionStates)) {
@@ -1737,19 +1749,21 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     }
     const validMissionStates: Record<string, StoryMissionLifecycleState> = {};
     for (const [mId, mStat] of Object.entries(rs.missionStates)) {
-      if (!VALID_STORY_MISSION_IDS.has(mId)) {
+      const mappedMissionId = LEGACY_MISSION_ID_MAP[mId] || mId;
+      if (!VALID_STORY_MISSION_IDS.has(mappedMissionId)) {
         return { ok: false, error: `Misión narrativa desconocida en guardado: ${mId}.` };
       }
       if (typeof mStat !== 'string' || !VALID_MISSION_STATUSES.has(mStat as StoryMissionLifecycleState)) {
         return { ok: false, error: `Estado inválido para misión narrativa ${mId}.` };
       }
-      validMissionStates[mId] = mStat as StoryMissionLifecycleState;
+      validMissionStates[mappedMissionId] = mStat as StoryMissionLifecycleState;
     }
 
     const validateStringIdList = (
       val: unknown,
       label: string,
-      allowedSet: Set<string> | null
+      allowedSet: Set<string> | null,
+      legacyMap?: Record<string, string>
     ): ValidationResult<string[]> => {
       if (val === undefined) return { ok: true, value: [] };
       if (!Array.isArray(val) || val.length > 500) {
@@ -1761,14 +1775,15 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
         if (typeof item !== 'string' || item.trim().length === 0) {
           return { ok: false, error: `Entrada inválida en story.${label}.` };
         }
-        if (allowedSet && !allowedSet.has(item)) {
+        const mapped = legacyMap?.[item] || item;
+        if (allowedSet && !allowedSet.has(mapped)) {
           return { ok: false, error: `ID desconocido en story.${label}: ${item}.` };
         }
-        if (seen.has(item)) {
+        if (seen.has(mapped)) {
           return { ok: false, error: `ID duplicado en story.${label}: ${item}.` };
         }
-        seen.add(item);
-        out.push(item);
+        seen.add(mapped);
+        out.push(mapped);
       }
       return { ok: true, value: out };
     };
@@ -1781,9 +1796,19 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     if (!uRouteRes.ok || !uRouteRes.value) return { ok: false, error: uRouteRes.error };
     const evRes = validateStringIdList(rs.completedEvents, 'completedEvents', null);
     if (!evRes.ok || !evRes.value) return { ok: false, error: evRes.error };
-    const cChRes = validateStringIdList(rs.claimedChapterRewards, 'claimedChapterRewards', VALID_CHAPTER_IDS);
+    const cChRes = validateStringIdList(
+      rs.claimedChapterRewards,
+      'claimedChapterRewards',
+      VALID_CHAPTER_IDS,
+      LEGACY_CHAPTER_ID_MAP
+    );
     if (!cChRes.ok || !cChRes.value) return { ok: false, error: cChRes.error };
-    const cMisRes = validateStringIdList(rs.claimedMissionRewards, 'claimedMissionRewards', VALID_STORY_MISSION_IDS);
+    const cMisRes = validateStringIdList(
+      rs.claimedMissionRewards,
+      'claimedMissionRewards',
+      VALID_STORY_MISSION_IDS,
+      LEGACY_MISSION_ID_MAP
+    );
     if (!cMisRes.ok || !cMisRes.value) return { ok: false, error: cMisRes.error };
 
     const validFlags: Record<string, boolean> = {};
@@ -1822,9 +1847,9 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
       }
     }
 
-    validStory = {
+    validStory = normalizeLegacyStorySchema({
       schemaVersion: 1,
-      currentChapterId: rs.currentChapterId,
+      currentChapterId: rawCurrentChapterId,
       currentScenarioId: rs.currentScenarioId,
       chapterStates: validChapterStates,
       missionStates: validMissionStates,
@@ -1836,7 +1861,7 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
       claimedChapterRewards: cChRes.value,
       claimedMissionRewards: cMisRes.value,
       scenarioPositions: validScenarioPositions,
-    };
+    });
   }
 
   assembledBaseState.story = validStory;

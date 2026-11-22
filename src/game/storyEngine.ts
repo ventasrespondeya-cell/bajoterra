@@ -1,6 +1,8 @@
 import {
   INITIAL_CHAPTER_ID,
   INITIAL_SCENARIO_ID,
+  LEGACY_CHAPTER_ID_MAP,
+  LEGACY_MISSION_ID_MAP,
   MEGAMORPH_NARRATIVE_FLAG,
   MEGAMORPH_REQUIRED_CHAPTER_ID,
   STORY_CHAPTERS,
@@ -67,6 +69,77 @@ export function createInitialStoryState(): StoryProgressState {
   };
 }
 
+export function normalizeLegacyStorySchema(s: StoryProgressState): StoryProgressState {
+  const rawChapterKeys = Object.keys(s.chapterStates || {});
+  const hadLegacyChapterIds =
+    Boolean(LEGACY_CHAPTER_ID_MAP[s.currentChapterId]) ||
+    rawChapterKeys.some((id) => id in LEGACY_CHAPTER_ID_MAP) ||
+    (rawChapterKeys.length > 0 &&
+      (!('cap_04_secretos_profundidades' in (s.chapterStates || {})) ||
+        !('cap_06_misterio_cristalino' in (s.chapterStates || {}))));
+
+  if (LEGACY_CHAPTER_ID_MAP[s.currentChapterId]) {
+    s.currentChapterId = LEGACY_CHAPTER_ID_MAP[s.currentChapterId];
+  }
+  const remappedChapters: Record<string, StoryChapterStatus> = {};
+  for (const [cId, st] of Object.entries(s.chapterStates || {})) {
+    const mapped = LEGACY_CHAPTER_ID_MAP[cId] || cId;
+    remappedChapters[mapped] = st;
+  }
+  s.chapterStates = remappedChapters;
+
+  const remappedMissions: Record<string, StoryMissionLifecycleState> = {};
+  for (const [mId, st] of Object.entries(s.missionStates || {})) {
+    const mapped = LEGACY_MISSION_ID_MAP[mId] || mId;
+    remappedMissions[mapped] = st;
+  }
+  s.missionStates = remappedMissions;
+
+  if (Array.isArray(s.claimedChapterRewards)) {
+    s.claimedChapterRewards = Array.from(
+      new Set(s.claimedChapterRewards.map((id) => LEGACY_CHAPTER_ID_MAP[id] || id))
+    );
+  }
+  if (Array.isArray(s.claimedMissionRewards)) {
+    s.claimedMissionRewards = Array.from(
+      new Set(s.claimedMissionRewards.map((id) => LEGACY_MISSION_ID_MAP[id] || id))
+    );
+  }
+
+  // Only when migrating a legacy 6-chapter save that already progressed past newly inserted chapters (4 or 6)
+  if (hadLegacyChapterIds) {
+    let highestProgressOrder = 1;
+    for (const ch of SORTED_CHAPTERS) {
+      const st = s.chapterStates[ch.id];
+      if (st === 'active' || st === 'completed') {
+        highestProgressOrder = Math.max(highestProgressOrder, ch.order);
+      }
+    }
+    for (const ch of SORTED_CHAPTERS) {
+      if (ch.order < highestProgressOrder && (!s.chapterStates[ch.id] || s.chapterStates[ch.id] === 'locked')) {
+        s.chapterStates[ch.id] = 'completed';
+        pushUnique(s.unlockedScenarioIds, ch.entryScenarioId);
+        for (const scId of ch.scenarioIds) pushUnique(s.unlockedScenarioIds, scId);
+        for (const rId of ch.routeIds) pushUnique(s.unlockedRouteIds, rId);
+        if (ch.rewards.unlockRouteIds) {
+          for (const rId of ch.rewards.unlockRouteIds) pushUnique(s.unlockedRouteIds, rId);
+        }
+        if (ch.rewards.unlockScenarioIds) {
+          for (const scId of ch.rewards.unlockScenarioIds) pushUnique(s.unlockedScenarioIds, scId);
+        }
+        for (const mId of ch.missionIds) {
+          const m = STORY_MISSIONS_BY_ID[mId];
+          if (m && !m.optional) {
+            s.missionStates[mId] = 'completed';
+            pushUnique(s.claimedMissionRewards, mId);
+          }
+        }
+      }
+    }
+  }
+  return s;
+}
+
 export function ensureStoryState(state: GameState): StoryProgressState {
   if (!state.story) {
     state.story = createInitialStoryState();
@@ -84,6 +157,8 @@ export function ensureStoryState(state: GameState): StoryProgressState {
   if (!Array.isArray(s.claimedChapterRewards)) s.claimedChapterRewards = [];
   if (!Array.isArray(s.claimedMissionRewards)) s.claimedMissionRewards = [];
   if (!s.scenarioPositions || typeof s.scenarioPositions !== 'object') s.scenarioPositions = {};
+
+  normalizeLegacyStorySchema(s);
 
   for (const ch of SORTED_CHAPTERS) {
     if (!s.chapterStates[ch.id]) {
@@ -839,7 +914,7 @@ export function isMegamorphNarrativelyUnlocked(
   state: Pick<GameState, 'story'>
 ): { unlocked: boolean; reason: string; requiredChapterTitle: string } {
   const megaChapter = STORY_CHAPTERS_BY_ID[MEGAMORPH_REQUIRED_CHAPTER_ID];
-  const requiredChapterTitle = megaChapter ? megaChapter.title : 'Capítulo 5 · El Secreto Megamorph';
+  const requiredChapterTitle = megaChapter ? megaChapter.title : 'Capítulo 7 · El Secreto Megamorph';
   const story = state?.story;
   if (!story) {
     return {
@@ -898,7 +973,7 @@ export function migrateLegacyProgressToStory(state: GameState): StoryProgressSta
       }
     }
 
-    // Legacy V3/V4 edge cases where chapter 3 or 5 had no legacyQuestId:
+    // Legacy V3/V4 edge cases where intermediate chapters had no legacyQuestId:
     // infer completion only if downstream legacy evidence proves player already reached later chapters OR already unlocked Megamorph
     if (ch.id === 'cap_03_sombra_agua_oscura') {
       const alreadyPassedCap3 =
@@ -913,11 +988,36 @@ export function migrateLegacyProgressToStory(state: GameState): StoryProgressSta
       }
     }
 
-    if (ch.id === 'cap_05_acelerador_megamorph') {
+    if (ch.id === 'cap_04_secretos_profundidades') {
+      const alreadyPassedCap4 =
+        claimed.has('q_main_3') ||
+        claimed.has('q_main_4') ||
+        state.defeatedBosses?.includes('boss_aquatic');
+      if (alreadyPassedCap4) {
+        story.missionStates['m_cap4_mareas_profundas'] = 'completed';
+        pushUnique(story.claimedMissionRewards, 'm_cap4_mareas_profundas');
+        pushUnique(story.unlockedScenarioIds, 'esc_gruta_acuatica');
+      }
+    }
+
+    if (ch.id === 'cap_06_misterio_cristalino') {
+      const alreadyPassedCap6 =
+        claimed.has('q_side_5') ||
+        claimed.has('q_main_4') ||
+        (state.stats?.megaUnlocked ?? 0) >= 1 ||
+        state.defeatedBosses?.includes('boss_crystal');
+      if (alreadyPassedCap6) {
+        story.missionStates['m_cap6_misterio_cristalino'] = 'completed';
+        pushUnique(story.claimedMissionRewards, 'm_cap6_misterio_cristalino');
+        pushUnique(story.unlockedScenarioIds, 'esc_templo_cristalino');
+      }
+    }
+
+    if (ch.id === 'cap_07_acelerador_megamorph') {
       const alreadyHasMega = (state.stats?.megaUnlocked ?? 0) >= 1 || claimed.has('q_side_5') || claimed.has('q_main_4');
       if (alreadyHasMega && (state.defeatedBosses?.length ?? 0) >= 1) {
-        story.missionStates['m_cap5_acelerador'] = 'completed';
-        pushUnique(story.claimedMissionRewards, 'm_cap5_acelerador');
+        story.missionStates['m_cap7_acelerador'] = 'completed';
+        pushUnique(story.claimedMissionRewards, 'm_cap7_acelerador');
         story.storyFlags[MEGAMORPH_NARRATIVE_FLAG] = true;
       }
     }
@@ -1037,7 +1137,7 @@ export function buildStoryHudSummary(state: GameState, recentChapterAlert: strin
     null;
 
   const postGameUnlocked =
-    story.chapterStates['cap_06_ciudadela_blakk'] === 'completed' ||
+    story.chapterStates['cap_08_ciudadela_blakk'] === 'completed' ||
     Boolean(story.storyFlags['postgame_unlocked']);
 
   return {

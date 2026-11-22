@@ -923,7 +923,15 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
           <path d="M9.6 19.6 L22.4 19.6 M10.6 22.8 L21.4 22.8" stroke="#451a03" strokeWidth="1.05" strokeLinecap="round" />
         )}
 
-        {/* Expressive Eyes & Brows (Hidden during silhouette check) */}
+        {/* Ghoul / Shadow corruption markings & veins (Ref 2 stark contrast) */}
+        {!silhouette && (speciesId === 'darkfurnus' || speciesId === 'umbrospect') && (
+          <g>
+            <path d="M11.8 11.4 L13.4 12.9 M20.2 11.4 L18.6 12.9" stroke="#ef4444" strokeWidth="0.95" strokeLinecap="round" />
+            <path d="M11.6 19.6 L13.6 20.6 L12.4 22.0 M20.4 19.6 L18.4 20.6 L19.6 22.0" fill="none" stroke="#991b1b" strokeWidth="0.85" strokeLinecap="round" />
+          </g>
+        )}
+
+        {/* Expressive Eyes & Brows (Ref 2 fidelity, hidden during silhouette check) */}
         {!silhouette && (
           <>
             {mood === 'sleep' || mood === 'rest' ? (
@@ -946,17 +954,17 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
             ) : mood === 'happy' || mood === 'victory' ? (
               <g>
                 <path
-                  d={`M${lx - 1.3} ${ly + 0.4} Q${lx} ${ly - 1.5} ${lx + 1.3} ${ly + 0.4}`}
+                  d={`M${lx - 1.4} ${ly + 0.45} Q${lx} ${ly - 1.7} ${lx + 1.4} ${ly + 0.45}`}
                   fill="none"
-                  stroke={irisColor}
-                  strokeWidth="1.55"
+                  stroke={isShadowType ? '#ef4444' : irisColor}
+                  strokeWidth="1.65"
                   strokeLinecap="round"
                 />
                 <path
-                  d={`M${rx - 1.3} ${ry + 0.4} Q${rx} ${ry - 1.5} ${rx + 1.3} ${ry + 0.4}`}
+                  d={`M${rx - 1.4} ${ry + 0.45} Q${rx} ${ry - 1.7} ${rx + 1.4} ${ry + 0.45}`}
                   fill="none"
-                  stroke={irisColor}
-                  strokeWidth="1.55"
+                  stroke={isShadowType ? '#ef4444' : irisColor}
+                  strokeWidth="1.65"
                   strokeLinecap="round"
                 />
               </g>
@@ -965,59 +973,88 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
                 <g className={canSaccade ? 'bt-part-eye-saccade' : ''}>
                   {sheet.eyeStyle === 'heavy_amber_slit' || sheet.eyeStyle === 'stoic_brow' ? (
                     <>
-                      <ellipse cx={lx} cy={ly} rx="1.55" ry="1.0" fill="#fde047" stroke="#060c14" strokeWidth="0.7" />
-                      <ellipse cx={rx} cy={ry} rx="1.55" ry="1.0" fill="#fde047" stroke="#060c14" strokeWidth="0.7" />
-                      <line x1={lx} y1={ly - 0.75} x2={lx} y2={ly + 0.75} stroke="#060c14" strokeWidth="0.85" strokeLinecap="round" />
-                      <line x1={rx} y1={ry - 0.75} x2={rx} y2={ry + 0.75} stroke="#060c14" strokeWidth="0.85" strokeLinecap="round" />
-                      <line x1={lx - 1.8} y1={ly - 1.4} x2={lx + 1.5} y2={ly - 0.75} stroke="#060c14" strokeWidth="1.35" strokeLinecap="round" />
-                      <line x1={rx + 1.8} y1={ry - 1.4} x2={rx - 1.5} y2={ry - 0.75} stroke="#060c14" strokeWidth="1.35" strokeLinecap="round" />
+                      <ellipse cx={lx} cy={ly} rx="1.65" ry="1.08" fill="#fde047" stroke="#060c14" strokeWidth="0.72" />
+                      <ellipse cx={rx} cy={ry} rx="1.65" ry="1.08" fill="#fde047" stroke="#060c14" strokeWidth="0.72" />
+                      <line x1={lx} y1={ly - 0.78} x2={lx} y2={ly + 0.78} stroke="#060c14" strokeWidth="0.9" strokeLinecap="round" />
+                      <line x1={rx} y1={ry - 0.78} x2={rx} y2={ry + 0.78} stroke="#060c14" strokeWidth="0.9" strokeLinecap="round" />
+                      <circle cx={lx - 0.55} cy={ly - 0.35} r="0.35" fill="#ffffff" />
+                      <circle cx={rx - 0.55} cy={ry - 0.35} r="0.35" fill="#ffffff" />
+                      <line x1={lx - 1.85} y1={ly - 1.45} x2={lx + 1.55} y2={ly - 0.75} stroke="#060c14" strokeWidth="1.38" strokeLinecap="round" />
+                      <line x1={rx + 1.85} y1={ry - 1.45} x2={rx - 1.55} y2={ry - 0.75} stroke="#060c14" strokeWidth="1.38" strokeLinecap="round" />
                     </>
                   ) : sheet.eyeStyle === 'wide_hyper_spark' ? (
                     <>
-                      <circle cx={lx} cy={ly} r="1.8" fill="#ffffff" stroke="#060c14" strokeWidth="0.72" />
-                      <circle cx={rx} cy={ry} r="1.8" fill="#ffffff" stroke="#060c14" strokeWidth="0.72" />
-                      <circle cx={lx + 0.28} cy={ly} r="1.05" fill="#0ea5e9" stroke="#060c14" strokeWidth="0.35" />
-                      <circle cx={rx - 0.28} cy={ry} r="1.05" fill="#0ea5e9" stroke="#060c14" strokeWidth="0.35" />
-                      <circle cx={lx + 0.3} cy={ly + 0.05} r="0.55" fill="#060c14" />
-                      <circle cx={rx - 0.3} cy={ry + 0.05} r="0.55" fill="#060c14" />
-                      <circle cx={lx - 0.42} cy={ly - 0.6} r="0.58" fill="#ffffff" />
-                      <circle cx={rx - 0.42} cy={ry - 0.6} r="0.58" fill="#ffffff" />
+                      <circle cx={lx} cy={ly} r="1.95" fill="#ffffff" stroke="#060c14" strokeWidth="0.75" />
+                      <circle cx={rx} cy={ry} r="1.95" fill="#ffffff" stroke="#060c14" strokeWidth="0.75" />
+                      <circle cx={lx + 0.25} cy={ly} r="1.15" fill="#0ea5e9" stroke="#060c14" strokeWidth="0.35" />
+                      <circle cx={rx - 0.25} cy={ry} r="1.15" fill="#0ea5e9" stroke="#060c14" strokeWidth="0.35" />
+                      <circle cx={lx + 0.3} cy={ly + 0.05} r="0.58" fill="#060c14" />
+                      <circle cx={rx - 0.3} cy={ry + 0.05} r="0.58" fill="#060c14" />
+                      <circle cx={lx - 0.52} cy={ly - 0.65} r="0.62" fill="#ffffff" />
+                      <circle cx={rx - 0.52} cy={ry - 0.65} r="0.62" fill="#ffffff" />
+                      <circle cx={lx + 0.55} cy={ly + 0.6} r="0.32" fill="#ffffff" />
+                      <circle cx={rx + 0.55} cy={ry + 0.6} r="0.32" fill="#ffffff" />
+                    </>
+                  ) : isShadowType ? (
+                    <>
+                      {/* Ghoul/Shadow stark red-iris glare on dark sclera (Ref 2) */}
+                      <ellipse cx={lx} cy={ly} rx="1.55" ry="1.32" fill="#1b0726" stroke="#060c14" strokeWidth="0.7" />
+                      <ellipse cx={rx} cy={ry} rx="1.55" ry="1.32" fill="#1b0726" stroke="#060c14" strokeWidth="0.7" />
+                      <circle cx={lx + 0.1} cy={ly + 0.1} r="0.92" fill="#ef4444" />
+                      <circle cx={rx - 0.1} cy={ry + 0.1} r="0.92" fill="#ef4444" />
+                      <circle cx={lx + 0.1} cy={ly + 0.1} r="0.4" fill="#fef08a" />
+                      <circle cx={rx - 0.1} cy={ry + 0.1} r="0.4" fill="#fef08a" />
+                      <circle cx={lx - 0.45} cy={ly - 0.45} r="0.4" fill="#ffffff" />
+                      <circle cx={rx - 0.45} cy={ry - 0.45} r="0.4" fill="#ffffff" />
+                      <line x1={lx - 1.75} y1={ly - 1.65} x2={lx + 1.4} y2={ly - 0.75} stroke="#060c14" strokeWidth="1.3" strokeLinecap="round" />
+                      <line x1={rx + 1.75} y1={ry - 1.65} x2={rx - 1.4} y2={ry - 0.75} stroke="#060c14" strokeWidth="1.3" strokeLinecap="round" />
                     </>
                   ) : (
                     <>
+                      {/* Large expressive anime sclera + colored iris + dual specular catchlights */}
                       <ellipse
                         cx={lx}
                         cy={ly}
-                        rx="1.32"
-                        ry={sheet.eyeStyle === 'determined_slanted' || sheet.eyeStyle === 'fierce_glowing' ? '1.45' : '1.52'}
-                        fill={speciesId === 'infurnus' ? '#0b1019' : irisColor}
-                        stroke={isShadowType ? '#060c14' : 'none'}
-                        strokeWidth="0.5"
+                        rx="1.52"
+                        ry="1.65"
+                        fill="#ffffff"
+                        stroke="#060c14"
+                        strokeWidth="0.62"
                       />
                       <ellipse
                         cx={rx}
                         cy={ry}
-                        rx="1.32"
-                        ry={sheet.eyeStyle === 'determined_slanted' || sheet.eyeStyle === 'fierce_glowing' ? '1.45' : '1.52'}
-                        fill={speciesId === 'infurnus' ? '#0b1019' : irisColor}
-                        stroke={isShadowType ? '#060c14' : 'none'}
-                        strokeWidth="0.5"
+                        rx="1.52"
+                        ry="1.65"
+                        fill="#ffffff"
+                        stroke="#060c14"
+                        strokeWidth="0.62"
                       />
-                      {speciesId === 'infurnus' && (
-                        <>
-                          <circle cx={lx + 0.15} cy={ly + 0.2} r="0.52" fill="#f97316" />
-                          <circle cx={rx - 0.15} cy={ry + 0.2} r="0.52" fill="#f97316" />
-                        </>
-                      )}
-                      <circle cx={lx - 0.42} cy={ly - 0.52} r="0.55" fill="#ffffff" />
-                      <circle cx={rx - 0.42} cy={ry - 0.52} r="0.55" fill="#ffffff" />
+                      <circle
+                        cx={lx + 0.1}
+                        cy={ly + 0.12}
+                        r="0.96"
+                        fill={speciesId === 'infurnus' ? '#ea580c' : irisColor}
+                      />
+                      <circle
+                        cx={rx - 0.1}
+                        cy={ry + 0.12}
+                        r="0.96"
+                        fill={speciesId === 'infurnus' ? '#ea580c' : irisColor}
+                      />
+                      <circle cx={lx + 0.1} cy={ly + 0.12} r="0.52" fill="#090d16" />
+                      <circle cx={rx - 0.1} cy={ry + 0.12} r="0.52" fill="#090d16" />
+                      <circle cx={lx - 0.45} cy={ly - 0.55} r="0.52" fill="#ffffff" />
+                      <circle cx={rx - 0.45} cy={ry - 0.55} r="0.52" fill="#ffffff" />
+                      <circle cx={lx + 0.45} cy={ly + 0.55} r="0.28" fill="#ffffff" />
+                      <circle cx={rx + 0.45} cy={ry + 0.55} r="0.28" fill="#ffffff" />
                       {(isActiveEnergy ||
                         sheet.eyeStyle === 'determined_slanted' ||
                         sheet.eyeStyle === 'fierce_glowing' ||
                         sheet.eyeStyle === 'sly_angular') && (
                         <>
-                          <line x1={lx - 1.6} y1={ly - 1.85} x2={lx + 1.3} y2={ly - 1.05} stroke="#060c14" strokeWidth="1.2" strokeLinecap="round" />
-                          <line x1={rx + 1.6} y1={ry - 1.85} x2={rx - 1.3} y2={ry - 1.05} stroke="#060c14" strokeWidth="1.2" strokeLinecap="round" />
+                          <line x1={lx - 1.65} y1={ly - 1.95} x2={lx + 1.35} y2={ly - 1.05} stroke="#060c14" strokeWidth="1.25" strokeLinecap="round" />
+                          <line x1={rx + 1.65} y1={ry - 1.95} x2={rx - 1.35} y2={ry - 1.05} stroke="#060c14" strokeWidth="1.25" strokeLinecap="round" />
                         </>
                       )}
                     </>
@@ -1026,47 +1063,65 @@ export const SlugPortrait: React.FC<SlugPortraitProps> = ({
               </g>
             )}
 
-            {/* Expressive Mouth (Distinct by species & mood) */}
+            {/* Expressive Mouth (Distinct by species & mood, with Ref 2 fangs/tooth grins) */}
             {mood !== 'sleep' && mood !== 'rest' && mood !== 'ko' && speciesId !== 'aquabeak' && (
               <g>
-                {mood === 'eat' ||
-                mood === 'happy' ||
-                mood === 'play' ||
-                mood === 'victory' ||
-                mood === 'attack' ||
-                mood === 'fire' ||
-                mood === 'flight' ||
-                sheet.mouthStyle === 'cheerful_open' ? (
+                {speciesId === 'darkfurnus' || speciesId === 'umbrospect' ? (
                   <g>
                     <path
-                      d={`M14.2 ${geo.mouthY - 0.2} Q16 ${geo.mouthY + 2.0} 17.8 ${geo.mouthY - 0.2} Z`}
+                      d={`M13.2 ${geo.mouthY - 0.4} Q16 ${geo.mouthY + 2.4} 18.8 ${geo.mouthY - 0.4} Q16 ${geo.mouthY + 0.6} 13.2 ${geo.mouthY - 0.4} Z`}
+                      fill="#18051a"
+                      stroke="#060c14"
+                      strokeWidth="0.7"
+                    />
+                    <polygon points={`13.8,${geo.mouthY} 14.5,${geo.mouthY + 0.2} 14.15,${geo.mouthY + 1.25}`} fill="#ffffff" />
+                    <polygon points={`15.3,${geo.mouthY + 0.3} 16.0,${geo.mouthY + 0.35} 15.65,${geo.mouthY + 1.35}`} fill="#ffffff" />
+                    <polygon points={`16.5,${geo.mouthY + 0.3} 17.2,${geo.mouthY + 0.25} 16.85,${geo.mouthY + 1.3}`} fill="#ffffff" />
+                    <polygon points={`17.6,${geo.mouthY} 18.3,${geo.mouthY - 0.1} 17.95,${geo.mouthY + 1.1}`} fill="#ffffff" />
+                  </g>
+                ) : mood === 'eat' ||
+                  mood === 'happy' ||
+                  mood === 'play' ||
+                  mood === 'victory' ||
+                  mood === 'attack' ||
+                  mood === 'fire' ||
+                  mood === 'flight' ||
+                  sheet.mouthStyle === 'cheerful_open' ? (
+                  <g>
+                    <path
+                      d={`M13.9 ${geo.mouthY - 0.3} Q16 ${geo.mouthY + 2.2} 18.1 ${geo.mouthY - 0.3} Z`}
                       fill="#450a0a"
                       stroke="#060c14"
                       strokeWidth="0.72"
                     />
-                    {speciesId === 'infurnus' && (
-                      <polygon points={`16.9,${geo.mouthY} 17.5,${geo.mouthY} 17.2,${geo.mouthY + 0.85}`} fill="#ffffff" />
+                    <path d={`M14.5 ${geo.mouthY - 0.15} L17.5 ${geo.mouthY - 0.15}`} stroke="#ffffff" strokeWidth="0.65" strokeLinecap="round" />
+                    {(speciesId === 'infurnus' || isActiveEnergy) && (
+                      <polygon points={`16.9,${geo.mouthY} 17.6,${geo.mouthY} 17.25,${geo.mouthY + 0.95}`} fill="#ffffff" />
                     )}
                   </g>
                 ) : sheet.mouthStyle === 'armored_jaw' || sheet.mouthStyle === 'fierce_scowl' ? (
-                  <path
-                    d={`M13.5 ${geo.mouthY + 0.55} L15.0 ${geo.mouthY - 0.35} L17.0 ${geo.mouthY - 0.35} L18.5 ${geo.mouthY + 0.55}`}
-                    fill="none"
-                    stroke="#060c14"
-                    strokeWidth="1.15"
-                    strokeLinecap="round"
-                  />
+                  <g>
+                    <path
+                      d={`M13.5 ${geo.mouthY + 0.55} L15.0 ${geo.mouthY - 0.35} L17.0 ${geo.mouthY - 0.35} L18.5 ${geo.mouthY + 0.55}`}
+                      fill="none"
+                      stroke="#060c14"
+                      strokeWidth="1.15"
+                      strokeLinecap="round"
+                    />
+                    <polygon points={`14.2,${geo.mouthY + 0.25} 14.8,${geo.mouthY - 0.1} 14.6,${geo.mouthY - 0.8}`} fill="#ffffff" />
+                    <polygon points={`17.8,${geo.mouthY + 0.25} 17.2,${geo.mouthY - 0.1} 17.4,${geo.mouthY - 0.8}`} fill="#ffffff" />
+                  </g>
                 ) : sheet.mouthStyle === 'fang_grin' ? (
                   <g>
-                    <path d={`M14.1 ${geo.mouthY + 0.1} Q16 ${geo.mouthY + 1.2} 18.1 ${geo.mouthY - 0.35}`} fill="none" stroke="#060c14" strokeWidth="1.0" strokeLinecap="round" />
-                    <polygon points={`17.0,${geo.mouthY + 0.1} 17.7,${geo.mouthY + 0.1} 17.35,${geo.mouthY + 1.05}`} fill="#ffffff" />
+                    <path d={`M14.0 ${geo.mouthY + 0.1} Q16 ${geo.mouthY + 1.3} 18.2 ${geo.mouthY - 0.35}`} fill="none" stroke="#060c14" strokeWidth="1.05" strokeLinecap="round" />
+                    <polygon points={`16.9,${geo.mouthY + 0.1} 17.7,${geo.mouthY + 0.1} 17.3,${geo.mouthY + 1.15}`} fill="#ffffff" />
                   </g>
                 ) : (
                   <path
-                    d={`M14.7 ${geo.mouthY} Q16 ${geo.mouthY + 1.1} 17.3 ${geo.mouthY}`}
+                    d={`M14.7 ${geo.mouthY} Q16 ${geo.mouthY + 1.15} 17.3 ${geo.mouthY}`}
                     fill="none"
                     stroke="#060c14"
-                    strokeWidth="0.9"
+                    strokeWidth="0.92"
                     strokeLinecap="round"
                   />
                 )}

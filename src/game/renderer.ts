@@ -172,6 +172,14 @@ export class WorldRenderer {
         ? Math.random() < 0.5
           ? '#bae6fd'
           : '#ffffff'
+        : biome === 'Acuaticas'
+        ? Math.random() < 0.5
+          ? '#22d3ee'
+          : '#a5f3fc'
+        : biome === 'Cristalinas'
+        ? Math.random() < 0.5
+          ? '#a78bfa'
+          : '#67e8f9'
         : biome === 'Sombrias'
         ? Math.random() < 0.5
           ? '#c084fc'
@@ -193,6 +201,8 @@ export class WorldRenderer {
               ? -20 - Math.random() * 16
               : biome === 'Heladas'
               ? 14 + Math.random() * 14
+              : biome === 'Acuaticas'
+              ? -14 - Math.random() * 10
               : -6 - Math.random() * 10;
           p.life = 0;
           p.maxLife = 1.6 + Math.random() * 1.5;
@@ -259,20 +269,51 @@ export class WorldRenderer {
       for (let tx = x0; tx <= x1; tx++) {
         const tile = chunks.getTile(tx, ty);
         const biome = getBiomeAt(tx, ty, state.worldSeed);
-        const variant = ((tx * 73856093) ^ (ty * 19349663)) & 3;
+        const hash = ((tx * 73856093) ^ (ty * 19349663) ^ (state.worldSeed * 83492791)) >>> 0;
+        const variant = hash & 3;
         const sx = tx * TILE_PX - ox;
         const sy = ty * TILE_PX - oy;
 
         const sprite = sprites.getTileSprite(tile, biome, variant);
         ctx.drawImage(sprite, sx, sy);
 
-        // 2.5D Wall Drop-Shadow onto floor tile directly below solid rock/wall
-        if (!isOpaqueWallTile(tile) && ty > 0 && isOpaqueWallTile(chunks.getTile(tx, ty - 1))) {
-          ctx.fillStyle = 'rgba(2, 6, 12, 0.34)';
-          ctx.fillRect(sx, sy, TILE_PX, 5);
+        // Deterministic micro-details on plain open floors so corridors feel hand-dressed
+        if (tile === TileType.FLOOR && (hash & 7) === 0) {
+          ctx.fillStyle =
+            biome === 'Magma'
+              ? 'rgba(251, 146, 60, 0.14)'
+              : biome === 'Heladas'
+              ? 'rgba(186, 230, 253, 0.18)'
+              : biome === 'Acuaticas'
+              ? 'rgba(34, 211, 238, 0.18)'
+              : biome === 'Cristalinas'
+              ? 'rgba(167, 139, 250, 0.2)'
+              : biome === 'Sombrias'
+              ? 'rgba(192, 132, 252, 0.15)'
+              : 'rgba(110, 231, 183, 0.16)';
+          const pxOff = 4 + ((hash >> 3) % 16);
+          const pyOff = 5 + ((hash >> 7) % 15);
+          ctx.fillRect(sx + pxOff, sy + pyOff, 3, 2);
+          ctx.fillRect(sx + pxOff + 4, sy + pyOff + 2, 2, 2);
         }
 
-        // Animated shimmer on crystals, water, lava, torches, recharge stations
+        // 2.5D Wall Drop-Shadows & South-Face Bevel Rim
+        const isWallHere = isOpaqueWallTile(tile);
+        if (!isWallHere) {
+          if (ty > 0 && isOpaqueWallTile(chunks.getTile(tx, ty - 1))) {
+            ctx.fillStyle = 'rgba(2, 6, 12, 0.36)';
+            ctx.fillRect(sx, sy, TILE_PX, 5);
+          }
+          if (tx > 0 && isOpaqueWallTile(chunks.getTile(tx - 1, ty))) {
+            ctx.fillStyle = 'rgba(2, 6, 12, 0.2)';
+            ctx.fillRect(sx, sy, 3, TILE_PX);
+          }
+        } else if (ty + 1 < WORLD_H && !isOpaqueWallTile(chunks.getTile(tx, ty + 1))) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+          ctx.fillRect(sx + 1, sy + TILE_PX - 3, TILE_PX - 2, 2);
+        }
+
+        // Animated shimmer & unmistakable interactive halos (distinct from passive flora/rock)
         if (tile === TileType.LAVA) {
           const pulse = 0.18 + Math.sin(visualTime * 4 + tx + ty) * 0.1;
           ctx.fillStyle = `rgba(253, 224, 71, ${pulse})`;
@@ -289,9 +330,39 @@ export class WorldRenderer {
           ctx.fillRect(sx + 4, sy + 7 + Math.sin(visualTime * 2.2 + ty) * 2, 11, 2);
           ctx.fillStyle = `rgba(125, 211, 252, ${shimmer * 0.85})`;
           ctx.fillRect(sx + 11, sy + 16 + Math.cos(visualTime * 2.4 + tx) * 2, 9, 2);
+        } else if (tile === TileType.WATERFALL) {
+          const flow = reduced ? 0 : Math.floor((visualTime * 18 + tx * 3) % 12);
+          ctx.fillStyle = 'rgba(224, 242, 254, 0.55)';
+          ctx.fillRect(sx + 8, sy + ((flow + 2) % 20), 4, 6);
+          ctx.fillRect(sx + 16, sy + ((flow + 10) % 20), 4, 6);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.68)';
+          ctx.fillRect(sx + 5, sy + 22, 18, 3);
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 74, color: 'rgba(34, 211, 238, 0.62)' });
+        } else if (tile === TileType.CRYSTAL_SPIRE) {
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 92, color: 'rgba(167, 139, 250, 0.72)' });
+          if (!reduced && Math.sin(visualTime * 4.5 + tx * 1.3) > 0.45) {
+            ctx.fillStyle = 'rgba(243, 232, 255, 0.78)';
+            ctx.fillRect(sx + 12, sy + 4, 3, 4);
+          }
         } else if (tile === TileType.TORCH) {
           const flick = reduced ? 6 : 6 + Math.sin(visualTime * 14 + tx * 3) * 2.5;
           lightSources.push({ sx: sx + 14, sy: sy + 10, r: 112 + flick, color: 'rgba(253, 186, 116, 0.88)' });
+        } else if (tile === TileType.CHEST_CLOSED) {
+          const glintAlpha = 0.34 + Math.sin(visualTime * 4.5 + tx) * 0.16;
+          ctx.strokeStyle = `rgba(251, 191, 36, ${glintAlpha})`;
+          ctx.lineWidth = 1.4;
+          ctx.strokeRect(sx + 2, sy + 5, TILE_PX - 4, TILE_PX - 7);
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 62, color: 'rgba(251, 191, 36, 0.55)' });
+        } else if (tile === TileType.CRACKED_WALL) {
+          const seamAlpha = 0.42 + Math.sin(visualTime * 4 + tx + ty) * 0.18;
+          ctx.strokeStyle = `rgba(103, 232, 249, ${seamAlpha})`;
+          ctx.lineWidth = 1.4;
+          ctx.strokeRect(sx + 2, sy + 2, TILE_PX - 4, TILE_PX - 4);
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 58, color: 'rgba(56, 189, 248, 0.52)' });
+        } else if (tile === TileType.DOOR_CLOSED) {
+          ctx.strokeStyle = 'rgba(251, 191, 36, 0.38)';
+          ctx.lineWidth = 1.2;
+          ctx.strokeRect(sx + 2, sy + 2, TILE_PX - 4, TILE_PX - 4);
         } else if (tile === TileType.ENERGY_CRYSTAL || tile === TileType.ALTAR || tile === TileType.ICE_CRYSTAL) {
           lightSources.push({
             sx: sx + 14,
@@ -304,8 +375,8 @@ export class WorldRenderer {
             ctx.fillRect(sx + 11, sy + 5, 3, 3);
           }
           if (tile === TileType.ALTAR) {
-            ctx.strokeStyle = `rgba(94, 234, 212, ${0.28 + Math.sin(visualTime * 4) * 0.14})`;
-            ctx.lineWidth = 1.2;
+            ctx.strokeStyle = `rgba(94, 234, 212, ${0.34 + Math.sin(visualTime * 4) * 0.16})`;
+            ctx.lineWidth = 1.4;
             ctx.beginPath();
             ctx.arc(sx + 14, sy + 14, 11 + Math.sin(visualTime * 3) * 1.5, 0, Math.PI * 2);
             ctx.stroke();
@@ -319,10 +390,15 @@ export class WorldRenderer {
         } else if (tile === TileType.MAGMA_COAL) {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 46, color: 'rgba(249, 115, 22, 0.44)' });
         } else if (tile === TileType.RECHARGE_STATION) {
-          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 116, color: 'rgba(56, 189, 248, 0.82)' });
+          lightSources.push({ sx: sx + 14, sy: sy + 14, r: 120, color: 'rgba(56, 189, 248, 0.85)' });
           const scanAlpha = 0.35 + Math.sin(visualTime * 6 + tx) * 0.2;
           ctx.fillStyle = `rgba(125, 211, 252, ${scanAlpha})`;
           ctx.fillRect(sx + 7, sy + 9 + Math.round((Math.sin(visualTime * 4) + 1) * 4), 14, 2);
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.arc(sx + 14, sy + 14, 13, 0, Math.PI * 2);
+          ctx.stroke();
         } else if (tile === TileType.MUSHROOM) {
           lightSources.push({ sx: sx + 14, sy: sy + 14, r: 52, color: 'rgba(52, 211, 153, 0.42)' });
         } else if (
@@ -450,8 +526,10 @@ export class WorldRenderer {
           ctx.stroke();
           lightSources.push({ sx: ex + 14, sy: ey + 14, r: 82, color: 'rgba(45, 212, 191, 0.65)' });
         }
-        const spriteKind = ent.kind === 'story_npc' ? 'merchant' : ent.kind;
-        const npcSpr = sprites.getNpcCharacterSprite(spriteKind, ent.bossId, animFrame & 1);
+        const npcSpr =
+          ent.kind === 'story_npc'
+            ? sprites.getStoryCharacterSprite(ent.characterId || 'trixie', animFrame & 1)
+            : sprites.getNpcCharacterSprite(ent.kind, ent.bossId, animFrame & 1);
         ctx.drawImage(npcSpr, ex, ey - 1 + bob * 0.55);
       }
 
@@ -839,6 +917,20 @@ export class WorldRenderer {
         ctx.globalAlpha = 0.48;
         ctx.fillRect(fx, fy, 2, 2);
         ctx.fillRect(fx + 2, fy + 2, 2, 2);
+      } else if (biome === 'Acuaticas') {
+        // Luminous aquatic bubbles & darting mist droplets
+        ctx.strokeStyle = i % 2 === 0 ? '#22d3ee' : '#a5f3fc';
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.48;
+        ctx.beginPath();
+        ctx.arc(fx, fy - ((timeSec * 16 + i * 9) % 24), 2.2, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (biome === 'Cristalinas') {
+        // Prismatic crystal light shards
+        ctx.fillStyle = i % 2 === 0 ? '#a78bfa' : '#67e8f9';
+        ctx.globalAlpha = 0.5 + Math.sin(timeSec * 4 + i) * 0.2;
+        ctx.fillRect(fx, fy - 2, 2, 5);
+        ctx.fillRect(fx - 1.5, fy, 5, 1.5);
       } else {
         // Abyssal shadow moths
         ctx.fillStyle = i % 2 === 0 ? '#c084fc' : '#f472b6';
@@ -945,13 +1037,14 @@ export class WorldRenderer {
     const w = canvas.width;
     const h = canvas.height;
     g.clearRect(0, 0, w, h);
-    g.fillStyle = '#060c14';
+    g.fillStyle = '#050b13';
     g.fillRect(0, 0, w, h);
 
     const chunksPerSide = WORLD_W / 16; // 20
     const cw = w / chunksPerSide;
     const ch = h / chunksPerSide;
 
+    // 1. Contiguous subterranean biome terrain with smooth fog-of-war veil (no blocky grid gaps)
     for (let cy = 0; cy < chunksPerSide; cy++) {
       for (let cx = 0; cx < chunksPerSide; cx++) {
         const wx = cx * 16 + 8;
@@ -959,13 +1052,39 @@ export class WorldRenderer {
         const b = getBiomeAt(wx, wy, state.worldSeed);
         const explored = !!state.exploredChunks[`${cx},${cy}`];
         g.fillStyle = BIOME_INFO[b].mapColor;
-        g.globalAlpha = explored ? 0.95 : 0.14;
-        g.fillRect(cx * cw, cy * ch, cw - 0.5, ch - 0.5);
+        g.globalAlpha = explored ? 0.88 : 0.22;
+        g.fillRect(cx * cw, cy * ch, cw + 0.6, ch + 0.6);
+
+        // Subtle subterranean contour edge where two distinct biomes meet
+        const bRight = cx + 1 < chunksPerSide ? getBiomeAt((cx + 1) * 16 + 8, wy, state.worldSeed) : b;
+        const bDown = cy + 1 < chunksPerSide ? getBiomeAt(wx, (cy + 1) * 16 + 8, state.worldSeed) : b;
+        g.globalAlpha = 0.34;
+        g.fillStyle = '#03070e';
+        if (bRight !== b) {
+          g.fillRect((cx + 1) * cw - 1, cy * ch, 2, ch + 0.5);
+        }
+        if (bDown !== b) {
+          g.fillRect(cx * cw, (cy + 1) * ch - 1, cw + 0.5, 2);
+        }
       }
     }
     g.globalAlpha = 1;
 
-    // Interconnected cavern routes
+    // Subtle geological grid lines for depth scale
+    g.strokeStyle = 'rgba(148, 163, 184, 0.08)';
+    g.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const gx = (w * i) / 4;
+      const gy = (h * i) / 4;
+      g.beginPath();
+      g.moveTo(gx, 0);
+      g.lineTo(gx, h);
+      g.moveTo(0, gy);
+      g.lineTo(w, gy);
+      g.stroke();
+    }
+
+    // 2. Interconnected cavern routes with dark halo so unlocked vs locked routes read crisply
     const story = ensureStoryState(state);
     const activeChapter = STORY_CHAPTERS_BY_ID[story.currentChapterId];
     for (const route of Object.values(STORY_ROUTES)) {
@@ -979,13 +1098,20 @@ export class WorldRenderer {
       const access = canAccessRoute(state, route.id);
       g.save();
       g.beginPath();
+      g.strokeStyle = 'rgba(4, 10, 18, 0.72)';
+      g.lineWidth = access.allowed ? 4.4 : 2.8;
+      g.moveTo(x1, y1);
+      g.lineTo(x2, y2);
+      g.stroke();
+
+      g.beginPath();
       if (!access.allowed) {
         g.setLineDash([4, 4]);
-        g.strokeStyle = 'rgba(148, 163, 184, 0.42)';
-        g.lineWidth = 1.4;
+        g.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+        g.lineWidth = 1.5;
       } else {
-        g.strokeStyle = 'rgba(45, 212, 191, 0.72)';
-        g.lineWidth = 2.2;
+        g.strokeStyle = 'rgba(94, 234, 212, 0.85)';
+        g.lineWidth = 2.3;
       }
       g.moveTo(x1, y1);
       g.lineTo(x2, y2);
@@ -993,7 +1119,7 @@ export class WorldRenderer {
       g.restore();
     }
 
-    // Discovered POIs only (undiscovered chambers/ruins stay hidden until explored)
+    // 3. Discovered POIs only (undiscovered chambers/ruins stay hidden until explored)
     if (state.discoveredPOIs) {
       for (const poi of state.discoveredPOIs) {
         const px = (poi.x / WORLD_W) * w;
@@ -1003,7 +1129,7 @@ export class WorldRenderer {
       }
     }
 
-    // Discovered hidden shrines ONLY (never reveal undiscovered secrets prematurely)
+    // 4. Discovered hidden shrines ONLY (never reveal undiscovered secrets prematurely)
     for (const sec of HIDDEN_DISCOVERIES) {
       if (!sec.worldCoords || !state.discoveredSecrets?.includes(sec.id)) continue;
       const sxSec = (sec.worldCoords.x / WORLD_W) * w;
@@ -1019,7 +1145,17 @@ export class WorldRenderer {
       g.restore();
     }
 
-    // Story Scenario nodes (visited / accessible / locked + active chapter objective)
+    const drawLabel = (txt: string, lx: number, ly: number, color: string, align: 'left' | 'right') => {
+      g.textAlign = align;
+      g.fillStyle = 'rgba(4, 9, 16, 0.92)';
+      g.fillText(txt, lx + 1, ly + 1);
+      g.fillText(txt, lx - 1, ly);
+      g.fillText(txt, lx, ly - 1);
+      g.fillStyle = color;
+      g.fillText(txt, lx, ly);
+    };
+
+    // 5. Story Scenario nodes (visited / accessible / locked + active chapter objective)
     for (const sc of Object.values(STORY_SCENARIOS)) {
       const mx = (sc.worldAnchor.x / WORLD_W) * w;
       const my = (sc.worldAnchor.y / WORLD_H) * h;
@@ -1031,9 +1167,9 @@ export class WorldRenderer {
 
       if (isObjective) {
         g.strokeStyle = '#fbbf24';
-        g.lineWidth = 1.6;
+        g.lineWidth = 1.8;
         g.beginPath();
-        g.arc(mx, my, isRefugio ? 9 : 7.5, 0, Math.PI * 2);
+        g.arc(mx, my, isRefugio ? 9.5 : 8, 0, Math.PI * 2);
         g.stroke();
       }
 
@@ -1042,11 +1178,11 @@ export class WorldRenderer {
         g.beginPath();
         g.arc(mx, my, 5.5, 0, Math.PI * 2);
         g.fill();
+        g.strokeStyle = '#060c14';
+        g.lineWidth = 1.3;
+        g.stroke();
         g.font = 'bold 11px sans-serif';
-        g.fillStyle = '#060c14';
-        g.fillText('Refugio', mx + 9, my + 5);
-        g.fillStyle = '#fef08a';
-        g.fillText('Refugio', mx + 8, my + 4);
+        drawLabel('Refugio', mx - 9, my + 4, '#fef08a', 'right');
       } else {
         g.fillStyle = isCurrent
           ? '#38bdf8'
@@ -1056,54 +1192,65 @@ export class WorldRenderer {
           ? '#fbbf24'
           : '#475569';
         g.beginPath();
-        g.arc(mx, my, 4.2, 0, Math.PI * 2);
+        g.arc(mx, my, 4.4, 0, Math.PI * 2);
         g.fill();
         g.strokeStyle = '#060c14';
         g.lineWidth = 1.2;
         g.stroke();
 
-        const alignRight = mx > w * 0.65;
+        const alignRight =
+          mx > w * 0.65 ||
+          sc.id === 'esc_caverna_descenso' ||
+          sc.id === 'esc_caverna_magma';
         const tx = alignRight ? mx - 7 : mx + 7;
         g.font = 'bold 9.5px sans-serif';
-        g.textAlign = alignRight ? 'right' : 'left';
         const shortLabel = isUnlocked || isVisited ? sc.name : `🔒 ${sc.name}`;
-        g.fillStyle = '#060c14';
-        g.fillText(shortLabel, tx + 1, my - 5);
-        g.fillStyle = isUnlocked || isVisited ? '#e2e8f0' : '#94a3b8';
-        g.fillText(shortLabel, tx, my - 6);
-        g.textAlign = 'left';
+        const labelOffsetY =
+          sc.id === 'esc_templo_cristalino'
+            ? my - 10
+            : sc.id === 'esc_puesto_agua_oscura' || sc.id === 'esc_pueblo_valle_verde'
+            ? my - 8
+            : my - 7;
+        drawLabel(shortLabel, tx, labelOffsetY, isUnlocked || isVisited ? '#f1f5f9' : '#94a3b8', alignRight ? 'right' : 'left');
       }
     }
 
-    // Bosses
+    // 6. Bosses (placed below node marker so scenario titles above never collide)
     for (const boss of BOSS_DEFINITIONS) {
       const bx = (boss.x / WORLD_W) * w;
       const by = (boss.y / WORLD_H) * h;
       const defeated = state.defeatedBosses.includes(boss.id);
-      const alignRight = bx > w * 0.65;
+      const alignRight = bx > w * 0.65 || boss.id === 'boss_crystal';
       const tx = alignRight ? bx - 7 : bx + 7;
       g.fillStyle = defeated ? '#4ade80' : '#ef4444';
       g.beginPath();
-      g.arc(bx, by, 4.5, 0, Math.PI * 2);
+      g.arc(bx, by, 4.4, 0, Math.PI * 2);
       g.fill();
+      g.strokeStyle = '#060c14';
+      g.lineWidth = 1.1;
+      g.stroke();
       g.font = 'bold 10px sans-serif';
-      g.textAlign = alignRight ? 'right' : 'left';
       const txt = defeated ? `✓ ${boss.name}` : boss.name;
-      g.fillStyle = '#060c14';
-      g.fillText(txt, tx + 1, by + 4);
-      g.fillStyle = defeated ? '#86efac' : '#fecaca';
-      g.fillText(txt, tx, by + 3);
+      const bossOffsetY =
+        boss.id === 'boss_aquatic' ? by + 16 : boss.id === 'boss_crystal' ? by + 13 : by + 11;
+      drawLabel(txt, tx, bossOffsetY, defeated ? '#86efac' : '#fecaca', alignRight ? 'right' : 'left');
     }
     g.textAlign = 'left';
 
-    // Player
+    // 7. Player marker
     const px = (state.player.x / WORLD_W) * w;
     const py = (state.player.y / WORLD_H) * h;
+    g.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(px, py, 9, 0, Math.PI * 2);
+    g.stroke();
+
     g.fillStyle = '#38bdf8';
     g.strokeStyle = '#ffffff';
     g.lineWidth = 2;
     g.beginPath();
-    g.arc(px, py, 5.5, 0, Math.PI * 2);
+    g.arc(px, py, 5.2, 0, Math.PI * 2);
     g.fill();
     g.stroke();
   }

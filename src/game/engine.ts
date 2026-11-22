@@ -18,6 +18,7 @@ import {
   BIOME_INFO,
   BOSS_DEFINITIONS,
   CHUNK_SIZE,
+  ELEMENT_CHART,
   HOTBAR_SLOTS,
   QUEST_LIST,
   SPAWN_X,
@@ -720,7 +721,7 @@ export class BajoterraEngine {
       if (key >= '1' && key <= String(HOTBAR_SLOTS.length)) {
         const idx = Number(key) - 1;
         this.setHotbar(idx);
-      } else if (key === 'e') {
+      } else if (key === 'f') {
         this.performPrimaryAction();
       } else if (key === ' ') {
         this.triggerExplorationPulse();
@@ -731,6 +732,8 @@ export class BajoterraEngine {
       } else if (key === 'q') {
         const nextIdx = (this.state.activePartyIndex + 1) % this.state.party.length;
         this.setActivePartyIndex(nextIdx);
+      } else if (key === 'v' && this.state.mecha?.unlocked) {
+        this.toggleMecha();
       }
     }
 
@@ -871,9 +874,12 @@ export class BajoterraEngine {
     const mag = Math.hypot(dx, dy);
     const wantSprint = this.keysHeld.has('shift') || this.touchSprinting;
     const isSprinting = wantSprint && this.state.player.stamina > 2 && mag > 0.1;
+    const mechaMounted = Boolean(this.state.mecha?.unlocked && this.state.mecha?.active);
+    const mechaTier = this.state.mecha?.tier ?? 1;
 
     if (isSprinting) {
-      this.state.player.stamina = Math.max(0, this.state.player.stamina - 22 * dt);
+      const sprintDrain = mechaMounted ? (mechaTier >= 3 ? 7.5 : 13) : 22;
+      this.state.player.stamina = Math.max(0, this.state.player.stamina - sprintDrain * dt);
     } else {
       this.state.player.stamina = Math.min(this.state.player.maxStamina, this.state.player.stamina + 16 * dt);
     }
@@ -894,7 +900,7 @@ export class BajoterraEngine {
       Math.floor(this.state.player.x + 0.5),
       Math.floor(this.state.player.y + 0.5)
     );
-    const iceBoost = tileStanding === TileType.ICE_FLOOR ? 1.24 : 1;
+    const iceBoost = tileStanding === TileType.ICE_FLOOR ? (mechaMounted && mechaTier >= 2 ? 1.32 : 1.24) : 1;
     const mechaMult = getMechaSpeedMultiplier(this.state);
     const speedTilesPerSec = (isSprinting ? 7.6 : 4.9) * iceBoost * mechaMult;
 
@@ -983,7 +989,7 @@ export class BajoterraEngine {
       }
     }
 
-    // Chapter 5 vault: Cámara del Acelerador 200 MPH
+    // Chapter 7 vault: Cámara del Acelerador 200 MPH
     if (tx >= 185 && tx <= 208 && ty >= 236 && ty <= 260) {
       const access = canAccessRoute(this.state, 'ruta_taller_acelerador');
       if (!story.unlockedScenarioIds.includes('esc_taller_acelerador') && !access.allowed) {
@@ -992,7 +998,16 @@ export class BajoterraEngine {
     }
 
     const biome = getBiomeAt(tx, ty, this.state.worldSeed);
-    if (biome === 'Heladas') {
+    if (biome === 'Acuaticas') {
+      const access = canAccessRoute(this.state, 'ruta_gruta_acuatica');
+      if (
+        !story.unlockedScenarioIds.includes('esc_gruta_acuatica') &&
+        !access.allowed &&
+        !this.state.discoveries.includes('Acuaticas')
+      ) {
+        return access.reason;
+      }
+    } else if (biome === 'Heladas') {
       const access = canAccessRoute(this.state, 'ruta_cumbre_helada');
       if (
         !story.unlockedScenarioIds.includes('esc_caverna_helada') &&
@@ -1007,6 +1022,15 @@ export class BajoterraEngine {
         !story.unlockedScenarioIds.includes('esc_caverna_magma') &&
         !access.allowed &&
         !this.state.discoveries.includes('Magma')
+      ) {
+        return access.reason;
+      }
+    } else if (biome === 'Cristalinas') {
+      const access = canAccessRoute(this.state, 'ruta_senda_cristalina');
+      if (
+        !story.unlockedScenarioIds.includes('esc_templo_cristalino') &&
+        !access.allowed &&
+        !this.state.discoveries.includes('Cristalinas')
       ) {
         return access.reason;
       }
@@ -1081,14 +1105,23 @@ export class BajoterraEngine {
       }
     }
 
-    // Lava hazard
+    // Lava hazard (Resistencia Térmica gives full immunity; mounted Mecha M2/M3 shields partial heat damage)
     const under = this.chunks.getTile(px, py);
     if (isTileHazard(under) && this.lavaDamageCooldown <= 0) {
       this.lavaDamageCooldown = 0.8;
       if (!this.state.player.perks.includes('Resistencia Térmica')) {
-        this.state.player.hp = Math.max(1, this.state.player.hp - 8);
-        this.renderer.triggerShake(4, 0.2);
-        this.renderer.addFloatingText(px, py, '-8 ¡Lava!', '#fb923c');
+        const mechaMounted = Boolean(this.state.mecha?.unlocked && this.state.mecha?.active);
+        const mechaTier = this.state.mecha?.tier ?? 1;
+        const hazardDmg = mechaMounted ? (mechaTier >= 3 ? 2 : mechaTier >= 2 ? 4 : 8) : 8;
+        this.state.player.hp = Math.max(1, this.state.player.hp - hazardDmg);
+        this.renderer.triggerShake(hazardDmg >= 8 ? 4 : 2.2, 0.18);
+        const tag =
+          mechaMounted && mechaTier >= 3
+            ? `-${hazardDmg} ¡Escudo Meca M3!`
+            : mechaMounted && mechaTier >= 2
+            ? `-${hazardDmg} ¡Lava (Meca M2)!`
+            : `-${hazardDmg} ¡Lava!`;
+        this.renderer.addFloatingText(px, py, tag, '#fb923c');
         sound.playHit(false);
         this.emitHud(true);
       }
@@ -1192,6 +1225,8 @@ export class BajoterraEngine {
     }
 
     const guardianSpeciesMap: Record<BiomeId, string> = {
+      Acuaticas: 'aquabeak',
+      Cristalinas: 'enigmo',
       Magma: 'piroclasto',
       Heladas: 'glaciomita',
       Sombrias: 'umbrospect',
@@ -1199,8 +1234,10 @@ export class BajoterraEngine {
     };
     const levelMap: Record<BiomeId, number> = {
       Verdes: 5,
+      Acuaticas: 5,
       Magma: 6,
       Heladas: 6,
+      Cristalinas: 7,
       Sombrias: 8,
     };
 
@@ -1517,14 +1554,17 @@ export class BajoterraEngine {
   }
 
   private openSecretPassage(tx: number, ty: number): void {
+    const active = this.state.party[this.state.activePartyIndex] || this.state.party[0];
+    const burstCol = active ? ELEMENT_CHART[active.type]?.color || '#67e8f9' : '#67e8f9';
+    const slugLabel = active ? getSlugDisplayName(active) : 'Bláster';
     this.chunks.setTile(tx, ty, TileType.FLOOR);
     this.invalidateRoomCache();
     sound.playPickup();
     this.renderer.triggerShake(2.2, 0.12);
-    this.renderer.spawnBurst(tx, ty, '#67e8f9', 18);
-    this.renderer.addFloatingText(tx, ty, '¡Pasaje secreto abierto!', '#67e8f9');
+    this.renderer.spawnBurst(tx, ty, burstCol, 18);
+    this.renderer.addFloatingText(tx, ty, '¡Pasaje secreto abierto!', burstCol);
     this.awardPlayerXp(8);
-    this.notify('¡Pasaje secreto abierto con el pulso del bláster!');
+    this.notify(`¡Disparo de ${slugLabel} abrió el pasaje secreto!`);
     this.emitHud(true);
   }
 
@@ -1558,16 +1598,23 @@ export class BajoterraEngine {
       return;
     }
     if (charId === 'trixie') {
-      if (!this.openDialogue('dlg_cap2_banda_meca')) {
+      const targetDlg = ent.dialogueId || (ent.scenarioId === 'esc_gruta_acuatica' ? 'dlg_gruta_acuatica' : 'dlg_cap2_banda_meca');
+      if (!this.openDialogue(targetDlg)) {
         this.notify('Trixie: "Mantén actualizada tu Babosapedia al capturar especies nuevas."');
       }
       return;
     }
+    if (charId === 'will_shane') {
+      if (!this.openDialogue('dlg_eco_will_shane')) {
+        this.notify('Eco de Will Shane: "Cuando alcancen 200 MPH juntos, el poder Megamorph responderá."');
+      }
+      return;
+    }
     if (charId === 'kord') {
-      const cap5Ready =
-        story.chapterStates['cap_05_acelerador_megamorph'] === 'active' ||
-        story.chapterStates['cap_05_acelerador_megamorph'] === 'completed';
-      const dlgId = cap5Ready ? 'dlg_cap5_acelerador_200mph' : 'dlg_cap2_banda_meca';
+      const cap7Ready =
+        story.chapterStates['cap_07_acelerador_megamorph'] === 'active' ||
+        story.chapterStates['cap_07_acelerador_megamorph'] === 'completed';
+      const dlgId = cap7Ready ? 'dlg_cap7_acelerador_200mph' : 'dlg_cap2_banda_meca';
       if (!this.openDialogue(dlgId)) {
         this.notify('Kord: "Cuando tu Meca esté listo, calibraremos nuevos circuitos."');
       }
@@ -1577,13 +1624,13 @@ export class BajoterraEngine {
       if (!this.state.completedDialogues?.includes('dlg_cap3_rastro_blakk') && this.openDialogue('dlg_cap3_rastro_blakk')) {
         return;
       }
-      if (!this.startRivalDuel('riv_red_hook')) {
+      if (!this.startRivalDuel('rival_red_hook')) {
         this.notify('Garfio Rojo: "Vuelve cuando el Capítulo 3 esté activo para un duelo de verdad."');
       }
       return;
     }
     if (charId === 'twist') {
-      if (!this.startRivalDuel('riv_twist')) {
+      if (!this.startRivalDuel('rival_twist')) {
         this.notify('Twist: "Aún es pronto para medir velocidades en estas cavernas."');
       }
       return;
@@ -1595,7 +1642,12 @@ export class BajoterraEngine {
     this.chunks.setTile(tx, ty, TileType.CHEST_OPEN);
     this.state.stats.chestsOpened++;
     const b = getBiomeAt(tx, ty, this.state.worldSeed);
-    const tokens = b === 'Sombrias' ? 4 : b === 'Magma' || b === 'Heladas' ? 3 : 2;
+    const tokens =
+      b === 'Sombrias' || b === 'Cristalinas'
+        ? 4
+        : b === 'Magma' || b === 'Heladas' || b === 'Acuaticas'
+        ? 3
+        : 2;
     const berries = 1 + Math.floor(Math.random() * 2);
     const cap = Math.random() < 0.75 ? 1 : 0;
     this.state.cavernTokens = (this.state.cavernTokens ?? 0) + tokens;
@@ -1607,12 +1659,18 @@ export class BajoterraEngine {
     if (b === 'Verdes') {
       this.state.inventory.berries += 1;
       biomeNote = ' · +1 Baya silvestre';
+    } else if (b === 'Acuaticas') {
+      this.state.inventory.frostNectar += 1;
+      biomeNote = ' · +1 Néctar Glacial';
     } else if (b === 'Magma') {
       this.state.inventory.emberSnack += 1;
       biomeNote = ' · +1 Bocado Ígneo';
     } else if (b === 'Heladas') {
       this.state.inventory.frostNectar += 1;
       biomeNote = ' · +1 Néctar Glacial';
+    } else if (b === 'Cristalinas') {
+      this.state.inventory.crystal += 2;
+      biomeNote = ' · +2 Cristales resonantes';
     } else if (b === 'Sombrias') {
       this.state.inventory.elixirs += 1;
       this.state.inventory.evoStone += 1;
@@ -1661,8 +1719,9 @@ export class BajoterraEngine {
     }
     story.storyFlags[altarFlag] = true;
     const msgs = awardSlugExperience(this.state, active, 25, { bondDelta: 10 });
+    const burstCol = ELEMENT_CHART[active.type]?.color || '#2dd4bf';
     sound.playPulse();
-    this.renderer.spawnBurst(tx, ty, '#2dd4bf', 16);
+    this.renderer.spawnBurst(tx, ty, burstCol, 16);
     this.notify(msgs[0] || `${getSlugDisplayName(active)} sintoniza con el altar antiguo (+25 EXP, +10 Amistad).`);
     this.emitHud(true);
   }
@@ -1873,9 +1932,9 @@ export class BajoterraEngine {
             ? 'esc_taller_acelerador'
             : 'esc_pueblo_valle_verde',
         dialogueId:
-          story.chapterStates['cap_05_acelerador_megamorph'] === 'active' ||
-          story.chapterStates['cap_05_acelerador_megamorph'] === 'completed'
-            ? 'dlg_cap5_acelerador_200mph'
+          story.chapterStates['cap_07_acelerador_megamorph'] === 'active' ||
+          story.chapterStates['cap_07_acelerador_megamorph'] === 'completed'
+            ? 'dlg_cap7_acelerador_200mph'
             : 'dlg_cap2_banda_meca',
         name: 'Kord Zane',
         icon: '🔧',
@@ -1886,6 +1945,24 @@ export class BajoterraEngine {
         biome: story.currentScenarioId === 'esc_taller_acelerador' ? 'Magma' : 'Verdes',
         level: 5,
         hp: 120,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
+        uid: 'npc_trixie_acuatica',
+        kind: 'story_npc',
+        characterId: 'trixie',
+        scenarioId: 'esc_gruta_acuatica',
+        dialogueId: 'dlg_gruta_acuatica',
+        name: 'Trixie Sting',
+        icon: '📷',
+        x: 249,
+        y: 230,
+        homeX: 249,
+        homeY: 230,
+        biome: 'Acuaticas',
+        level: 4,
+        hp: 100,
         dir: 0,
         cooldown: 0,
       },
@@ -1920,6 +1997,24 @@ export class BajoterraEngine {
         homeY: 160,
         biome: 'Heladas',
         level: 7,
+        hp: 120,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
+        uid: 'npc_will_shane',
+        kind: 'story_npc',
+        characterId: 'will_shane',
+        scenarioId: 'esc_templo_cristalino',
+        dialogueId: 'dlg_eco_will_shane',
+        name: 'Eco de Will Shane',
+        icon: '💎',
+        x: 78,
+        y: 63,
+        homeX: 78,
+        homeY: 63,
+        biome: 'Cristalinas',
+        level: 8,
         hp: 120,
         dir: 0,
         cooldown: 0,
@@ -1975,7 +2070,16 @@ export class BajoterraEngine {
       const b = getBiomeAt(wx, wy, this.state.worldSeed);
       const sp = pickWeightedSpeciesByBiome(b);
       const isMerc = Math.random() < 0.16;
-      const baseLvl = b === 'Verdes' ? 1 : b === 'Magma' || b === 'Heladas' ? 3 : 5;
+      const baseLvl =
+        b === 'Verdes'
+          ? 1
+          : b === 'Acuaticas'
+          ? 2
+          : b === 'Magma' || b === 'Heladas'
+          ? 3
+          : b === 'Cristalinas'
+          ? 4
+          : 5;
       const lvl = Math.max(1, baseLvl + Math.floor(Math.random() * 3));
 
       this.entities.push({
@@ -2541,7 +2645,7 @@ export class BajoterraEngine {
     const story = ensureStoryState(this.state);
     const reqState = story.chapterStates[tour.requiredChapterId];
     const reqOk =
-      tour.requiredChapterId === 'cap_06_ciudadela_blakk'
+      tour.requiredChapterId === 'cap_08_ciudadela_blakk'
         ? isPostGameUnlocked(this.state)
         : reqState === 'active' || reqState === 'completed';
     if (!reqOk) {

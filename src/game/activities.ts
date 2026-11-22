@@ -86,7 +86,7 @@ export const MECHA_UPGRADES: MechaUpgradeDef[] = [
     description: '+55% velocidad montado, ahorro de resistencia y máxima aceleración en Carreras.',
     speedBonusPct: 55,
     costTokens: 16,
-    requiredChapterOrder: 5,
+    requiredChapterOrder: 6,
   },
 ];
 
@@ -186,12 +186,12 @@ export const MERCHANT_EXCHANGE_OFFERS: MerchantOfferDef[] = [
   {
     id: 'offer_elixir_mega',
     name: '1× Elixir Megamorph',
-    description: 'Aumenta +25 Amistad y +35 EXP; catalizador tras el Acelerador (Cap. 5+).',
+    description: 'Aumenta +25 Amistad y +35 EXP; catalizador tras el Acelerador (Cap. 7+).',
     category: 'evolucion',
     costTokens: 8,
     outputKey: 'elixirs',
     outputQty: 1,
-    requiredChapterOrder: 5,
+    requiredChapterOrder: 7,
   },
   {
     id: 'offer_evostone_relic',
@@ -202,7 +202,7 @@ export const MERCHANT_EXCHANGE_OFFERS: MerchantOfferDef[] = [
     costRelics: 1,
     outputKey: 'evoStone',
     outputQty: 1,
-    requiredChapterOrder: 5,
+    requiredChapterOrder: 7,
   },
 ];
 
@@ -245,7 +245,7 @@ export const RIVAL_DUELS: RivalDuelDef[] = [
     speciesId: 'tazerling',
     level: 6,
     biome: 'Heladas',
-    chapterId: 'cap_04_fronteras_elementales',
+    chapterId: 'cap_05_fronteras_elementales',
     canonStatus: 'serie_canon',
     introQuote: 'Demasiado lento, Shane. ¡Veamos si esquivas esta descarga!',
     victoryQuote: 'Tch... esta vez te adelantaste. Nos volveremos a ver.',
@@ -339,7 +339,7 @@ export const BLASTER_TOURNAMENTS: TournamentDef[] = [
     name: 'Torneo de Cavernas Elementales',
     subtitle: 'Desafío mixto entre hielo, voltaje y magma',
     biome: 'Magma',
-    requiredChapterId: 'cap_04_fronteras_elementales',
+    requiredChapterId: 'cap_05_fronteras_elementales',
     canonStatus: 'adaptacion_juego',
     rounds: [
       {
@@ -373,7 +373,7 @@ export const BLASTER_TOURNAMENTS: TournamentDef[] = [
     name: 'Gran Campeonato de las 99 Cavernas',
     subtitle: 'Copa maestra Post-Game frente a lanzadores legendarios',
     biome: 'Sombrias',
-    requiredChapterId: 'cap_06_ciudadela_blakk',
+    requiredChapterId: 'cap_08_ciudadela_blakk',
     canonStatus: 'adaptacion_juego',
     rounds: [
       {
@@ -428,6 +428,17 @@ export const SLUG_RACES: SlugRaceDef[] = [
     rewardSummary: '+9 Fichas de Caverna · +40 EXP explorador',
   },
   {
+    id: 'race_acuatica',
+    name: 'Regata de las Mareas Subterráneas',
+    subtitle: 'Esquiva corrientes rápidas entre cascadas luminosas',
+    biome: 'Acuaticas',
+    requiredMecha: true,
+    distanceMeters: 780,
+    parTimeSec: 20,
+    rewardTokens: 8,
+    rewardSummary: '+8 Fichas de Caverna · +35 EXP explorador',
+  },
+  {
     id: 'race_abismo',
     name: 'Copa Relámpago del Abismo',
     subtitle: 'Pista avanzada de alta velocidad para Meca M2/M3',
@@ -454,6 +465,18 @@ export const HIDDEN_DISCOVERIES: HiddenDiscoveryDef[] = [
     canonStatus: 'serie_canon',
   },
   {
+    id: 'sec_fuente_abisal',
+    title: 'Manantial Purificado Abisal',
+    biome: 'Acuaticas',
+    minChapterOrder: 4,
+    scenarioId: 'esc_gruta_acuatica',
+    worldCoords: { x: 238, y: 224 },
+    lore: 'Una cámara sumergida donde las corrientes limpias revitalizan las cápsulas de agua y energía.',
+    rewardTokens: 7,
+    rewardItems: { frostNectar: 2, masterCapsules: 1 },
+    canonStatus: 'adaptacion_juego',
+  },
+  {
     id: 'sec_taller_prototipo',
     title: 'Plano Antiguo de Mecas',
     biome: 'Magma',
@@ -469,7 +492,7 @@ export const HIDDEN_DISCOVERIES: HiddenDiscoveryDef[] = [
     id: 'sec_archivo_cristal',
     title: 'Cámara del Eco Fandango',
     biome: 'Heladas',
-    minChapterOrder: 4,
+    minChapterOrder: 5,
     scenarioId: 'esc_caverna_helada',
     worldCoords: { x: 48, y: 148 },
     lore: 'Cristales resonantes que amplifican la recarga de energía y guardan memoria de antiguas babosas de luz.',
@@ -478,10 +501,22 @@ export const HIDDEN_DISCOVERIES: HiddenDiscoveryDef[] = [
     canonStatus: 'adaptacion_juego',
   },
   {
+    id: 'sec_eco_will_shane',
+    title: 'Altar del Eco de Will Shane',
+    biome: 'Cristalinas',
+    minChapterOrder: 6,
+    scenarioId: 'esc_templo_cristalino',
+    worldCoords: { x: 89, y: 66 },
+    lore: 'Prisma intacto donde Will Shane cifró las coordenadas de la bóveda secreta del Acelerador.',
+    rewardTokens: 9,
+    rewardItems: { crystal: 3, relics: 1 },
+    canonStatus: 'serie_canon',
+  },
+  {
     id: 'sec_boveda_200mph',
     title: 'Registro del Primer Megamorph',
     biome: 'Sombrias',
-    minChapterOrder: 5,
+    minChapterOrder: 7,
     scenarioId: 'esc_ciudadela_sombria',
     worldCoords: { x: 262, y: 66 },
     lore: 'Anotaciones de laboratorio que demuestran que el vínculo emocional reduce la sobrecarga al superar las 200 MPH.',

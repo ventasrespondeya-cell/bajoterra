@@ -73,6 +73,30 @@ class SpriteAtlas {
       } else if (v === 3) {
         p(6, 8, 3, 1, 'rgba(224, 242, 254, 0.14)');
       }
+    } else if (biome === 'Acuaticas') {
+      p(1, 3, 4, 1, 'rgba(34, 211, 238, 0.16)');
+      p(7, 9, 5, 1, 'rgba(8, 51, 68, 0.25)');
+      if (v === 1) {
+        p(3, 6, 3, 1, 'rgba(103, 232, 249, 0.2)');
+        p(9, 3, 2, 1, 'rgba(255, 255, 255, 0.08)');
+      } else if (v === 2) {
+        p(2, 10, 2, 1, 'rgba(56, 189, 248, 0.18)');
+        p(10, 5, 2, 2, 'rgba(14, 116, 144, 0.2)');
+      } else if (v === 3) {
+        p(5, 8, 3, 1, 'rgba(165, 243, 252, 0.16)');
+      }
+    } else if (biome === 'Cristalinas') {
+      p(2, 2, 3, 1, 'rgba(167, 139, 250, 0.18)');
+      p(8, 10, 4, 1, 'rgba(15, 23, 42, 0.24)');
+      if (v === 1) {
+        p(4, 6, 2, 2, 'rgba(129, 140, 248, 0.22)');
+        p(10, 3, 1, 1, 'rgba(233, 213, 255, 0.28)');
+      } else if (v === 2) {
+        p(2, 9, 2, 1, 'rgba(56, 189, 248, 0.2)');
+        p(8, 4, 2, 1, 'rgba(255, 255, 255, 0.12)');
+      } else if (v === 3) {
+        p(6, 8, 2, 1, 'rgba(196, 181, 253, 0.24)');
+      }
     } else {
       // Sombrias
       p(0, 7, 14, 1, 'rgba(0, 0, 0, 0.18)');
@@ -131,9 +155,42 @@ class SpriteAtlas {
         break;
       }
       case TileType.ROCK: {
-        const rockTop = biome === 'Magma' ? '#854e41' : biome === 'Heladas' ? '#95bcd6' : biome === 'Sombrias' ? '#56477d' : '#657876';
-        const rockMid = biome === 'Magma' ? '#63372e' : biome === 'Heladas' ? '#6e96b3' : biome === 'Sombrias' ? '#403460' : '#4b5a59';
-        const rockDark = biome === 'Magma' ? '#3d1f19' : biome === 'Heladas' ? '#416178' : biome === 'Sombrias' ? '#251d3a' : '#2d3737';
+        const rockTop =
+          biome === 'Magma'
+            ? '#854e41'
+            : biome === 'Heladas'
+            ? '#95bcd6'
+            : biome === 'Acuaticas'
+            ? '#478b9c'
+            : biome === 'Cristalinas'
+            ? '#6c73b8'
+            : biome === 'Sombrias'
+            ? '#56477d'
+            : '#657876';
+        const rockMid =
+          biome === 'Magma'
+            ? '#63372e'
+            : biome === 'Heladas'
+            ? '#6e96b3'
+            : biome === 'Acuaticas'
+            ? '#2f6573'
+            : biome === 'Cristalinas'
+            ? '#494e87'
+            : biome === 'Sombrias'
+            ? '#403460'
+            : '#4b5a59';
+        const rockDark =
+          biome === 'Magma'
+            ? '#3d1f19'
+            : biome === 'Heladas'
+            ? '#416178'
+            : biome === 'Acuaticas'
+            ? '#1b3c47'
+            : biome === 'Cristalinas'
+            ? '#292d54'
+            : biome === 'Sombrias'
+            ? '#251d3a'
+            : '#2d3737';
         p(0, 0, 14, 14, rockDark);
         p(1, 1, 12, 10, rockMid);
         p(1, 1, 12, 3, rockTop);
@@ -144,16 +201,18 @@ class SpriteAtlas {
         break;
       }
       case TileType.CRACKED_WALL: {
-        p(0, 0, 14, 14, '#2a2236');
-        p(1, 1, 12, 10, '#5a4e68');
-        p(1, 1, 12, 2, '#736685');
-        // Deep fissure with subtle cyan/amber hint
-        p(6, 2, 1, 3, '#17121f');
-        p(5, 5, 2, 2, '#17121f');
-        p(7, 7, 1, 4, '#17121f');
-        p(4, 8, 2, 1, '#17121f');
-        p(6, 5, 1, 1, '#38bdf8');
-        p(7, 9, 1, 1, '#38bdf8');
+        p(0, 0, 14, 14, '#241e33');
+        p(1, 1, 12, 10, '#5a4e6b');
+        p(1, 1, 12, 2, '#7c6f91');
+        // Deep fissure with luminous cyan ancient seam so breakable passages stand out cleanly
+        p(6, 1, 2, 4, '#130f1c');
+        p(4, 5, 3, 2, '#130f1c');
+        p(7, 7, 2, 4, '#130f1c');
+        p(3, 8, 3, 1, '#130f1c');
+        p(6, 2, 1, 2, '#67e8f9');
+        p(5, 5, 2, 1, '#2dd4bf');
+        p(7, 8, 1, 2, '#67e8f9');
+        p(1, 11, 12, 3, '#1a1426');
         break;
       }
       case TileType.ANCIENT_BRICK: {
@@ -249,13 +308,14 @@ class SpriteAtlas {
         break;
       }
       case TileType.RECHARGE_STATION: {
-        p(1, 2, 12, 10, '#142636');
-        p(2, 2, 10, 9, '#1f3f54');
-        p(3, 3, 8, 7, '#0e7490');
-        p(4, 4, 6, 5, '#22d3ee');
-        p(5, 5, 4, 3, '#a5f3fc');
+        p(1, 2, 12, 11, '#0d1b29');
+        p(2, 2, 10, 9, '#1c4259');
+        p(2, 2, 10, 2, '#38bdf8');
+        p(3, 4, 8, 6, '#0e7490');
+        p(4, 5, 6, 4, '#22d3ee');
+        p(5, 5, 4, 3, '#ccfbf1');
         p(6, 6, 2, 1, '#ffffff');
-        p(2, 11, 10, 1, '#091520');
+        p(2, 11, 10, 1, '#08131d');
         break;
       }
       case TileType.DOOR_CLOSED: {
@@ -275,10 +335,11 @@ class SpriteAtlas {
         break;
       }
       case TileType.CHEST_CLOSED: {
-        p(2, 4, 10, 8, '#54331b');
-        p(3, 5, 8, 6, '#925932');
-        p(3, 5, 8, 2, '#b06d3f');
-        p(2, 7, 10, 1, '#f59e0b');
+        p(1, 4, 12, 9, '#381e0d');
+        p(2, 4, 10, 8, '#6e4122');
+        p(3, 5, 8, 6, '#a16236');
+        p(3, 4, 8, 2, '#d97706');
+        p(2, 7, 10, 1, '#fbbf24');
         p(6, 6, 2, 3, '#fde047');
         p(6, 7, 2, 1, '#ffffff');
         break;
@@ -291,11 +352,12 @@ class SpriteAtlas {
         break;
       }
       case TileType.ALTAR: {
-        p(2, 3, 10, 9, '#2b2647');
-        p(3, 4, 8, 7, '#494275');
-        p(4, 4, 6, 1, '#7167ad');
-        p(5, 5, 4, 4, '#38bdf8');
-        p(6, 6, 2, 2, '#f0f9ff');
+        p(1, 3, 12, 10, '#1e1b38');
+        p(2, 3, 10, 9, '#312b57');
+        p(3, 4, 8, 7, '#514785');
+        p(4, 4, 6, 1, '#93c5fd');
+        p(5, 5, 4, 4, '#2dd4bf');
+        p(6, 6, 2, 2, '#f0fdfa');
         break;
       }
       case TileType.VOLCANIC_ROCK: {
@@ -378,6 +440,26 @@ class SpriteAtlas {
         p(10, 9, 1, 1, '#f472b6');
         break;
       }
+      case TileType.WATERFALL: {
+        p(0, 0, 14, 14, '#0c3b52');
+        p(2, 0, 10, 14, '#0ea5e9');
+        p(3, 0, 8, 12, '#38bdf8');
+        p(4, 1, 2, 9, '#bae6fd');
+        p(8, 2, 2, 8, '#e0f2fe');
+        p(2, 11, 10, 3, '#cffafe');
+        p(4, 12, 6, 1, '#ffffff');
+        break;
+      }
+      case TileType.CRYSTAL_SPIRE: {
+        p(3, 10, 8, 3, '#1e1b4b');
+        p(5, 1, 4, 10, '#8b5cf6');
+        p(3, 4, 2, 7, '#6366f1');
+        p(9, 5, 2, 6, '#38bdf8');
+        p(6, 2, 2, 6, '#ddd6fe');
+        p(6, 1, 1, 3, '#ffffff');
+        p(9, 6, 1, 3, '#bae6fd');
+        break;
+      }
       default:
         break;
     }
@@ -388,7 +470,7 @@ class SpriteAtlas {
 
   public getExplorerSprite(facingX: number, facingY: number, frame: number): HTMLCanvasElement {
     const dir = Math.abs(facingX) > Math.abs(facingY) ? (facingX >= 0 ? 'R' : 'L') : facingY < 0 ? 'U' : 'D';
-    const key = `explorer_${dir}_${frame % 2}`;
+    const key = `explorer_eli_${dir}_${frame % 2}`;
     const existing = this.charCache.get(key);
     if (existing) return existing;
 
@@ -399,51 +481,60 @@ class SpriteAtlas {
 
     const step = frame % 2 === 1 ? 1 : 0;
 
-    // Boots / legs
+    // Boots / tactical pants
     p(4, 10 + step, 2, 3 - step, '#1e293b');
     p(8, 10 + (1 - step), 2, 3 - (1 - step), '#1e293b');
-    p(4, 12, 2, 1, '#475569');
-    p(8, 12, 2, 1, '#475569');
+    p(4, 12, 2, 1, '#334155');
+    p(8, 12, 2, 1, '#334155');
 
-    // Explorer armored cavern suit + cyan energy belt
-    p(3, 5, 8, 6, '#0f3d4c');
-    p(4, 5, 6, 5, '#165f75');
-    p(4, 6, 6, 3, '#22d3ee');
-    p(5, 6, 4, 3, '#0f172a');
-    p(4, 9, 6, 1, '#f59e0b'); // slug canister belt!
-
-    // Backpack canister when facing up or side
-    if (dir === 'U') {
+    // Eli Shane dark tactical vest + orange shoulder pauldrons + dual glowing cyan chest canisters (Ref 3)
+    p(2, 5, 10, 6, '#0f172a');
+    p(2, 5, 2, 2, '#f97316'); // left orange pauldron trim
+    p(10, 5, 2, 2, '#f97316'); // right orange pauldron trim
+    p(4, 6, 6, 4, '#1e293b');
+    if (dir !== 'U') {
+      p(5, 6, 1, 3, '#38bdf8'); // left cyan canister
+      p(8, 6, 1, 3, '#22d3ee'); // right cyan canister
+      p(5, 6, 1, 1, '#e0f2fe');
+      p(8, 6, 1, 1, '#e0f2fe');
+    } else {
       p(4, 6, 6, 4, '#334155');
       p(5, 7, 4, 2, '#38bdf8');
     }
+    p(4, 9, 6, 1, '#ea580c'); // orange utility belt
 
-    // Head & Ranger Helmet + Goggles
-    p(4, 1, 6, 5, '#f2cba2');
-    p(3, 1, 8, 2, '#0284c7'); // helmet shell
-    p(4, 0, 6, 1, '#38bdf8'); // helmet top sheen
-    p(6, 1, 2, 1, '#fef08a'); // headlamp glow
+    // Head & spiky navy/indigo Eli Shane hair (Ref 3)
+    p(4, 2, 6, 4, '#f4c7a1');
+    p(3, 0, 8, 2, '#1e1b4b');
+    p(4, 0, 6, 1, '#4338ca');
+    p(3, 1, 2, 2, '#1e1b4b');
+    p(9, 1, 2, 2, '#1e1b4b');
+    p(2, 1, 1, 1, '#312e81'); // hair spikes
+    p(11, 1, 1, 1, '#312e81');
 
-    // Visor / Eyes by direction
+    // Expressive eyes by direction
     if (dir === 'D') {
-      p(4, 3, 6, 1, '#0c4a6e');
-      p(5, 4, 1, 1, '#0f172a');
-      p(8, 4, 1, 1, '#0f172a');
+      p(5, 3, 1, 1, '#090d16');
+      p(8, 3, 1, 1, '#090d16');
     } else if (dir === 'L') {
-      p(4, 3, 3, 1, '#38bdf8');
-      p(4, 4, 1, 1, '#0f172a');
+      p(4, 3, 1, 1, '#090d16');
+      p(9, 2, 2, 3, '#1e1b4b');
     } else if (dir === 'R') {
-      p(7, 3, 3, 1, '#38bdf8');
-      p(9, 4, 1, 1, '#0f172a');
+      p(9, 3, 1, 1, '#090d16');
+      p(3, 2, 2, 3, '#1e1b4b');
+    } else {
+      p(4, 2, 6, 4, '#1e1b4b');
     }
 
-    // Blaster / Pickaxe holster
+    // Orange & silver Shane Blaster at side
     if (dir === 'R') {
-      p(11, 7, 2, 2, '#f59e0b');
-      p(12, 7, 1, 1, '#fef08a');
+      p(11, 7, 3, 2, '#f97316');
+      p(12, 7, 2, 1, '#38bdf8');
     } else if (dir === 'L') {
-      p(1, 7, 2, 2, '#f59e0b');
-      p(1, 7, 1, 1, '#fef08a');
+      p(0, 7, 3, 2, '#f97316');
+      p(0, 7, 2, 1, '#38bdf8');
+    } else {
+      p(11, 7, 2, 2, '#f97316');
     }
 
     this.charCache.set(key, c);
@@ -954,30 +1045,178 @@ class SpriteAtlas {
       p(11, 7, 2, 2, '#64748b'); // blaster
       p(12, 7, 1, 1, '#f43f5e');
     } else {
-      // Boss Warlords (Ignis Rex / Glacius Prime / Sombra Vex)
+      // Boss Warlords (Dr. Blakk / Leviatan Abisal / Oraculo Prisma / Ignis / Glacius / Sombra)
+      const isBlakk = bossId === 'boss_blakk';
       const isIce = bossId?.includes('ice') || bossId?.includes('glacius');
+      const isAquatic = bossId?.includes('aquatic');
+      const isCrystal = bossId?.includes('crystal');
       const isShadow = bossId?.includes('shadow') || bossId?.includes('sombra');
-      const armor = isIce ? '#0369a1' : isShadow ? '#4c1d95' : '#991b1b';
-      const trim = isIce ? '#7dd3fc' : isShadow ? '#c084fc' : '#fb923c';
-      const eye = isIce ? '#e0f2fe' : isShadow ? '#f472b6' : '#fde047';
+      const armor = isBlakk
+        ? '#18181b'
+        : isIce
+        ? '#0369a1'
+        : isAquatic
+        ? '#0e7490'
+        : isCrystal
+        ? '#4c1d95'
+        : isShadow
+        ? '#4c1d95'
+        : '#991b1b';
+      const trim = isBlakk
+        ? '#dc2626'
+        : isIce
+        ? '#7dd3fc'
+        : isAquatic
+        ? '#22d3ee'
+        : isCrystal
+        ? '#a78bfa'
+        : isShadow
+        ? '#c084fc'
+        : '#fb923c';
+      const eye = isBlakk
+        ? '#ef4444'
+        : isIce
+        ? '#e0f2fe'
+        : isAquatic
+        ? '#a5f3fc'
+        : isCrystal
+        ? '#fef08a'
+        : isShadow
+        ? '#f472b6'
+        : '#fde047';
 
-      p(4, 11, 2, 3, '#0f172a');
-      p(8, 11, 2, 3, '#0f172a');
+      p(4, 11 + step, 2, 3 - step, '#0f172a');
+      p(8, 11 + (1 - step), 2, 3 - (1 - step), '#0f172a');
       // Broad armored cape & pauldrons
       p(2, 5, 10, 7, '#090d16');
       p(3, 5, 8, 6, armor);
       p(2, 5, 2, 3, trim);
       p(10, 5, 2, 3, trim);
-      p(5, 7, 4, 3, trim);
-      // Horned / Crowned helm
-      p(4, 1, 6, 5, armor);
-      p(3, 0, 2, 2, trim);
-      p(9, 0, 2, 2, trim);
-      p(6, 0, 2, 2, '#fde047');
-      // Glowing boss visor
-      p(5, 3, 4, 1, eye);
-      // Heavy gauntlet blaster
-      p(12, 7, 2, 3, trim);
+      if (isBlakk) {
+        // High crimson collar + olive face + dark swept hair + goatee + purple/crimson gatling blaster
+        p(4, 5, 6, 2, '#991b1b');
+        p(5, 7, 4, 3, '#ef4444');
+        p(4, 1, 6, 4, '#9ab094');
+        p(3, 0, 8, 2, '#26231f');
+        p(6, 4, 2, 2, '#26231f'); // goatee
+        p(5, 2, 1, 1, '#dc2626');
+        p(8, 2, 1, 1, '#dc2626');
+        p(11, 7, 3, 3, '#6b21a8');
+        p(12, 8, 2, 1, '#ef4444');
+      } else {
+        p(5, 7, 4, 3, trim);
+        p(4, 1, 6, 5, armor);
+        p(3, 0, 2, 2, trim);
+        p(9, 0, 2, 2, trim);
+        p(6, 0, 2, 2, '#fde047');
+        p(5, 3, 4, 1, eye);
+        p(12, 7, 2, 3, trim);
+      }
+    }
+
+    this.charCache.set(key, c);
+    return c;
+  }
+
+  /**
+   * Individual pixel-art sprites for Bajoterra story characters (Pronto, Trixie, Kord, Will Shane, etc.).
+   */
+  public getStoryCharacterSprite(characterId: string, frame = 0): HTMLCanvasElement {
+    const f = frame & 1;
+    const key = `story_npc_${characterId}_${f}`;
+    const existing = this.charCache.get(key);
+    if (existing) return existing;
+
+    if (characterId === 'mercader_subterraneo') {
+      return this.getNpcCharacterSprite('merchant', undefined, f);
+    }
+
+    const [c, g] = makeCanvas(28, 28);
+    const S = 2;
+    const p = (gx: number, gy: number, gw: number, gh: number, col: string) =>
+      px(g, gx * S, gy * S, gw * S, gh * S, col);
+    const step = f === 1 ? 1 : 0;
+
+    p(4, 11 + step, 2, 2, '#0f172a');
+    p(8, 12 - step, 2, 2, '#0f172a');
+
+    switch (characterId) {
+      case 'pronto': {
+        p(3, 5, 8, 6, '#3f2e21');
+        p(4, 6, 6, 4, '#dc2626');
+        p(4, 1, 6, 5, '#65a30d'); // green Molenoid head
+        p(5, 4, 4, 2, '#84cc16'); // snout
+        p(4, 2, 2, 2, '#38bdf8'); // brass goggles
+        p(8, 2, 2, 2, '#38bdf8');
+        p(6, 2, 2, 1, '#f59e0b');
+        break;
+      }
+      case 'trixie': {
+        p(3, 5, 8, 6, '#064e3b');
+        p(4, 6, 6, 4, '#10b981');
+        p(4, 1, 6, 5, '#f5ccb0');
+        p(3, 0, 8, 3, '#dc2626'); // fiery red bob
+        p(4, 1, 6, 1, '#34d399'); // headband
+        p(5, 3, 1, 1, '#090d16');
+        p(8, 3, 1, 1, '#090d16');
+        p(11, 7, 2, 2, '#2dd4bf');
+        break;
+      }
+      case 'kord': {
+        p(2, 5, 10, 6, '#452b1a'); // wide Troll shoulders
+        p(3, 6, 8, 4, '#f97316');
+        p(3, 1, 8, 5, '#477694'); // blue Troll face
+        p(4, 1, 2, 2, '#38bdf8');
+        p(8, 1, 2, 2, '#38bdf8');
+        p(5, 3, 1, 1, '#fbbf24');
+        p(8, 3, 1, 1, '#fbbf24');
+        p(12, 7, 2, 3, '#b45309');
+        break;
+      }
+      case 'will_shane': {
+        p(3, 5, 8, 6, '#0c4a6e');
+        p(4, 6, 6, 4, '#0284c7');
+        p(5, 6, 4, 2, '#67e8f9');
+        p(4, 1, 6, 5, '#e8bc96');
+        p(3, 0, 8, 2, '#1e293b');
+        p(3, 1, 2, 1, '#cbd5e1'); // silver streak
+        p(5, 3, 1, 1, '#0f172a');
+        p(8, 3, 1, 1, '#0f172a');
+        break;
+      }
+      case 'red_hook': {
+        p(3, 5, 8, 6, '#450a0a');
+        p(4, 6, 6, 4, '#b91c1c');
+        p(4, 1, 6, 5, '#d4a37c');
+        p(3, 0, 8, 2, '#451a03');
+        p(5, 3, 1, 1, '#f59e0b');
+        p(8, 3, 2, 1, '#090d16'); // eyepatch
+        p(11, 6, 3, 3, '#94a3b8'); // iron hook arm
+        break;
+      }
+      case 'twist': {
+        p(3, 5, 8, 6, '#1f2937');
+        p(4, 6, 6, 4, '#16a34a');
+        p(4, 1, 6, 5, '#111827'); // dark hood
+        p(5, 2, 4, 3, '#e2b89b');
+        p(5, 3, 1, 1, '#4ade80');
+        p(8, 3, 1, 1, '#4ade80');
+        p(11, 7, 2, 2, '#166534');
+        break;
+      }
+      case 'dr_blakk':
+      case 'comandante_blakk':
+      default: {
+        p(3, 5, 8, 6, '#18181b');
+        p(4, 5, 6, 2, '#991b1b'); // high red collar
+        p(4, 1, 6, 5, '#9ab094');
+        p(3, 0, 8, 2, '#26231f');
+        p(6, 4, 2, 2, '#26231f');
+        p(5, 3, 1, 1, '#ef4444');
+        p(8, 3, 1, 1, '#ef4444');
+        p(11, 7, 3, 2, '#6b21a8');
+        break;
+      }
     }
 
     this.charCache.set(key, c);

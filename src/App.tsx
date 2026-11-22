@@ -118,6 +118,10 @@ export default function App() {
             gameEngine.setScreen('EXPEDITION');
           }}
           onOpenMap={() => gameEngine.setScreen('FULL_MAP')}
+          onOpenBabosapedia={() => {
+            setExpeditionTab('babosapedia');
+            gameEngine.setScreen('EXPEDITION');
+          }}
           onOpenPause={() => gameEngine.setScreen('PAUSED')}
           onToggleSound={() =>
             gameEngine.updateOptions({ soundEnabled: !snap.options.soundEnabled })

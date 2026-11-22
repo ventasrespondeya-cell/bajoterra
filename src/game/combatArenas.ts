@@ -164,6 +164,96 @@ export function buildArenaForBiome(biome: BiomeId): BiomeArenaTheme {
           },
         ],
       };
+    case 'Acuaticas':
+      return {
+        biome,
+        title: 'Gruta de las Mareas',
+        skyTop: '#051a24',
+        skyBottom: '#0b3446',
+        caveMid: '#072736',
+        floorTop: '#1e5266',
+        floorBottom: '#0e2d3b',
+        glowColor: '#22d3ee',
+        ambientSparkColor: '#a5f3fc',
+        obstacles: [
+          {
+            id: 'coral_bastion',
+            kind: 'cover',
+            x: 438,
+            y: 292,
+            w: 50,
+            h: 134,
+            hp: 92,
+            maxHp: 92,
+            label: 'Arrecife Fósil',
+          },
+          {
+            id: 'hydro_geyser',
+            kind: 'updraft',
+            x: 320,
+            y: 194,
+            w: 76,
+            h: 232,
+            element: 'Agua',
+            label: 'Géiser Subterráneo',
+          },
+          {
+            id: 'abyssal_current',
+            kind: 'boost_ring',
+            x: 548,
+            y: 136,
+            w: 48,
+            h: 82,
+            element: 'Agua',
+            label: 'Corriente Abisal',
+          },
+        ],
+      };
+    case 'Cristalinas':
+      return {
+        biome,
+        title: 'Templo de Cuarzo Resonante',
+        skyTop: '#0e102b',
+        skyBottom: '#1c1d4d',
+        caveMid: '#14163b',
+        floorTop: '#363b78',
+        floorBottom: '#1b1e45',
+        glowColor: '#a78bfa',
+        ambientSparkColor: '#ddd6fe',
+        obstacles: [
+          {
+            id: 'quartz_reflector',
+            kind: 'reflector',
+            x: 416,
+            y: 112,
+            w: 96,
+            h: 26,
+            element: 'Luz',
+            label: 'Prisma de Cuarzo',
+          },
+          {
+            id: 'crystal_monolith',
+            kind: 'cover',
+            x: 444,
+            y: 298,
+            w: 44,
+            h: 128,
+            hp: 96,
+            maxHp: 96,
+            label: 'Aguja Cristalina',
+          },
+          {
+            id: 'harmonic_ring',
+            kind: 'boost_ring',
+            x: 554,
+            y: 186,
+            w: 48,
+            h: 82,
+            element: 'Energia',
+            label: 'Nexo Resonante',
+          },
+        ],
+      };
     case 'Verdes':
     default:
       return {

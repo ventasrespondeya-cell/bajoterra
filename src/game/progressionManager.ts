@@ -94,7 +94,7 @@ export function isPostGameUnlocked(state: Pick<GameState, 'story'>): boolean {
   const story = state.story;
   if (!story) return false;
   return (
-    story.chapterStates?.['cap_06_ciudadela_blakk'] === 'completed' ||
+    story.chapterStates?.['cap_08_ciudadela_blakk'] === 'completed' ||
     Boolean(story.storyFlags?.['postgame_unlocked'])
   );
 }

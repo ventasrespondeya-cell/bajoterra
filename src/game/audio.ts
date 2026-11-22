@@ -4,8 +4,10 @@ import type { BiomeId } from './types';
 export type MusicTrackId =
   | 'none'
   | 'biome_Verdes'
+  | 'biome_Acuaticas'
   | 'biome_Magma'
   | 'biome_Heladas'
+  | 'biome_Cristalinas'
   | 'biome_Sombrias'
   | 'duel_normal'
   | 'duel_boss';
@@ -28,6 +30,14 @@ const TRACK_CONFIGS: Record<Exclude<MusicTrackId, 'none'>, TrackConfig> = {
     harmonyWave: 'triangle',
     gainScale: 0.24,
   },
+  biome_Acuaticas: {
+    intervalMs: 520,
+    notes: [261.63, 329.63, 392, 493.88, 392, 329.63, 293.66, 392],
+    bassNotes: [130.81, 130.81, 146.83, 164.81],
+    wave: 'sine',
+    harmonyWave: 'sine',
+    gainScale: 0.23,
+  },
   biome_Magma: {
     intervalMs: 440,
     notes: [146.83, 174.61, 220, 196, 146.83, 233.08, 220, 164.81],
@@ -41,6 +51,14 @@ const TRACK_CONFIGS: Record<Exclude<MusicTrackId, 'none'>, TrackConfig> = {
     notes: [329.63, 493.88, 587.33, 440, 392, 587.33, 659.25, 493.88],
     bassNotes: [164.81, 164.81, 196, 146.83],
     wave: 'sine',
+    harmonyWave: 'sine',
+    gainScale: 0.22,
+  },
+  biome_Cristalinas: {
+    intervalMs: 490,
+    notes: [392, 523.25, 659.25, 783.99, 659.25, 587.33, 523.25, 440],
+    bassNotes: [196, 196, 220, 261.63],
+    wave: 'triangle',
     harmonyWave: 'sine',
     gainScale: 0.22,
   },

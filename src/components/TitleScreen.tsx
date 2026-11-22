@@ -51,7 +51,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           <span>Expedición Subterránea 2D</span>
         </div>
         <div className="text-slate-300/80 tabular-nums">
-          6 Capítulos · 20 Especies · Mecas y Torneos · Hogar Viviente
+          8 Capítulos · 6 Biomas · 20 Especies · Mecas y Torneos · Hogar Viviente
         </div>
       </div>
 
@@ -230,9 +230,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       <div className="text-[11px] sm:text-xs text-slate-300/85 border-t border-cyan-400/15 pt-3 flex flex-wrap gap-x-4 gap-y-1">
         <span><strong className="text-cyan-200">WASD / Flechas</strong> Mover</span>
         <span><strong className="text-cyan-200">Shift</strong> Correr</span>
-        <span><strong className="text-cyan-200">E / Clic</strong> Acción contextual</span>
-        <span><strong className="text-cyan-200">Q</strong> Cambiar babosa</span>
+        <span><strong className="text-cyan-200">F / Clic</strong> Interactuar</span>
+        <span><strong className="text-cyan-200">Q / 1-4</strong> Cambiar babosa</span>
         <span><strong className="text-cyan-200">Espacio</strong> Pulso Escáner</span>
+        <span><strong className="text-cyan-200">V</strong> Meca</span>
         <span><strong className="text-cyan-200">I</strong> Campaña y Estuche</span>
         <span><strong className="text-cyan-200">M</strong> Mapa</span>
         <span><strong className="text-cyan-200">Esc</strong> Pausa</span>

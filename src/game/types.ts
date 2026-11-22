@@ -1,6 +1,6 @@
 import type { CanonSourceTag, StoryHudSummary, StoryProgressState } from './storyTypes';
 
-export type BiomeId = 'Verdes' | 'Magma' | 'Heladas' | 'Sombrias';
+export type BiomeId = 'Verdes' | 'Acuaticas' | 'Magma' | 'Heladas' | 'Cristalinas' | 'Sombrias';
 
 export type ElementType =
   | 'Fuego'
@@ -47,6 +47,8 @@ export enum TileType {
   KELP = 28,
   VOLCANIC_ROCK = 29,
   EVO_STONE_VEIN = 30,
+  WATERFALL = 31,
+  CRYSTAL_SPIRE = 32,
 }
 
 export interface Chunk {

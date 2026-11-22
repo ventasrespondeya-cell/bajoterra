@@ -36,7 +36,9 @@ export function getBiomeAt(x: number, y: number, seed = 74192): BiomeId {
   const dist = Math.hypot(dx, dy);
   if (dist < 42) return 'Verdes';
   const warp = (smoothNoise(x * 0.035, y * 0.035, seed + 511) - 0.5) * 26;
-  // South = Magma, West = Heladas, East / Far North = Sombrias, Center/Mid = Verdes
+  // NW = Cristalinas, SE = Acuaticas, South = Magma, West = Heladas, East / Far North = Sombrias, Center/Mid = Verdes
+  if (dx + warp < -42 && dy + warp < -42) return 'Cristalinas';
+  if (dx + warp > 54 && dy + warp > 38) return 'Acuaticas';
   if (dy + warp > 54 && Math.abs(dx) < 105) return 'Magma';
   if (dx + warp < -58 && Math.abs(dy) < 105) return 'Heladas';
   if (dx + warp > 58 || dy - warp < -64 || dist > 118) return 'Sombrias';
@@ -109,7 +111,9 @@ export function isTileSolid(tile: TileType): boolean {
     tile === TileType.BLUE_QUARTZ ||
     tile === TileType.DARK_IRON ||
     tile === TileType.VOLCANIC_ROCK ||
-    tile === TileType.EVO_STONE_VEIN
+    tile === TileType.EVO_STONE_VEIN ||
+    tile === TileType.WATERFALL ||
+    tile === TileType.CRYSTAL_SPIRE
   );
 }
 
@@ -181,6 +185,10 @@ export function getTileLabel(tile: TileType): string {
       return 'Roca volcánica';
     case TileType.EVO_STONE_VEIN:
       return 'Veta de Piedra Evolutiva';
+    case TileType.WATERFALL:
+      return 'Cascada subterránea';
+    case TileType.CRYSTAL_SPIRE:
+      return 'Aguja cristalina';
     default:
       return 'Terreno';
   }
@@ -367,6 +375,19 @@ export class ChunkManager {
         if (r < 0.42) return TileType.ICE;
         return TileType.ROCK;
       }
+      if (b === 'Acuaticas') {
+        if (r < 0.14) return TileType.WATERFALL;
+        if (r < 0.26) return TileType.BLUE_QUARTZ;
+        if (r < 0.34) return TileType.ORE;
+        return TileType.ROCK;
+      }
+      if (b === 'Cristalinas') {
+        if (r < 0.22) return TileType.CRYSTAL_SPIRE;
+        if (r < 0.34) return TileType.BLUE_QUARTZ;
+        if (r < 0.44) return TileType.ENERGY_CRYSTAL;
+        if (r < 0.465) return TileType.EVO_STONE_VEIN;
+        return TileType.ROCK;
+      }
       if (b === 'Sombrias') {
         if (r < 0.14) return TileType.DARK_IRON;
         if (r < 0.24) return TileType.SHADOW_CRYSTAL;
@@ -383,9 +404,14 @@ export class ChunkManager {
       if (b === 'Heladas') {
         return lakeNoise < 0.15 ? TileType.WATER : TileType.ICE_FLOOR;
       }
+      if (b === 'Acuaticas') {
+        if (lakeNoise > 0.222 && r < 0.22) return TileType.WATERFALL;
+        return TileType.WATER;
+      }
+      if (b === 'Verdes' && lakeNoise > 0.225 && r < 0.08) return TileType.WATERFALL;
       return TileType.WATER;
     }
-    if (lakeNoise < 0.29 && (b === 'Verdes' || b === 'Heladas') && r < 0.22) {
+    if (lakeNoise < 0.29 && (b === 'Verdes' || b === 'Heladas' || b === 'Acuaticas') && r < 0.28) {
       return TileType.KELP;
     }
 
@@ -395,6 +421,16 @@ export class ChunkManager {
       if (r < 0.078) return TileType.ORE;
       if (r < 0.135) return TileType.MUSHROOM;
       if (r < 0.148) return TileType.ENERGY_CRYSTAL;
+      return TileType.FLOOR;
+    }
+
+    if (b === 'Acuaticas') {
+      if (r < 0.045) return TileType.WATER;
+      if (r < 0.068) return TileType.WATERFALL;
+      if (r < 0.135) return TileType.KELP;
+      if (r < 0.175) return TileType.BLUE_QUARTZ;
+      if (r < 0.205) return TileType.ENERGY_CRYSTAL;
+      if (r < 0.23) return TileType.ORE;
       return TileType.FLOOR;
     }
 
@@ -415,6 +451,15 @@ export class ChunkManager {
       if (r < 0.155) return TileType.ORE;
       if (r < 0.28) return TileType.ICE_FLOOR;
       if (r < 0.295) return TileType.ENERGY_CRYSTAL;
+      return TileType.FLOOR;
+    }
+
+    if (b === 'Cristalinas') {
+      if (r < 0.046) return TileType.CRYSTAL_SPIRE;
+      if (r < 0.092) return TileType.ENERGY_CRYSTAL;
+      if (r < 0.132) return TileType.BLUE_QUARTZ;
+      if (r < 0.165) return TileType.NEON_MUSHROOM;
+      if (r < 0.195) return TileType.ORE;
       return TileType.FLOOR;
     }
 
@@ -442,6 +487,8 @@ export class ChunkManager {
       case 'Magma':
         return TileType.THERMAL_COPPER;
       case 'Heladas':
+      case 'Acuaticas':
+      case 'Cristalinas':
         return TileType.BLUE_QUARTZ;
       case 'Sombrias':
         return TileType.DARK_IRON;
@@ -556,6 +603,10 @@ export class ChunkManager {
         ? TileType.ICE_CRYSTAL
         : biome === 'Magma'
         ? TileType.MAGMA_COAL
+        : biome === 'Acuaticas'
+        ? TileType.BLUE_QUARTZ
+        : biome === 'Cristalinas'
+        ? TileType.CRYSTAL_SPIRE
         : biome === 'Sombrias'
         ? TileType.NEON_MUSHROOM
         : TileType.ENERGY_CRYSTAL;
@@ -707,6 +758,49 @@ export class ChunkManager {
         if (x === 265 && y === 50) return TileType.RECHARGE_STATION;
         if (x === 279 && y === 50) return TileType.CHEST_CLOSED;
         if ((x === 268 || x === 279) && y === 59) return TileType.TORCH;
+        return TileType.BUILT_FLOOR;
+      }
+    }
+
+    // 8. Gruta de Cavernas Acuáticas (250, 232) + Cámara Sumergida (238, 224)
+    if (x >= 235 && x <= 258 && y >= 221 && y <= 239) {
+      if (x >= 235 && x <= 242 && y >= 221 && y <= 227) {
+        if (x === 238 && y === 224) return TileType.ALTAR;
+        if (x === 237 && y === 222) return TileType.TORCH;
+        if (x === 242 && y === 226) return TileType.CRACKED_WALL;
+        if (x === 235 || x === 242 || y === 221 || y === 227) return TileType.ANCIENT_BRICK;
+        return TileType.BUILT_FLOOR;
+      }
+      if (x >= 243 && x <= 257 && y >= 226 && y <= 238) {
+        if ((x === 246 || x === 254) && y === 226) return TileType.WATERFALL;
+        if ((x === 245 || x === 255) && y === 227) return TileType.WATER;
+        if (x === 245 && y === 229) return TileType.RECHARGE_STATION;
+        if (x === 255 && y === 229) return TileType.CHEST_CLOSED;
+        if ((x === 244 || x === 256) && y === 236) return TileType.KELP;
+        if ((x === 248 || x === 252) && y === 228) return TileType.TORCH;
+        return TileType.FLOOR;
+      }
+    }
+
+    // 9. Templo de Cavernas Cristalinas (78, 66) + Eco de Will Shane (89, 66)
+    if (x >= 72 && x <= 92 && y >= 60 && y <= 72) {
+      if (x >= 85 && x <= 92 && y >= 63 && y <= 69) {
+        if (x === 89 && y === 66) return TileType.ALTAR;
+        if (x === 87 && y === 64) return TileType.TORCH;
+        if (x === 85 && y === 66) return TileType.CRACKED_WALL;
+        if (x === 85 || x === 92 || y === 63 || y === 69) return TileType.ANCIENT_BRICK;
+        return TileType.BUILT_FLOOR;
+      }
+      if (x >= 72 && x <= 84 && y >= 60 && y <= 72) {
+        const border = x === 72 || x === 84 || y === 60 || y === 72;
+        if (border) {
+          if ((y === 72 && x >= 77 && x <= 79) || (x === 84 && y >= 65 && y <= 67)) return TileType.BUILT_FLOOR;
+          if ((x === 72 || x === 84) && (y === 60 || y === 72)) return TileType.CRYSTAL_SPIRE;
+          return TileType.ANCIENT_BRICK;
+        }
+        if (x === 74 && y === 62) return TileType.RECHARGE_STATION;
+        if (x === 82 && y === 62) return TileType.CHEST_CLOSED;
+        if ((x === 75 || x === 81) && y === 69) return TileType.TORCH;
         return TileType.BUILT_FLOOR;
       }
     }

@@ -148,16 +148,16 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
     : null;
 
   const tabs: Array<{ id: ExpeditionTabKey; label: string; icon: React.ReactNode }> = [
-    { id: 'campana', label: 'Campaña y Mercado', icon: <Compass className="w-3.5 h-3.5" /> },
-    { id: 'criaturas', label: 'Estuche y Crianza', icon: <Sparkles className="w-3.5 h-3.5" /> },
+    { id: 'campana', label: 'Campaña', icon: <Compass className="w-3.5 h-3.5" /> },
+    { id: 'criaturas', label: 'Estuche', icon: <Sparkles className="w-3.5 h-3.5" /> },
     {
       id: 'hogar',
       label: `Hogar (${snap.home.residents.length}/${MAX_ACTIVE_HOME_SLUGS})`,
       icon: <Home className="w-3.5 h-3.5" />,
     },
-    { id: 'entrenamiento', label: 'Entrenamiento y Carreras', icon: <Target className="w-3.5 h-3.5" /> },
-    { id: 'torneos', label: 'Rivales y Torneos', icon: <Swords className="w-3.5 h-3.5" /> },
-    { id: 'meca', label: 'Meca y Secretos', icon: <Wrench className="w-3.5 h-3.5" /> },
+    { id: 'entrenamiento', label: 'Entrenamiento', icon: <Target className="w-3.5 h-3.5" /> },
+    { id: 'torneos', label: 'Torneos', icon: <Swords className="w-3.5 h-3.5" /> },
+    { id: 'meca', label: 'Meca y Equipo', icon: <Wrench className="w-3.5 h-3.5" /> },
     { id: 'babosapedia', label: 'Babosapedia', icon: <BookOpen className="w-3.5 h-3.5" /> },
   ];
 
@@ -513,11 +513,16 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
 
           {tab === 'criaturas' && (
             <div className="space-y-4">
-              {/* Active Party */}
+              {/* Active Party (4 Launcher Tubes) */}
               <div className="bt-inset rounded-xl p-3.5">
-                <h3 className="text-xs font-extrabold text-teal-300 uppercase tracking-wider mb-2.5">
-                  Estuche Activo (Máx. 4) — Haz clic para marcar ranura de intercambio
-                </h3>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                  <h3 className="text-xs font-extrabold text-teal-300 uppercase tracking-wider">
+                    Estuche del Bláster ({snap.party.length}/4 Tubos Activos)
+                  </h3>
+                  <span className="text-[11px] text-slate-300">
+                    Toca una ranura para intercambiar con la Reserva
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {snap.party.map((s, idx) => {
                     const bondTier = getBondTierInfo(s.bond);
@@ -613,7 +618,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   })}
                 </div>
                 <p className="text-[11px] text-slate-400 mt-2.5">
-                  Evolución Megamorph intencional tras completar el Acelerador del Capítulo 5: requiere Nivel 5+, Amistad 60+ y 1 Elixir, Piedra Evolutiva o Reliquia.
+                  Evolución Megamorph intencional tras completar el Acelerador del Capítulo 7: requiere Nivel 5+, Amistad 60+ y 1 Elixir, Piedra Evolutiva o Reliquia.
                 </p>
               </div>
 
@@ -830,7 +835,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   {snap.home.furniture.length > 0 && (
                     <div className="mt-3 pt-2.5 border-t border-white/10">
                       <div className="text-[11px] font-bold text-slate-300 mb-1.5">
-                        Colocados en el refugio (también puedes recogerlos con E frente a ellos):
+                        Colocados en el refugio (también puedes recogerlos con F frente a ellos):
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {snap.home.furniture.map((f) => (
@@ -1124,7 +1129,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
                   {BLASTER_TOURNAMENTS.map((tour) => {
-                    const isPostGameTour = tour.requiredChapterId === 'cap_06_ciudadela_blakk';
+                    const isPostGameTour = tour.requiredChapterId === 'cap_08_ciudadela_blakk';
                     const chSt = snap.storyState.chapterStates[tour.requiredChapterId];
                     const unlocked = isPostGameTour
                       ? postGameOpen
@@ -1169,7 +1174,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                               ? 'Rejugar Torneo'
                               : 'Participar (3 Rondas)'
                             : isPostGameTour
-                            ? 'Post-Game (Cap. 6)'
+                            ? 'Post-Game (Cap. 8)'
                             : `Requiere Cap. ${STORY_CHAPTERS_BY_ID[tour.requiredChapterId]?.order || ''}`}
                         </button>
                       </div>
@@ -1188,7 +1193,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   <span className="text-[11px] font-bold text-slate-300">
                     {postGameOpen
                       ? 'Desbloqueado'
-                      : 'Bloqueado hasta completar Capítulo 6 (Bastión Sombrío)'}
+                      : 'Bloqueado hasta completar Capítulo 8 (Bastión Sombrío)'}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
@@ -1222,7 +1227,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                           onClick={() => gameEngine.startPostGameChallenge(pg.id)}
                           className="bt-btn-primary w-full py-2 rounded-xl font-extrabold text-xs disabled:opacity-35 cursor-pointer whitespace-nowrap min-h-[38px]"
                         >
-                          {postGameOpen ? 'Combatir Jefe' : 'Requiere Cap. 6'}
+                          {postGameOpen ? 'Combatir Jefe' : 'Requiere Cap. 8'}
                         </button>
                       </div>
                     );
@@ -1234,6 +1239,34 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
 
           {tab === 'meca' && (
             <div className="space-y-4">
+              {/* Core Exploration & Combat Gear Roles */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+                <div className="bt-card rounded-xl p-3 space-y-1">
+                  <div className="font-extrabold text-cyan-300">Lanzador Bláster</div>
+                  <p className="text-[11px] text-slate-300 leading-snug">
+                    Disparo cargado en duelos, pulso escáner [Espacio] y apertura de pasajes con la babosa activa.
+                  </p>
+                </div>
+                <div className="bt-card rounded-xl p-3 space-y-1">
+                  <div className="font-extrabold text-emerald-300">Estuche de 4 Tubos</div>
+                  <p className="text-[11px] text-slate-300 leading-snug">
+                    Lleva hasta 4 babosas listas ([Q] / 1-4). El resto descansa en la Reserva o el Hogar.
+                  </p>
+                </div>
+                <div className="bt-card rounded-xl p-3 space-y-1">
+                  <div className="font-extrabold text-amber-300">Acelerador Megamorph</div>
+                  <p className="text-[11px] text-slate-300 leading-snug">
+                    Calibrado en Cap. 7 en el Taller de Kord. Desbloquea evoluciones Megamorph (Nv.5+ y Amistad 60+).
+                  </p>
+                </div>
+                <div className="bt-card rounded-xl p-3 space-y-1">
+                  <div className="font-extrabold text-sky-300">Meca Shane [V]</div>
+                  <p className="text-[11px] text-slate-300 leading-snug">
+                    Desbloqueado en Cap. 2. Ahorra resistencia al correr; M2/M3 mejora tracción glacial y reduce daño térmico.
+                  </p>
+                </div>
+              </div>
+
               {/* Mecha Hangar & Shelter Upgrade */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="bt-inset rounded-xl p-3.5 space-y-3">
@@ -1522,7 +1555,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                     </h4>
                     <span className="text-[11px] text-slate-300">
                       Luz {ART_DIRECTION_GUIDE.lightDirectionDeg}° · Contorno{' '}
-                      {ART_DIRECTION_GUIDE.outlineHex} · Megamorph tras Acelerador (Cap. 5)
+                      {ART_DIRECTION_GUIDE.outlineHex} · Megamorph tras Acelerador (Cap. 7)
                     </span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
