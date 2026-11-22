@@ -7,19 +7,19 @@ import {
   Hand,
   Heart,
   Home,
+  Lock,
   MessageCircle,
   PackageOpen,
   Pause,
-  Pickaxe,
   Radar,
+  Search,
   Sparkles,
   Swords,
   Volume2,
   VolumeX,
-  Wrench,
   Zap,
 } from 'lucide-react';
-import { BIOME_INFO, HOME_FOOD_DEFS, HOTBAR_SLOTS, QUEST_LIST, getFavoriteFoodForSpecies } from '../game/data';
+import { BIOME_INFO, HOME_FOOD_DEFS, HOTBAR_SLOTS, getFavoriteFoodForSpecies } from '../game/data';
 import { getMoodLabel } from '../game/home';
 import { getBondTierInfo, getSlugDisplayName } from '../game/progression';
 import type { ExplorationActionKind, HudSnapshot, InventoryKey } from '../game/types';
@@ -61,18 +61,19 @@ function renderContextualIcon(kind: ExplorationActionKind, activeToolId: string)
     case 'recharge':
       return <Zap className="w-5 h-5" />;
     case 'altar':
+    case 'break_secret':
       return <Sparkles className="w-5 h-5" />;
+    case 'discover_secret':
+      return <Search className="w-5 h-5" />;
+    case 'inspect_gate':
+      return <Lock className="w-5 h-5" />;
     case 'interact_slug':
       return <Heart className="w-5 h-5" />;
     case 'pickup_furniture':
-    case 'gather':
       return <Hand className="w-5 h-5" />;
     case 'pulse':
       return <Radar className="w-5 h-5" />;
-    case 'mine':
-    case 'extract':
-      return <Pickaxe className="w-5 h-5" />;
-    case 'place':
+    case 'place_station':
     case 'berry':
       return <ToolIcon action={activeToolId as never} className="w-5 h-5" />;
     default:
@@ -145,7 +146,6 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     snap.options.touchControls === 'on' || (snap.options.touchControls === 'auto' && isTouchDevice);
 
   const biomeInfo = BIOME_INFO[snap.biome];
-  const activeQuest = QUEST_LIST.find((q) => !snap.claimedQuests.includes(q.id));
   const activeSlot = HOTBAR_SLOTS[snap.selectedHotbar] || HOTBAR_SLOTS[0];
   const activeQty = activeSlot.itemKey ? snap.inventory[activeSlot.itemKey] : null;
   const ctxAction = snap.contextualAction;
@@ -200,12 +200,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         {/* Top-Left: Explorer Vital Telemetry */}
         <div className="pointer-events-auto bt-hud-panel rounded-xl px-2 py-2 sm:px-3 flex-1 min-w-0 max-w-[172px] min-[420px]:max-w-[196px] sm:flex-none sm:w-[248px] sm:max-w-none">
           <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold mb-1.5 gap-1.5">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: biomeInfo.accent, boxShadow: `0 0 8px ${biomeInfo.accent}` }}
-              />
-              <span className="text-white truncate">{biomeInfo.name}</span>
+            <div className="min-w-0">
+              <div className="text-white truncate">
+                {snap.story?.currentScenarioName || biomeInfo.name}
+              </div>
+              <div className="text-[10px] font-semibold truncate" style={{ color: biomeInfo.accent }}>
+                {biomeInfo.name}
+              </div>
             </div>
             <span className="text-[10px] sm:text-[11px] text-teal-300 font-bold tabular-nums shrink-0">
               Nv.{snap.player.level}
@@ -251,18 +252,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <span title="Bayas">
               <span className="text-emerald-300 font-bold">Bay</span> {snap.inventory.berries}
             </span>
-            <span title="Cristales de Energía">
-              <span className="text-teal-300 font-bold">Cr</span> {snap.inventory.crystal}
+            <span title="Capítulo Actual">
+              <span className="text-teal-300 font-bold">Cap</span> {snap.story.currentChapterOrder}/{snap.story.totalChapters}
             </span>
           </div>
 
-          {(snap.story || activeQuest) && (
+          {snap.story && (
             <div className="mt-1 text-[10px] text-amber-200/95 truncate border-t border-cyan-400/15 pt-1 flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-amber-300 shrink-0" />
               <span className="truncate">
-                {snap.story
-                  ? `Cap.${snap.story.currentChapterOrder} · ${snap.story.mainObjectiveText}`
-                  : activeQuest?.title}
+                Cap.{snap.story.currentChapterOrder} · {snap.story.mainObjectiveText}
               </span>
             </div>
           )}
@@ -473,12 +472,12 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               >
                 <div className="flex items-center justify-between px-1 pb-2 mb-2 border-b border-cyan-400/15">
                   <span className="text-[11px] font-extrabold uppercase tracking-wider text-teal-300 flex items-center gap-1.5">
-                    <Wrench className="w-3.5 h-3.5" />
-                    Herramientas
+                    <Compass className="w-3.5 h-3.5" />
+                    Utilidades de Campo
                   </span>
                   <span className="text-[10px] text-slate-400">Elige una para usar</span>
                 </div>
-                <div className="grid grid-cols-4 gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
                   {HOTBAR_SLOTS.map((slot, idx) => {
                     const selected = snap.selectedHotbar === idx;
                     const qty = slot.itemKey ? snap.inventory[slot.itemKey] : null;

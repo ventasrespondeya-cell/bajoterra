@@ -32,6 +32,7 @@ const canvasStub = () => ({
     fillText: () => {},
     strokeRect: () => {},
     ellipse: () => {},
+    setLineDash: () => {},
   }),
 });
 
@@ -1859,44 +1860,31 @@ describe('Bajoterra 4.0 — FASE 5: Expansión del Mundo Subterráneo', () => {
 
     assert.deepEqual(
       Array.from(foundKinds).sort(),
-      ['abandoned_mine', 'ancient_ruins', 'crystal_chamber', 'outpost', 'secret_chamber']
+      ['ancient_ruins', 'crystal_chamber', 'outpost', 'secret_chamber']
     );
   });
 
-  test('F5.4 Minería y recolección de los recursos por bioma y no reaparición de cofres abiertos', async () => {
+  test('F5.4 Cofres RPG por bioma, pasajes secretos y no reaparición de cofres abiertos', async () => {
     gameEngine.startNewGame();
     const eng = gameEngine as unknown as {
-      mineTile: (tx: number, ty: number, tile: number) => void;
       openChest: (tx: number, ty: number) => void;
     };
 
     const rx = SPAWN_X + 12;
     const ry = SPAWN_Y;
 
-    eng.mineTile(rx, ry, TileType.MAGMA_COAL);
-    eng.mineTile(rx, ry, TileType.THERMAL_COPPER);
-    eng.mineTile(rx, ry, TileType.ICE_CRYSTAL);
-    eng.mineTile(rx, ry, TileType.BLUE_QUARTZ);
-    eng.mineTile(rx, ry, TileType.DARK_IRON);
-    eng.mineTile(rx, ry, TileType.NEON_MUSHROOM);
-    eng.mineTile(rx, ry, TileType.KELP);
-    eng.mineTile(rx, ry, TileType.EVO_STONE_VEIN);
-    eng.mineTile(rx, ry, TileType.WOOD_PILLAR);
+    // Mining loop is removed from engine
+    assert.equal('mineTile' in gameEngine, false);
 
-    assert.ok(gameEngine.state.inventory.magmaCoal >= 2);
-    assert.ok(gameEngine.state.inventory.thermalCopper >= 2);
-    assert.ok(gameEngine.state.inventory.iceCrystal >= 2);
-    assert.ok(gameEngine.state.inventory.blueQuartz >= 2);
-    assert.ok(gameEngine.state.inventory.darkIron >= 2);
-    assert.ok(gameEngine.state.inventory.neonMushroom >= 2);
-    assert.ok(gameEngine.state.inventory.rootWood >= 2);
-    assert.ok(gameEngine.state.inventory.evoStone >= 1);
-
-    // Chest turns permanently into CHEST_OPEN and never respawns across reload
+    // Chest rewards tokens/berries/supplies & turns permanently into CHEST_OPEN across reload
+    const tokensBefore = gameEngine.state.cavernTokens ?? 0;
+    const berriesBefore = gameEngine.state.inventory.berries;
     gameEngine.chunks.setTile(rx, ry + 1, TileType.CHEST_CLOSED);
     eng.openChest(rx, ry + 1);
     assert.equal(gameEngine.chunks.getTile(rx, ry + 1), TileType.CHEST_OPEN);
     assert.equal(gameEngine.state.stats.chestsOpened, 1);
+    assert.ok((gameEngine.state.cavernTokens ?? 0) > tokensBefore);
+    assert.ok(gameEngine.state.inventory.berries > berriesBefore);
 
     const saved = await saveGameV4(gameEngine.state, { reason: 'manual' });
     assert.equal(saved.ok, true);
@@ -1970,7 +1958,7 @@ describe('Bajoterra 4.0 — FASE 5: Expansión del Mundo Subterráneo', () => {
 
     const wildAndMerc = gameEngine.entities.filter((e) => e.kind === 'wild' || e.kind === 'mercenary');
     assert.ok(wildAndMerc.length <= 14);
-    assert.ok(gameEngine.entities.length <= 22);
+    assert.ok(gameEngine.entities.length <= 28);
     for (const e of wildAndMerc) {
       const tile = gameEngine.chunks.getTile(Math.floor(e.x), Math.floor(e.y));
       assert.equal(isTileSolid(tile), false);
@@ -2354,9 +2342,9 @@ describe('Bajoterra 4.0 — FASE 7: Renacimiento Total del Combate (Blásteres, 
 });
 
 describe('Bajoterra 4.0 — FASE 8: Rediseño HUD, Acciones Contextuales y Preparación Cinematográfica', () => {
-  test('F8.1 Acción contextual unificada con performPrimaryAction y sin duplicar lógica', () => {
+  test('F8.1 Acción contextual unificada RPG con performPrimaryAction (sin minería)', () => {
     gameEngine.startNewGame();
-    gameEngine.setHotbar(0); // Pico
+    gameEngine.setHotbar(0); // Pulso
     const px = Math.floor(gameEngine.state.player.x + 0.5);
     const py = Math.floor(gameEngine.state.player.y + 0.5);
     gameEngine.state.player.facingX = 1;
@@ -2375,7 +2363,7 @@ describe('Bajoterra 4.0 — FASE 8: Rediseño HUD, Acciones Contextuales y Prepa
     gameEngine.performPrimaryAction();
     assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.DOOR_OPEN);
 
-    // 2. Closed chest -> Abrir -> opens chest & rewards items
+    // 2. Closed chest -> Abrir -> opens chest & rewards RPG tokens/berries
     const chestsBefore = gameEngine.state.stats.chestsOpened;
     gameEngine.chunks.setTile(tx, ty, TileType.CHEST_CLOSED);
     assert.equal(gameEngine.getContextualExplorationAction().kind, 'open_chest');
@@ -2383,30 +2371,30 @@ describe('Bajoterra 4.0 — FASE 8: Rediseño HUD, Acciones Contextuales y Prepa
     assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.CHEST_OPEN);
     assert.equal(gameEngine.state.stats.chestsOpened, chestsBefore + 1);
 
-    // 3. Mineable crystal -> Extraer -> mines tile to FLOOR
-    gameEngine.chunks.setTile(tx, ty, TileType.ENERGY_CRYSTAL);
-    assert.equal(gameEngine.getContextualExplorationAction().kind, 'extract');
-    assert.equal(gameEngine.getContextualExplorationAction().label, 'Extraer');
+    // 3. Cracked secret passage -> break_secret -> opens hidden passage to FLOOR
+    gameEngine.chunks.setTile(tx, ty, TileType.CRACKED_WALL);
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'break_secret');
+    assert.equal(gameEngine.getContextualExplorationAction().label, 'Abrir');
     gameEngine.performPrimaryAction();
     assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.FLOOR);
 
-    // 4. Select torch tool -> Colocar -> places torch cleanly
-    const torchIdx = HOTBAR_SLOTS.findIndex((s) => s.id === 'torch');
-    gameEngine.setHotbar(torchIdx);
-    const torchCtx = gameEngine.getSnapshot().contextualAction;
-    assert.equal(torchCtx.kind, 'place');
-    assert.equal(torchCtx.label, 'Colocar');
-    assert.equal(torchCtx.canAct, true);
+    // 4. Select station tool -> place_station -> deploys portable Recharge Station
+    gameEngine.state.inventory.stations = 1;
+    const stIdx = HOTBAR_SLOTS.findIndex((s) => s.id === 'station');
+    gameEngine.setHotbar(stIdx);
+    const stCtx = gameEngine.getSnapshot().contextualAction;
+    assert.equal(stCtx.kind, 'place_station');
+    assert.equal(stCtx.canAct, true);
     gameEngine.performPrimaryAction();
-    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.TORCH);
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.RECHARGE_STATION);
 
-    // 5. Empty floor with Pico -> canAct = false
+    // 5. Empty floor with Pulso -> scanner ready
     gameEngine.setHotbar(0);
     gameEngine.chunks.setTile(tx, ty, TileType.FLOOR);
-    assert.equal(gameEngine.getContextualExplorationAction().kind, 'none');
-    assert.equal(gameEngine.getContextualExplorationAction().canAct, false);
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'pulse');
+    assert.equal(gameEngine.getContextualExplorationAction().canAct, true);
 
-    // 6. Nearby merchant -> Hablar
+    // 6. Nearby merchant & story NPC -> Hablar
     gameEngine.entities = savedEntities;
     const merchant = gameEngine.entities.find((e) => e.kind === 'merchant');
     if (merchant) {
@@ -2415,6 +2403,12 @@ describe('Bajoterra 4.0 — FASE 8: Rediseño HUD, Acciones Contextuales y Prepa
       assert.equal(gameEngine.getContextualExplorationAction().kind, 'talk');
       assert.equal(gameEngine.getContextualExplorationAction().label, 'Hablar');
     }
+    const pronto = gameEngine.entities.find((e) => e.characterId === 'pronto');
+    assert.ok(pronto);
+    gameEngine.state.player.x = pronto.x - 1;
+    gameEngine.state.player.y = pronto.y;
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'talk');
+    assert.equal(gameEngine.getContextualExplorationAction().detail, 'Pronto');
   });
 
   test('F8.2 Bus ligero de eventos cinematográficos (Etapa E) y cambio de babosa sin pérdida de datos', () => {
@@ -2539,7 +2533,7 @@ describe('Bajoterra 4.0 — FASE 8: Rediseño HUD, Acciones Contextuales y Prepa
     assert.ok(bmSrc.includes("battle.turn !== 'duel'"));
   });
 
-  test('F8.4 Selector compacto de herramientas en GameHUD, todas las herramientas y protección de campos de texto', () => {
+  test('F8.4 Selector compacto de utilidades RPG en GameHUD (Pulso, Baya, Estación) y protección de texto', () => {
     gameEngine.startNewGame();
     const savedEntities = gameEngine.entities;
     gameEngine.entities = [];
@@ -2550,37 +2544,25 @@ describe('Bajoterra 4.0 — FASE 8: Rediseño HUD, Acciones Contextuales y Prepa
     const tx = px + 1;
     const ty = py;
 
-    // Verify all 8 tools work seamlessly when selected
-    assert.equal(HOTBAR_SLOTS.length, 8);
-    gameEngine.state.inventory.walls = 3;
-    gameEngine.state.inventory.floors = 3;
-    gameEngine.state.inventory.doors = 2;
+    // Verify 3 RPG field utilities (no pickaxe/wall/floor spam)
+    assert.deepEqual(
+      HOTBAR_SLOTS.map((s) => s.id),
+      ['pulse', 'berry', 'station']
+    );
     gameEngine.state.inventory.stations = 1;
     gameEngine.state.inventory.berries = 2;
     gameEngine.state.player.hp = 60;
 
-    // Wall -> Place
-    gameEngine.chunks.setTile(tx, ty, TileType.FLOOR);
-    gameEngine.setHotbar(HOTBAR_SLOTS.findIndex((s) => s.id === 'wall'));
-    assert.equal(gameEngine.getContextualExplorationAction().kind, 'place');
-    gameEngine.performPrimaryAction();
-    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.WALL);
-
-    // Mine back down with Pico
-    gameEngine.setHotbar(HOTBAR_SLOTS.findIndex((s) => s.id === 'mine'));
-    assert.equal(gameEngine.getContextualExplorationAction().kind, 'mine');
-    gameEngine.performPrimaryAction();
-    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.FLOOR);
-
-    // Door -> Place -> Open
-    gameEngine.setHotbar(HOTBAR_SLOTS.findIndex((s) => s.id === 'door'));
-    gameEngine.performPrimaryAction();
-    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.DOOR_CLOSED);
+    // Door -> Open & Close toggle
+    gameEngine.chunks.setTile(tx, ty, TileType.DOOR_CLOSED);
     assert.equal(gameEngine.getContextualExplorationAction().kind, 'open_door');
     gameEngine.performPrimaryAction();
     assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.DOOR_OPEN);
+    assert.equal(gameEngine.getContextualExplorationAction().kind, 'close_door');
+    gameEngine.performPrimaryAction();
+    assert.equal(gameEngine.chunks.getTile(tx, ty), TileType.DOOR_CLOSED);
 
-    // Station -> Place -> Recharge contextual
+    // Station -> Deploy -> Recharge contextual
     gameEngine.chunks.setTile(tx, ty, TileType.FLOOR);
     gameEngine.setHotbar(HOTBAR_SLOTS.findIndex((s) => s.id === 'station'));
     gameEngine.performPrimaryAction();
@@ -2600,12 +2582,12 @@ describe('Bajoterra 4.0 — FASE 8: Rediseño HUD, Acciones Contextuales y Prepa
 
     gameEngine.entities = savedEntities;
 
-    // UI contract: single tool selector popover, no permanent numbered 1-8 hotbar buttons
+    // UI contract: single utility selector popover, no permanent numbered 1-8 hotbar buttons
     const hudSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/GameHUD.tsx'), 'utf8');
     assert.ok(hudSrc.includes('toolMenuOpen'));
     assert.ok(hudSrc.includes('role="menu"'));
     assert.ok(hudSrc.includes('setToolMenuOpen(false)'));
-    assert.ok(!hudSrc.includes('{idx + 1}'), 'No deben existir etiquetas numeradas 1-8 permanentes en el HUD');
+    assert.ok(!hudSrc.includes('{idx + 1}'), 'No deben existir etiquetas numeradas permanentes en el HUD');
 
     // engine.ts ignores text input elements on keydown
     const engineSrc = fs.readFileSync(path.join(process.cwd(), 'src/game/engine.ts'), 'utf8');
@@ -3359,6 +3341,7 @@ describe('Bajoterra 4.0 — FASE 10: Dirección Artística Principal, Anatomía 
         rotate: () => {},
         scale: () => {},
         setTransform: () => {},
+        setLineDash: () => {},
         fillText: (text: string, x: number, y: number) => {
           texts.push({ text, x, y, textAlign: String(ctx.textAlign || 'left') });
           ops.push(`fillText:${text}:${x.toFixed(1)},${y.toFixed(1)}`);
@@ -3858,6 +3841,104 @@ describe('Bajoterra 4.0 — FASE 13: Nombres Propios, 20 Especies, Personalidad,
     assert.ok(reloaded.discoveredSecrets?.includes(sec0.id));
   });
 });
+
+describe('Bajoterra 4.0 — FASE 13 (Identidad RPG, Mapa del Mundo, Transiciones y Limpieza)', () => {
+  test('13.6 Mapa del mundo: todos los escenarios con coordenadas válidas, rutas conectadas y render sin secretos ocultos', () => {
+    const scenarios = Object.values(STORY_SCENARIOS);
+    assert.equal(scenarios.length, 8);
+    for (const sc of scenarios) {
+      assert.ok(sc.worldAnchor, `${sc.id} debe tener worldAnchor`);
+      assert.ok(sc.worldAnchor.x >= 0 && sc.worldAnchor.x < WORLD_W);
+      assert.ok(sc.worldAnchor.y >= 0 && sc.worldAnchor.y < WORLD_H);
+      assert.ok(sc.regionName.length > 0);
+      assert.ok(sc.canonStatus === 'serie_canon' || sc.canonStatus === 'adaptacion_juego' || sc.canonStatus === 'pendiente_canon');
+    }
+
+    const routes = Object.values(STORY_ROUTES);
+    for (const r of routes) {
+      assert.ok(STORY_SCENARIOS[r.fromScenarioId], `Origen inválido en ruta ${r.id}`);
+      assert.ok(STORY_SCENARIOS[r.toScenarioId], `Destino inválido en ruta ${r.id}`);
+    }
+
+    // World map renders cleanly and hides undiscovered secrets in FullMapModal & ExpeditionModal
+    const state = createInitialGameState();
+    const renderer = new WorldRenderer();
+    const mapCanvas = document.createElement('canvas') as HTMLCanvasElement;
+    mapCanvas.width = 440;
+    mapCanvas.height = 440;
+    renderer.renderFullWorldMap(mapCanvas, state);
+
+    const mapModalSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/FullMapModal.tsx'), 'utf8');
+    assert.ok(mapModalSrc.includes('Mapa del Mundo Subterráneo'));
+    assert.ok(mapModalSrc.includes('travelToStoryScenario'));
+    assert.ok(mapModalSrc.includes('discoveredSecrets'));
+  });
+
+  test('13.7 Bloqueo narrativo físico a pie y transiciones entre escenarios con preservación de posición', () => {
+    gameEngine.startNewGame();
+    // Chapter 1: Valle Verde, Magma, Heladas, Sombrias must be gated physically on foot
+    assert.ok(gameEngine.getWalkingGateLockReason(185, 160) !== null, 'Valle Verde debe estar bloqueado en Cap. 1');
+    assert.ok(gameEngine.getWalkingGateLockReason(160, 260) !== null, 'Magma debe estar bloqueado antes de Cap. 4');
+    assert.ok(gameEngine.getWalkingGateLockReason(42, 162) !== null, 'Heladas debe estar bloqueado antes de Cap. 4');
+    assert.ok(gameEngine.getWalkingGateLockReason(276, 54) !== null, 'Sombrías debe estar bloqueado antes de Cap. 6');
+
+    // Caverna del Descenso is unlocked in Cap. 1 and travel relocates player physically
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+    assert.equal(gameEngine.state.story?.currentScenarioId, 'esc_caverna_descenso');
+    assert.ok(
+      Math.hypot(gameEngine.state.player.x - 160, gameEngine.state.player.y - 140) <= 10,
+      'El viaje debe mover físicamente al jugador a la Caverna del Descenso'
+    );
+
+    // Move slightly inside Caverna del Descenso, travel back to Refugio Shane, then revisit -> restores local coords
+    gameEngine.state.player.x = 162.5;
+    gameEngine.state.player.y = 138.25;
+    assert.equal(gameEngine.travelToStoryScenario('esc_refugio_shane'), true);
+    assert.equal(gameEngine.state.story?.currentScenarioId, 'esc_refugio_shane');
+    assert.ok(Math.hypot(gameEngine.state.player.x - SPAWN_X, gameEngine.state.player.y - SPAWN_Y) <= 6);
+
+    assert.equal(gameEngine.travelToStoryScenario('esc_caverna_descenso'), true);
+    assert.ok(Math.abs(gameEngine.state.player.x - 162.5) < 0.1);
+    assert.ok(Math.abs(gameEngine.state.player.y - 138.25) < 0.1);
+
+    // Complete Cap. 1 -> Valle Verde physical gate opens
+    gameEngine.state.stats.wins = 1;
+    assert.equal(gameEngine.claimStoryMission('m_cap1_primeros_pasos'), true);
+    assert.equal(gameEngine.getWalkingGateLockReason(185, 160), null, 'Valle Verde debe abrirse tras Cap. 1');
+  });
+
+  test('13.8 Escenarios artesanales, vestigio físico interactuable, NPCs de historia y compatibilidad con saves V3/V4', () => {
+    gameEngine.startNewGame();
+    // Handcrafted scenario layout: Valle Verde plaza + walls + station + Pronto/Trixie NPCs seeded
+    gameEngine.chunks.ensureWindowAround(185, 160, 1);
+    assert.equal(gameEngine.chunks.getTile(185, 160), TileType.BUILT_FLOOR);
+    assert.equal(gameEngine.chunks.getTile(185, 156), TileType.RECHARGE_STATION);
+
+    assert.ok(gameEngine.entities.some((e) => e.kind === 'story_npc' && e.characterId === 'pronto'));
+    assert.ok(gameEngine.entities.some((e) => e.kind === 'story_npc' && e.characterId === 'trixie'));
+    assert.ok(gameEngine.entities.some((e) => e.kind === 'story_npc' && e.characterId === 'kord'));
+
+    // Physical hidden sanctuary shrine in Caverna del Descenso (144, 142) can be discovered via contextual E
+    const sec0 = HIDDEN_DISCOVERIES[0];
+    assert.ok(sec0.worldCoords);
+    gameEngine.entities = gameEngine.entities.filter((e) => e.kind !== 'wild' && e.kind !== 'mercenary');
+    gameEngine.state.player.x = sec0.worldCoords.x;
+    gameEngine.state.player.y = sec0.worldCoords.y;
+    const ctx = gameEngine.getContextualExplorationAction();
+    assert.equal(ctx.kind, 'discover_secret');
+    gameEngine.performPrimaryAction();
+    assert.ok(gameEngine.state.discoveredSecrets?.includes(sec0.id));
+
+    // Legacy V4 save with old 8-slot selectedHotbar: 7 migrates cleanly to 3-slot RPG hotbar without failing validation
+    const legacyV4 = createInitialGameState();
+    legacyV4.selectedHotbar = 7;
+    delete legacyV4.story?.scenarioPositions;
+    const valRes = validateV4State(legacyV4);
+    assert.equal(valRes.ok, true);
+    assert.ok(valRes.value!.selectedHotbar >= 0 && valRes.value!.selectedHotbar < HOTBAR_SLOTS.length);
+  });
+});
+
 
 
 

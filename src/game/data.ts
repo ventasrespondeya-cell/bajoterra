@@ -662,14 +662,9 @@ export const SPECIES_LIST: SlugSpecies[] = [
 ];
 
 export const HOTBAR_SLOTS: HotbarSlot[] = [
-  { id: 'mine', label: 'Pico', keyHint: '1' },
-  { id: 'torch', label: 'Antorcha', keyHint: '2', itemKey: 'torches' },
-  { id: 'wall', label: 'Pared', keyHint: '3', itemKey: 'walls' },
-  { id: 'floor', label: 'Suelo', keyHint: '4', itemKey: 'floors' },
-  { id: 'door', label: 'Puerta', keyHint: '5', itemKey: 'doors' },
-  { id: 'station', label: 'Estación', keyHint: '6', itemKey: 'stations' },
-  { id: 'berry', label: 'Baya', keyHint: '7', itemKey: 'berries' },
-  { id: 'pulse', label: 'Pulso', keyHint: '8' },
+  { id: 'pulse', label: 'Pulso', keyHint: '1' },
+  { id: 'berry', label: 'Baya', keyHint: '2', itemKey: 'berries' },
+  { id: 'station', label: 'Estación', keyHint: '3', itemKey: 'stations' },
 ];
 
 export const CRAFT_RECIPES: CraftRecipe[] = [];

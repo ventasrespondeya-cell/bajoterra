@@ -32,7 +32,6 @@ import {
   HOME_FOOD_DEFS,
   MAX_ACTIVE_HOME_SLUGS,
   MAX_SLUGS_PER_HABITAT,
-  QUEST_LIST,
   SPECIES_LIST,
   getFavoriteFoodForSpecies,
   getSpecies,
@@ -79,22 +78,6 @@ interface ExpeditionModalProps {
   onClose: () => void;
 }
 
-const LEGACY_MATERIAL_KEYS: Array<{ key: InventoryKey; label: string }> = [
-  { key: 'ore', label: 'Minerales' },
-  { key: 'wood', label: 'Madera' },
-  { key: 'stone', label: 'Piedra' },
-  { key: 'crystal', label: 'Cristal de Energía' },
-  { key: 'shadowShard', label: 'Frag. Sombrío' },
-  { key: 'core', label: 'Núcleos' },
-  { key: 'rootWood', label: 'Madera Raíz' },
-  { key: 'magmaCoal', label: 'Carbón Magma' },
-  { key: 'thermalCopper', label: 'Cobre Térmico' },
-  { key: 'iceCrystal', label: 'Cristal Hielo' },
-  { key: 'blueQuartz', label: 'Cuarzo Azul' },
-  { key: 'darkIron', label: 'Hierro Oscuro' },
-  { key: 'neonMushroom', label: 'Hongo Neón' },
-];
-
 const SUPPLY_KEYS: Array<{ key: InventoryKey; label: string }> = [
   { key: 'capsules', label: 'Cilindros' },
   { key: 'masterCapsules', label: 'Cilindros Maestros' },
@@ -127,7 +110,6 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
   const [catalogMood, setCatalogMood] = useState<SlugPortraitMood>('happy');
   const [showArtGuide, setShowArtGuide] = useState<boolean>(false);
   const [catalogSilhouette, setCatalogSilhouette] = useState<boolean>(false);
-  const [showLegacyMaterials, setShowLegacyMaterials] = useState<boolean>(false);
 
   const allSlugs = [...snap.party, ...snap.storage];
   const capturedCount = Object.keys(snap.capturedSpecies).length;
@@ -152,9 +134,6 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
   const availableDialogues = getAvailableDialogues(gameStateLike);
   const journalEntries = getUnlockedJournalEntries(gameStateLike);
   const postGameOpen = isPostGameUnlocked({ story: snap.storyState });
-  const legacyNonZeroCount = LEGACY_MATERIAL_KEYS.filter(
-    (item) => (snap.inventory[item.key] || 0) > 0
-  ).length;
 
   const inspectedEntry = inspectedSlugUid
     ? (() => {
@@ -346,36 +325,6 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                       );
                     })}
                   </div>
-                  {legacyNonZeroCount > 0 && (
-                    <div className="pt-1 border-t border-white/10">
-                      <button
-                        type="button"
-                        onClick={() => setShowLegacyMaterials((v) => !v)}
-                        className="text-[11px] font-bold text-slate-300 hover:text-white cursor-pointer"
-                      >
-                        {showLegacyMaterials
-                          ? 'Ocultar materiales heredados'
-                          : `Ver materiales heredados (${legacyNonZeroCount})`}
-                      </button>
-                      {showLegacyMaterials && (
-                        <div className="grid grid-cols-2 gap-1.5 text-[11px] mt-2">
-                          {LEGACY_MATERIAL_KEYS.filter(
-                            (it) => (snap.inventory[it.key] || 0) > 0
-                          ).map((it) => (
-                            <div
-                              key={it.key}
-                              className="bt-card flex items-center justify-between px-2 py-1 rounded-lg"
-                            >
-                              <span className="text-slate-300 truncate">{it.label}</span>
-                              <span className="font-bold text-white tabular-nums">
-                                {snap.inventory[it.key]}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -440,65 +389,6 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                           }`}
                         >
                           {isCompleted ? 'Completada' : m.readyToClaim ? 'Reclamar' : 'En curso'}
-                        </button>
-                      </div>
-                    );
-                  })}
-
-                  {QUEST_LIST.filter(
-                    (q) => !snap.story.activeMissions.some((m) => m.legacyQuestId === q.id)
-                  ).map((q) => {
-                    const prog = gameEngine.getQuestProgress(q);
-                    const claimed = snap.claimedQuests.includes(q.id);
-                    const ready = !claimed && gameEngine.isQuestComplete(q);
-                    return (
-                      <div
-                        key={q.id}
-                        className={`bt-card rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                          claimed
-                            ? 'border-emerald-500/35 opacity-65'
-                            : ready
-                            ? 'border-teal-300 shadow-[0_0_18px_rgba(45,212,191,0.16)]'
-                            : ''
-                        }`}
-                      >
-                        <div className="flex-1">
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 mb-0.5">
-                            <span className="text-teal-300 font-extrabold">
-                              {q.category === 'principal' ? 'Principal' : 'Secundaria'}
-                            </span>
-                            <span>·</span>
-                            <span className="tabular-nums font-semibold">
-                              {Math.min(prog, q.goal)} / {q.goal}
-                            </span>
-                            {q.extraConditions?.map((cond) => {
-                              const extraVal = gameEngine.getQuestMetricValue(cond.metric);
-                              return (
-                                <span key={cond.metric} className="tabular-nums font-semibold">
-                                  · {cond.label}: {Math.min(extraVal, cond.goal)}/{cond.goal}
-                                </span>
-                              );
-                            })}
-                          </div>
-                          <div className="text-sm font-extrabold text-white">{q.title}</div>
-                          <div className="text-xs text-slate-300 mt-0.5">{q.description}</div>
-                          <div className="text-[11px] text-emerald-300 mt-1 font-semibold">
-                            Recompensa: {q.rewardText}
-                          </div>
-                        </div>
-
-                        <button
-                          disabled={!ready}
-                          onClick={() => gameEngine.claimQuest(q.id)}
-                          className={`px-4 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap cursor-pointer min-h-[40px] ${
-                            claimed
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                              : ready
-                              ? 'bt-btn-primary'
-                              : 'bt-btn-secondary opacity-60'
-                          }`}
-                        >
-                          {claimed ? 'Completada' : ready ? 'Reclamar' : 'En curso'}
                         </button>
                       </div>
                     );
@@ -940,7 +830,7 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                   {snap.home.furniture.length > 0 && (
                     <div className="mt-3 pt-2.5 border-t border-white/10">
                       <div className="text-[11px] font-bold text-slate-300 mb-1.5">
-                        Colocados en el refugio (también puedes recogerlos con el Pico):
+                        Colocados en el refugio (también puedes recogerlos con E frente a ellos):
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {snap.home.furniture.map((f) => (
@@ -1520,24 +1410,34 @@ export const ExpeditionModal: React.FC<ExpeditionModalProps> = ({
                     const biomeFound =
                       sec.biome === 'Verdes' || snap.discoveries.includes(sec.biome);
                     const canInspect = !found && chReady && biomeFound;
+                    const revealDetails = found || (chReady && biomeFound);
                     return (
                       <div
                         key={sec.id}
                         className={`bt-card rounded-xl p-3 flex flex-col justify-between gap-2 ${
-                          found ? 'border-emerald-400/45' : ''
+                          found ? 'border-emerald-400/45' : !revealDetails ? 'opacity-65' : ''
                         }`}
                       >
                         <div>
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-extrabold text-sm text-white">{sec.title}</span>
+                            <span className="font-extrabold text-sm text-white">
+                              {revealDetails ? sec.title : 'Vestigio Oculto sin Descubrir'}
+                            </span>
                             <span className="text-[11px] text-slate-300">
-                              {BIOME_INFO[sec.biome].name} · {formatCanonTag(sec.canonStatus)}
+                              {BIOME_INFO[sec.biome].name}
+                              {revealDetails ? ` · ${formatCanonTag(sec.canonStatus)}` : ''}
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-300 mt-1">{sec.lore}</p>
-                          <div className="text-[11px] text-amber-200 font-semibold mt-1">
-                            Recompensa: +{sec.rewardTokens} Fichas · +20 EXP
-                          </div>
+                          <p className="text-[11px] text-slate-300 mt-1">
+                            {revealDetails
+                              ? sec.lore
+                              : `Explora ${BIOME_INFO[sec.biome].name} a partir del Capítulo ${sec.minChapterOrder} y usa el Pulso [Espacio] para localizar este vestigio en el mapa.`}
+                          </p>
+                          {revealDetails && (
+                            <div className="text-[11px] text-amber-200 font-semibold mt-1">
+                              Recompensa: +{sec.rewardTokens} Fichas · +20 EXP
+                            </div>
+                          )}
                         </div>
                         <button
                           type="button"

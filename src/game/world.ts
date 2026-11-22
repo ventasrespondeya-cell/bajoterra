@@ -68,23 +68,20 @@ export function getChunkStructureMeta(cx: number, cy: number, seed = 74192): Chu
   if (BOSS_CHUNK_KEYS.has(`${cx},${cy}`)) return null;
 
   const roll = hash2D(cx, cy, seed + 909);
-  if (roll <= 0.85) return null;
+  if (roll <= 0.87) return null;
 
   const centerX = cx * CHUNK_SIZE + 7;
   const centerY = cy * CHUNK_SIZE + 7;
   const biome = getBiomeAt(centerX, centerY, seed);
   const id = `poi_${cx}_${cy}`;
 
-  if (roll <= 0.89) {
-    return { id, name: 'Mina Abandonada', kind: 'abandoned_mine', biome, cx, cy, centerX, centerY, hasGuardian: false };
-  }
-  if (roll <= 0.93) {
+  if (roll <= 0.915) {
     return { id, name: 'Cámara Secreta', kind: 'secret_chamber', biome, cx, cy, centerX, centerY, hasGuardian: false };
   }
-  if (roll <= 0.96) {
+  if (roll <= 0.955) {
     return { id, name: 'Puesto Subterráneo', kind: 'outpost', biome, cx, cy, centerX, centerY, hasGuardian: false };
   }
-  if (roll <= 0.985) {
+  if (roll <= 0.98) {
     return { id, name: 'Ruinas Antiguas', kind: 'ancient_ruins', biome, cx, cy, centerX, centerY, hasGuardian: true };
   }
   return { id, name: 'Cámara de Cristales', kind: 'crystal_chamber', biome, cx, cy, centerX, centerY, hasGuardian: true };
@@ -306,11 +303,15 @@ export class ChunkManager {
       this.carveStructure(tiles, structMeta);
     }
 
-    // Apply starter shelter safely over spawn area (153..167, 153..167) and player deltas
+    // Apply handcrafted story scenario landmarks, secret shrines, starter shelter, and player deltas
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       const y = y0 + ly;
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const x = x0 + lx;
+        const scenarioTile = this.getHandcraftedScenarioTile(x, y);
+        if (scenarioTile !== null) {
+          tiles[ly * CHUNK_SIZE + lx] = scenarioTile;
+        }
         const starterTile = this.getStarterTile(x, y);
         if (starterTile !== null) {
           tiles[ly * CHUNK_SIZE + lx] = starterTile;
@@ -574,6 +575,143 @@ export class ChunkManager {
     tiles[7 * CHUNK_SIZE + 4] = secondaryCrystal;
     tiles[4 * CHUNK_SIZE + 7] = TileType.EVO_STONE_VEIN;
     tiles[6 * CHUNK_SIZE + 7] = TileType.CHEST_CLOSED;
+  }
+
+  private getHandcraftedScenarioTile(x: number, y: number): TileType | null {
+    // 1. Caverna del Descenso (160, 140) + Pasaje Secreto hacia Estela de Will Shane (144, 142)
+    if (x >= 142 && x <= 167 && y >= 133 && y <= 148) {
+      // Secret western shrine alcove (142..147, 139..145)
+      if (x >= 142 && x <= 147 && y >= 139 && y <= 145) {
+        if (x === 144 && y === 142) return TileType.ALTAR;
+        if (x === 143 && y === 140) return TileType.CHEST_CLOSED;
+        if (x === 146 && y === 140) return TileType.TORCH;
+        if (x === 147 && y === 142) return TileType.CRACKED_WALL; // Secret cracked barrier
+        if (x === 142 || x === 147 || y === 139 || y === 145) return TileType.ANCIENT_BRICK;
+        return TileType.FLOOR;
+      }
+      // Connecting western path from Caverna plaza to cracked passage
+      if (y >= 141 && y <= 143 && x >= 148 && x <= 154) {
+        return TileType.FLOOR;
+      }
+      // Main Caverna del Descenso clearing (154..166, 134..147)
+      if (x >= 154 && x <= 166 && y >= 134 && y <= 147) {
+        if ((x === 155 || x === 165) && (y === 135 || y === 145)) return TileType.TORCH;
+        if (x === 164 && y === 136) return TileType.CHEST_CLOSED;
+        return TileType.FLOOR;
+      }
+    }
+
+    // 2. Puesto del Valle Verde (185, 160) + camino conectado desde Refugio (168..178)
+    if (x >= 168 && x <= 178 && y >= 159 && y <= 161) {
+      return TileType.FLOOR;
+    }
+    if (x >= 178 && x <= 192 && y >= 154 && y <= 166) {
+      const border = x === 178 || x === 192 || y === 154 || y === 166;
+      if (border) {
+        if ((x === 178 || x === 192) && y === 160) return TileType.DOOR_OPEN;
+        if ((y === 154 || y === 166) && x === 185) return TileType.DOOR_OPEN;
+        return TileType.ANCIENT_BRICK;
+      }
+      if (x === 185 && y === 156) return TileType.RECHARGE_STATION;
+      if (x === 190 && y === 156) return TileType.CHEST_CLOSED;
+      if ((x === 180 || x === 190) && y === 164) return TileType.TORCH;
+      return TileType.BUILT_FLOOR;
+    }
+
+    // 3. Puesto de Contrabando Oscuro (196, 136) + camino desde Valle Verde (185..196, 143..154)
+    if (x >= 184 && x <= 197 && y >= 143 && y <= 153 && (x === 196 || y === 148)) {
+      return TileType.FLOOR;
+    }
+    if (x >= 190 && x <= 202 && y >= 130 && y <= 142) {
+      const border = x === 190 || x === 202 || y === 130 || y === 142;
+      if (border) {
+        if (x === 196 && y === 142) return TileType.DOOR_CLOSED;
+        if (x === 196 && y === 130) return TileType.DOOR_OPEN;
+        return TileType.ANCIENT_BRICK;
+      }
+      if (x === 192 && y === 132) return TileType.RECHARGE_STATION;
+      if (x === 200 && y === 132) return TileType.CHEST_CLOSED;
+      if (x === 192 && y === 140) return TileType.TORCH;
+      return TileType.BUILT_FLOOR;
+    }
+
+    // 4. Santuario de Cuevas Heladas (42, 162) + Archivo Cristalino (48, 148)
+    if (x >= 35 && x <= 54 && y >= 145 && y <= 169) {
+      if (x >= 46 && x <= 51 && y >= 146 && y <= 153) {
+        if (x === 48 && y === 148) return TileType.ALTAR;
+        if (x === 49 && y === 148) return TileType.TORCH;
+        if (x === 48 && y === 153) return TileType.CRACKED_WALL;
+        if (x === 46 || x === 51 || y === 146 || y === 153) return TileType.ICE;
+        return TileType.ICE_FLOOR;
+      }
+      if (y >= 154 && y <= 169 && x >= 36 && x <= 53) {
+        if (x === 37 && (y === 156 || y === 167)) return TileType.ICE_CRYSTAL;
+        if (x === 50 && y === 156) return TileType.CHEST_CLOSED;
+        if (x === 49 && y === 166) return TileType.RECHARGE_STATION;
+        if (x === 42 && y === 162) return TileType.ICE_FLOOR;
+        return TileType.ICE_FLOOR;
+      }
+    }
+
+    // 5. Forja de Cavernas de Magma (162, 252) + Taller Trol (148, 244) + puente hacia Acelerador
+    if (x >= 145 && x <= 171 && y >= 239 && y <= 259) {
+      if (x >= 146 && x <= 152 && y >= 241 && y <= 247) {
+        if (x === 148 && y === 244) return TileType.ALTAR;
+        if (x === 149 && y === 242) return TileType.TORCH;
+        if (x === 152 && y === 244) return TileType.CRACKED_WALL;
+        if (x === 146 || x === 152 || y === 241 || y === 247) return TileType.ANCIENT_BRICK;
+        return TileType.BUILT_FLOOR;
+      }
+      if (x >= 153 && x <= 156 && y >= 243 && y <= 245) return TileType.BUILT_FLOOR;
+      if (x >= 156 && x <= 169 && y >= 240 && y <= 258) {
+        if ((x === 157 || x === 167) && (y === 242 || y === 256)) return TileType.TORCH;
+        if (x === 167 && y === 243) return TileType.CHEST_CLOSED;
+        if (x === 158 && y === 243) return TileType.RECHARGE_STATION;
+        return TileType.BUILT_FLOOR;
+      }
+    }
+
+    // 6. Puente y Cámara del Acelerador 200 MPH (196, 248)
+    if (x >= 170 && x <= 187 && y >= 247 && y <= 249) {
+      return TileType.BUILT_FLOOR;
+    }
+    if (x >= 187 && x <= 204 && y >= 241 && y <= 255) {
+      const border = x === 187 || x === 204 || y === 241 || y === 255;
+      if (border) {
+        if (x === 187 && y === 248) return TileType.DOOR_OPEN;
+        return TileType.ANCIENT_BRICK;
+      }
+      if (x === 196 && y === 244) return TileType.RECHARGE_STATION;
+      if (x === 201 && y === 244) return TileType.CHEST_CLOSED;
+      if ((x === 193 || x === 199) && y === 248) return TileType.ENERGY_CRYSTAL;
+      if (x === 196 && y === 251) return TileType.TORCH;
+      return TileType.BUILT_FLOOR;
+    }
+
+    // 7. Bastión de las Cavernas Sombrías (276, 54) + Bóveda 200 MPH (262, 66)
+    if (x >= 259 && x <= 283 && y >= 46 && y <= 69) {
+      if (x >= 259 && x <= 265 && y >= 63 && y <= 69) {
+        if (x === 262 && y === 66) return TileType.ALTAR;
+        if (x === 260 && y === 64) return TileType.TORCH;
+        if (x === 262 && y === 63) return TileType.CRACKED_WALL;
+        if (x === 259 || x === 265 || y === 63 || y === 69) return TileType.ANCIENT_BRICK;
+        return TileType.BUILT_FLOOR;
+      }
+      if (x >= 262 && x <= 282 && y >= 47 && y <= 62) {
+        const border = x === 262 || x === 282 || y === 47 || y === 62;
+        if (border) {
+          if (x === 262 && y === 54) return TileType.DOOR_OPEN;
+          if (x === 262 && y === 62) return TileType.FLOOR;
+          return TileType.ANCIENT_BRICK;
+        }
+        if (x === 265 && y === 50) return TileType.RECHARGE_STATION;
+        if (x === 279 && y === 50) return TileType.CHEST_CLOSED;
+        if ((x === 268 || x === 279) && y === 59) return TileType.TORCH;
+        return TileType.BUILT_FLOOR;
+      }
+    }
+
+    return null;
   }
 
   private getStarterTile(x: number, y: number): TileType | null {

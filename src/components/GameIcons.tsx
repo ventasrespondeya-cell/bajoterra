@@ -1,13 +1,8 @@
 import React from 'react';
 import {
   BatteryCharging,
-  BrickWall,
   Cherry,
-  DoorClosed,
-  Flame,
-  Hammer,
-  Layers,
-  Pickaxe,
+  Compass,
   Radar,
 } from 'lucide-react';
 import type { HotbarAction, InventoryKey } from '../game/types';
@@ -17,16 +12,6 @@ export const ToolIcon: React.FC<{ action: HotbarAction; className?: string }> = 
   className = 'w-4 h-4',
 }) => {
   switch (action) {
-    case 'mine':
-      return <Pickaxe className={`${className} text-sky-300`} />;
-    case 'torch':
-      return <Flame className={`${className} text-amber-400`} />;
-    case 'wall':
-      return <BrickWall className={`${className} text-slate-300`} />;
-    case 'floor':
-      return <Layers className={`${className} text-amber-300`} />;
-    case 'door':
-      return <DoorClosed className={`${className} text-orange-300`} />;
     case 'station':
       return <BatteryCharging className={`${className} text-cyan-300`} />;
     case 'berry':
@@ -34,7 +19,7 @@ export const ToolIcon: React.FC<{ action: HotbarAction; className?: string }> = 
     case 'pulse':
       return <Radar className={`${className} text-teal-300`} />;
     default:
-      return <Hammer className={className} />;
+      return <Compass className={`${className} text-teal-300`} />;
   }
 };
 

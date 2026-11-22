@@ -96,10 +96,12 @@ import {
   STORY_CHAPTERS_BY_ID,
   STORY_MISSIONS_BY_LEGACY_ID,
   STORY_ROUTES,
+  STORY_SCENARIOS,
 } from './storyData';
 import {
   activateMission,
   buildStoryHudSummary,
+  canAccessRoute,
   claimStoryMission as claimStoryMissionHelper,
   ensureStoryState,
   reconcileStoryProgress,
@@ -154,6 +156,7 @@ export class BajoterraEngine {
   private recentChapterAlert: string | null = null;
   private recentChapterAlertTimer = 0;
   private activeDialogueId: string | null = null;
+  private lastGateToastAt = 0;
   private activeTournament: {
     tournamentId: string;
     name: string;
@@ -218,6 +221,7 @@ export class BajoterraEngine {
       storyFlags: { ...s.storyFlags },
       claimedChapterRewards: [...s.claimedChapterRewards],
       claimedMissionRewards: [...s.claimedMissionRewards],
+      ...(s.scenarioPositions ? { scenarioPositions: { ...s.scenarioPositions } } : {}),
     };
   }
 
@@ -713,10 +717,9 @@ export class BajoterraEngine {
 
     // Edge-triggered actions
     if (!e.repeat) {
-      if (key >= '1' && key <= '8') {
+      if (key >= '1' && key <= String(HOTBAR_SLOTS.length)) {
         const idx = Number(key) - 1;
         this.setHotbar(idx);
-        if (idx === 7) this.triggerExplorationPulse();
       } else if (key === 'e') {
         this.performPrimaryAction();
       } else if (key === ' ') {
@@ -898,6 +901,8 @@ export class BajoterraEngine {
     const stepX = nxDir * speedTilesPerSec * dt;
     const stepY = nyDir * speedTilesPerSec * dt;
 
+    const currentlyGated = this.getWalkingGateLockReason(this.state.player.x, this.state.player.y) !== null;
+
     const canWalk = (x: number, y: number): boolean => {
       if (x < 2 || y < 2 || x >= WORLD_W - 2 || y >= WORLD_H - 2) return false;
       // Check bounding box around sprite center (x + 0.5, y + 0.5) aligned to [tx, tx + 1) tiles
@@ -913,6 +918,19 @@ export class BajoterraEngine {
       for (const [cx, cy] of pts) {
         const t = this.chunks.getTile(Math.floor(cx), Math.floor(cy));
         if (isTileSolid(t)) return false;
+      }
+      if (!currentlyGated) {
+        const gateReason = this.getWalkingGateLockReason(x, y);
+        if (gateReason) {
+          const now = Date.now();
+          if (now - this.lastGateToastAt > 2200) {
+            this.lastGateToastAt = now;
+            sound.playUi();
+            this.renderer.addFloatingText(Math.round(x), Math.round(y), 'Ruta sellada', '#fbbf24');
+            this.notify(`Ruta sellada: ${gateReason}`);
+          }
+          return false;
+        }
       }
       return true;
     };
@@ -944,6 +962,68 @@ export class BajoterraEngine {
     }
   }
 
+  public getWalkingGateLockReason(x: number, y: number): string | null {
+    const tx = Math.floor(x + 0.5);
+    const ty = Math.floor(y + 0.5);
+    const story = ensureStoryState(this.state);
+
+    // Chapter 2 settlement: Puesto del Valle Verde (east corridor)
+    if (tx >= 176 && tx <= 200 && ty >= 149 && ty <= 171) {
+      const access = canAccessRoute(this.state, 'ruta_valle_verde');
+      if (!story.unlockedScenarioIds.includes('esc_pueblo_valle_verde') && !access.allowed) {
+        return access.reason;
+      }
+    }
+
+    // Chapter 3 outpost: Puesto de Contrabando Oscuro
+    if (tx >= 186 && tx <= 208 && ty >= 125 && ty <= 148) {
+      const access = canAccessRoute(this.state, 'ruta_frontera_oscura');
+      if (!story.unlockedScenarioIds.includes('esc_puesto_agua_oscura') && !access.allowed) {
+        return access.reason;
+      }
+    }
+
+    // Chapter 5 vault: Cámara del Acelerador 200 MPH
+    if (tx >= 185 && tx <= 208 && ty >= 236 && ty <= 260) {
+      const access = canAccessRoute(this.state, 'ruta_taller_acelerador');
+      if (!story.unlockedScenarioIds.includes('esc_taller_acelerador') && !access.allowed) {
+        return access.reason;
+      }
+    }
+
+    const biome = getBiomeAt(tx, ty, this.state.worldSeed);
+    if (biome === 'Heladas') {
+      const access = canAccessRoute(this.state, 'ruta_cumbre_helada');
+      if (
+        !story.unlockedScenarioIds.includes('esc_caverna_helada') &&
+        !access.allowed &&
+        !this.state.discoveries.includes('Heladas')
+      ) {
+        return access.reason;
+      }
+    } else if (biome === 'Magma') {
+      const access = canAccessRoute(this.state, 'ruta_grieta_magma');
+      if (
+        !story.unlockedScenarioIds.includes('esc_caverna_magma') &&
+        !access.allowed &&
+        !this.state.discoveries.includes('Magma')
+      ) {
+        return access.reason;
+      }
+    } else if (biome === 'Sombrias') {
+      const access = canAccessRoute(this.state, 'ruta_abismo_sombrio');
+      if (
+        !story.unlockedScenarioIds.includes('esc_ciudadela_sombria') &&
+        !access.allowed &&
+        !this.state.discoveries.includes('Sombrias')
+      ) {
+        return access.reason;
+      }
+    }
+
+    return null;
+  }
+
   private onPlayerMoved(dist: number): void {
     const px = Math.floor(this.state.player.x + 0.5);
     const py = Math.floor(this.state.player.y + 0.5);
@@ -973,6 +1053,32 @@ export class BajoterraEngine {
       });
       this.notify(`¡Nuevo bioma descubierto: ${BIOME_INFO[b].name}!`);
       this.emitHud(true);
+    }
+
+    // Sync active story scenario when walking onto an unlocked scenario landmark
+    const story = ensureStoryState(this.state);
+    let closestSc: { id: string; name: string; d: number } | null = null;
+    for (const sc of Object.values(STORY_SCENARIOS)) {
+      if (!story.unlockedScenarioIds.includes(sc.id)) continue;
+      const d = Math.hypot(px - sc.worldAnchor.x, py - sc.worldAnchor.y);
+      if (d <= 11 && (!closestSc || d < closestSc.d)) {
+        closestSc = { id: sc.id, name: sc.name, d };
+      }
+    }
+    if (closestSc) {
+      if (!story.scenarioPositions) story.scenarioPositions = {};
+      story.scenarioPositions[closestSc.id] = {
+        x: Math.round(this.state.player.x * 100) / 100,
+        y: Math.round(this.state.player.y * 100) / 100,
+      };
+      if (story.currentScenarioId !== closestSc.id) {
+        story.currentScenarioId = closestSc.id;
+        if (!story.visitedScenarioIds.includes(closestSc.id)) {
+          story.visitedScenarioIds.push(closestSc.id);
+        }
+        this.notify(`Zona: ${closestSc.name}`);
+        this.emitHud(true);
+      }
     }
 
     // Lava hazard
@@ -1156,10 +1262,12 @@ export class BajoterraEngine {
     const slot = HOTBAR_SLOTS[this.state.selectedHotbar] || HOTBAR_SLOTS[0];
     const target = this.getTargetTile();
     const tile = this.chunks.getTile(target.x, target.y);
+    const px = Math.floor(this.state.player.x + 0.5);
+    const py = Math.floor(this.state.player.y + 0.5);
 
-    // Check nearby NPC / Boss / Merchant first
+    // 1. Check nearby NPC / Story Character / Boss / Merchant
     const nearbyEntity = this.entities.find(
-      (e) => Math.hypot(e.x - this.state.player.x, e.y - this.state.player.y) < 1.9
+      (e) => Math.hypot(e.x - this.state.player.x, e.y - this.state.player.y) < 2.0
     );
     if (nearbyEntity) {
       if (nearbyEntity.kind === 'merchant') {
@@ -1176,6 +1284,20 @@ export class BajoterraEngine {
           execute: () => this.tradeWithMerchant(),
         };
       }
+      if (nearbyEntity.kind === 'story_npc') {
+        return {
+          slot,
+          target,
+          tile,
+          contextual: {
+            kind: 'talk',
+            label: 'Hablar',
+            detail: nearbyEntity.name,
+            canAct: true,
+          },
+          execute: () => this.interactWithStoryNpc(nearbyEntity),
+        };
+      }
       return {
         slot,
         target,
@@ -1190,7 +1312,52 @@ export class BajoterraEngine {
       };
     }
 
-    // Interactive world objects regardless of tool
+    // 2. Hidden discovery shrine inspection in-world
+    const nearbySecret = HIDDEN_DISCOVERIES.find(
+      (sec) =>
+        sec.worldCoords &&
+        !this.state.discoveredSecrets?.includes(sec.id) &&
+        (Math.hypot(target.x - sec.worldCoords.x, target.y - sec.worldCoords.y) <= 1.2 ||
+          Math.hypot(px - sec.worldCoords.x, py - sec.worldCoords.y) <= 1.5)
+    );
+    if (nearbySecret) {
+      return {
+        slot,
+        target,
+        tile,
+        contextual: {
+          kind: 'discover_secret',
+          label: 'Investigar',
+          detail: nearbySecret.title,
+          canAct: true,
+        },
+        execute: () => {
+          this.discoverSecret(nearbySecret.id);
+        },
+      };
+    }
+
+    // 3. Sealed chapter gate inspection ahead
+    const targetGateReason = this.getWalkingGateLockReason(target.x, target.y);
+    if (targetGateReason) {
+      return {
+        slot,
+        target,
+        tile,
+        contextual: {
+          kind: 'inspect_gate',
+          label: 'Sello',
+          detail: 'Ruta sellada',
+          canAct: true,
+        },
+        execute: () => {
+          sound.playUi();
+          this.notify(`Ruta sellada: ${targetGateReason}`);
+        },
+      };
+    }
+
+    // 4. Interactive world objects (doors, chests, secret passages, stations, altars)
     if (tile === TileType.DOOR_CLOSED) {
       return {
         slot,
@@ -1206,7 +1373,7 @@ export class BajoterraEngine {
         },
       };
     }
-    if (tile === TileType.DOOR_OPEN && slot.id === 'mine') {
+    if (tile === TileType.DOOR_OPEN) {
       return {
         slot,
         target,
@@ -1230,6 +1397,15 @@ export class BajoterraEngine {
         execute: () => this.openChest(target.x, target.y),
       };
     }
+    if (tile === TileType.CRACKED_WALL) {
+      return {
+        slot,
+        target,
+        tile,
+        contextual: { kind: 'break_secret', label: 'Abrir', detail: 'Pasaje Secreto', canAct: true },
+        execute: () => this.openSecretPassage(target.x, target.y),
+      };
+    }
     if (tile === TileType.RECHARGE_STATION) {
       return {
         slot,
@@ -1246,29 +1422,46 @@ export class BajoterraEngine {
         tile,
         contextual: {
           kind: 'altar',
-          label: 'Ofrecer',
-          detail: 'Altar',
-          canAct: this.state.inventory.crystal >= 1,
+          label: 'Vincular',
+          detail: 'Altar Antiguo',
+          canAct: true,
         },
         execute: () => this.interactWithAltar(target.x, target.y),
       };
     }
 
-    if (slot.id === 'pulse') {
+    // 5. Home furniture & living home slug companions
+    if (this.state.home?.furniture.some((f) => f.x === target.x && f.y === target.y)) {
+      return {
+        slot,
+        target,
+        tile,
+        contextual: { kind: 'pickup_furniture', label: 'Recoger', detail: 'Mueble', canAct: true },
+        execute: () => {
+          this.pickupFurnitureAt(target.x, target.y);
+        },
+      };
+    }
+
+    const nearHome = findNearbyHomeSlug(this.state, 2.1);
+    if (nearHome) {
       return {
         slot,
         target,
         tile,
         contextual: {
-          kind: 'pulse',
-          label: 'Pulso',
-          detail: this.pulseCooldown > 0 ? `${Math.ceil(this.pulseCooldown)}s` : 'Escáner',
-          canAct: this.pulseCooldown <= 0,
+          kind: 'interact_slug',
+          label: 'Acariciar',
+          detail: getSlugDisplayName(nearHome.slug),
+          canAct: true,
         },
-        execute: () => this.triggerExplorationPulse(),
+        execute: () => {
+          this.petHomeSlug(nearHome.slug.uid);
+        },
       };
     }
 
+    // 6. Selected field utility action
     if (slot.id === 'berry') {
       return {
         slot,
@@ -1284,91 +1477,20 @@ export class BajoterraEngine {
       };
     }
 
-    // Building tools
-    if (slot.id === 'torch' || slot.id === 'wall' || slot.id === 'floor' || slot.id === 'door' || slot.id === 'station') {
-      const keyMap: Record<'torch' | 'wall' | 'floor' | 'door' | 'station', InventoryKey> = {
-        torch: 'torches',
-        wall: 'walls',
-        floor: 'floors',
-        door: 'doors',
-        station: 'stations',
-      };
-      const qty = this.state.inventory[keyMap[slot.id]];
-      const validSurface =
-        slot.id === 'floor'
-          ? tile === TileType.FLOOR || tile === TileType.WATER || tile === TileType.ICE_FLOOR
-          : !isTileSolid(tile) && tile !== TileType.TORCH && tile !== TileType.LAVA;
+    if (slot.id === 'station') {
+      const qty = this.state.inventory.stations;
+      const validSurface = !isTileSolid(tile) && tile !== TileType.TORCH && tile !== TileType.LAVA;
       return {
         slot,
         target,
         tile,
         contextual: {
-          kind: 'place',
-          label: 'Colocar',
-          detail: `${slot.label} (${qty})`,
+          kind: 'place_station',
+          label: 'Instalar',
+          detail: `Estación (${qty})`,
           canAct: qty > 0 && validSurface,
         },
-        execute: () => this.placeStructure(slot.id as 'torch' | 'wall' | 'floor' | 'door' | 'station', target.x, target.y, tile),
-      };
-    }
-
-    // Pick up home furniture or interact with nearby home slug if target tile isn't mineable
-    if (this.state.home?.furniture.some((f) => f.x === target.x && f.y === target.y)) {
-      return {
-        slot,
-        target,
-        tile,
-        contextual: { kind: 'pickup_furniture', label: 'Recoger', detail: 'Mueble', canAct: true },
-        execute: () => {
-          this.pickupFurnitureAt(target.x, target.y);
-        },
-      };
-    }
-
-    if (!this.isMineableTile(tile)) {
-      const nearHome = findNearbyHomeSlug(this.state, 2.1);
-      if (nearHome) {
-        return {
-          slot,
-          target,
-          tile,
-          contextual: {
-            kind: 'interact_slug',
-            label: 'Interactuar',
-            detail: getSlugDisplayName(nearHome.slug),
-            canAct: true,
-          },
-          execute: () => {
-            this.petHomeSlug(nearHome.slug.uid);
-          },
-        };
-      }
-    }
-
-    if (this.isMineableTile(tile)) {
-      const isGather =
-        tile === TileType.MUSHROOM || tile === TileType.KELP || tile === TileType.NEON_MUSHROOM;
-      const isExtract =
-        tile === TileType.ORE ||
-        tile === TileType.ENERGY_CRYSTAL ||
-        tile === TileType.SHADOW_CRYSTAL ||
-        tile === TileType.MAGMA_COAL ||
-        tile === TileType.THERMAL_COPPER ||
-        tile === TileType.ICE_CRYSTAL ||
-        tile === TileType.BLUE_QUARTZ ||
-        tile === TileType.DARK_IRON ||
-        tile === TileType.EVO_STONE_VEIN;
-      return {
-        slot,
-        target,
-        tile,
-        contextual: {
-          kind: isGather ? 'gather' : isExtract ? 'extract' : 'mine',
-          label: isGather ? 'Recoger' : isExtract ? 'Extraer' : 'Minar',
-          detail: isGather ? 'Recurso' : isExtract ? 'Veta' : 'Bloque',
-          canAct: true,
-        },
-        execute: () => this.mineTile(target.x, target.y, tile),
+        execute: () => this.deployFieldStation(target.x, target.y, tile),
       };
     }
 
@@ -1377,12 +1499,12 @@ export class BajoterraEngine {
       target,
       tile,
       contextual: {
-        kind: 'none',
-        label: 'Minar',
-        detail: 'Sin objetivo',
-        canAct: false,
+        kind: 'pulse',
+        label: 'Pulso',
+        detail: this.pulseCooldown > 0 ? `${Math.ceil(this.pulseCooldown)}s` : 'Escáner',
+        canAct: this.pulseCooldown <= 0,
       },
-      execute: () => this.mineTile(target.x, target.y, tile),
+      execute: () => this.triggerExplorationPulse(),
     };
   }
 
@@ -1394,247 +1516,107 @@ export class BajoterraEngine {
     this.resolvePrimaryInteraction().execute();
   }
 
-  private isMineableTile(tile: TileType): boolean {
-    return (
-      tile === TileType.ORE ||
-      tile === TileType.ROCK ||
-      tile === TileType.CRACKED_WALL ||
-      tile === TileType.WOOD_PILLAR ||
-      tile === TileType.MUSHROOM ||
-      tile === TileType.ICE ||
-      tile === TileType.SHADOW_CRYSTAL ||
-      tile === TileType.ENERGY_CRYSTAL ||
-      tile === TileType.WALL ||
-      tile === TileType.TORCH ||
-      tile === TileType.MAGMA_COAL ||
-      tile === TileType.THERMAL_COPPER ||
-      tile === TileType.ICE_CRYSTAL ||
-      tile === TileType.BLUE_QUARTZ ||
-      tile === TileType.DARK_IRON ||
-      tile === TileType.NEON_MUSHROOM ||
-      tile === TileType.KELP ||
-      tile === TileType.VOLCANIC_ROCK ||
-      tile === TileType.EVO_STONE_VEIN
-    );
+  private openSecretPassage(tx: number, ty: number): void {
+    this.chunks.setTile(tx, ty, TileType.FLOOR);
+    this.invalidateRoomCache();
+    sound.playPickup();
+    this.renderer.triggerShake(2.2, 0.12);
+    this.renderer.spawnBurst(tx, ty, '#67e8f9', 18);
+    this.renderer.addFloatingText(tx, ty, '¡Pasaje secreto abierto!', '#67e8f9');
+    this.awardPlayerXp(8);
+    this.notify('¡Pasaje secreto abierto con el pulso del bláster!');
+    this.emitHud(true);
   }
 
-  private mineTile(tx: number, ty: number, tile: TileType): void {
-    const b = getBiomeAt(tx, ty, this.state.worldSeed);
-    if (this.isMineableTile(tile)) {
-      sound.playMine();
-      this.renderer.triggerShake(2.5, 0.1);
+  private deployFieldStation(tx: number, ty: number, currentTile: TileType): void {
+    if (this.state.inventory.stations <= 0) {
+      this.notify('No tienes Estaciones de Campo. Canjea una en el Mercado de Fichas.');
+      return;
+    }
+    if (isTileSolid(currentTile) || currentTile === TileType.TORCH || currentTile === TileType.LAVA) {
+      this.notify('Busca suelo despejado para desplegar la estación de recarga.');
+      return;
+    }
+    this.state.inventory.stations--;
+    this.chunks.setTile(tx, ty, TileType.RECHARGE_STATION);
+    this.state.stats.structuresBuilt++;
+    this.invalidateRoomCache();
+    sound.playPulse();
+    this.renderer.spawnBurst(tx, ty, '#38bdf8', 14);
+    this.renderer.addFloatingText(tx, ty, 'Estación desplegada', '#67e8f9');
+    this.notify('Estación de recarga portátil desplegada.');
+    this.emitHud(true);
+  }
 
-      if (tile === TileType.ORE) {
-        const gain = b === 'Sombrias' || b === 'Magma' ? 3 : 2;
-        this.state.inventory.ore += gain;
-        this.state.inventory.stone += 1;
-        this.state.stats.oreMined += gain;
-        this.renderer.spawnBurst(tx, ty, '#facc15', 14);
-        this.renderer.addFloatingText(tx, ty, `+${gain} Mineral`, '#fde047');
-        this.awardPlayerXp(4);
-      } else if (tile === TileType.WOOD_PILLAR) {
-        const rootGain = b === 'Verdes' ? 2 : 1;
-        this.state.inventory.wood += 2;
-        this.state.inventory.rootWood += rootGain;
-        this.renderer.spawnBurst(tx, ty, '#a16207', 10);
-        this.renderer.addFloatingText(tx, ty, `+2 Madera · +${rootGain} Raíz`, '#fbbf24');
-      } else if (tile === TileType.MUSHROOM) {
-        this.state.inventory.berries += 1;
-        this.renderer.spawnBurst(tx, ty, '#34d399', 10);
-        this.renderer.addFloatingText(tx, ty, '+1 Baya', '#6ee7b7');
-      } else if (tile === TileType.ENERGY_CRYSTAL) {
-        this.state.inventory.crystal += 2;
-        this.state.stats.oreMined += 1;
-        this.renderer.spawnBurst(tx, ty, '#2dd4bf', 16);
-        this.renderer.addFloatingText(tx, ty, '+2 Cristal', '#5eead4');
-        this.awardPlayerXp(7);
-      } else if (tile === TileType.SHADOW_CRYSTAL) {
-        this.state.inventory.shadowShard += 2;
-        this.renderer.spawnBurst(tx, ty, '#c084fc', 16);
-        this.renderer.addFloatingText(tx, ty, '+2 Frag. Sombrío', '#d8b4fe');
-        this.awardPlayerXp(8);
-      } else if (tile === TileType.MAGMA_COAL) {
-        this.state.inventory.magmaCoal += 2;
-        this.state.stats.oreMined += 1;
-        this.renderer.spawnBurst(tx, ty, '#fb923c', 14);
-        this.renderer.addFloatingText(tx, ty, '+2 Carbón Magma', '#fdba74');
-        this.awardPlayerXp(5);
-      } else if (tile === TileType.THERMAL_COPPER) {
-        this.state.inventory.thermalCopper += 2;
-        this.state.inventory.ore += 1;
-        this.state.stats.oreMined += 1;
-        this.renderer.spawnBurst(tx, ty, '#ea580c', 14);
-        this.renderer.addFloatingText(tx, ty, '+2 Cobre Térmico', '#fed7aa');
-        this.awardPlayerXp(6);
-      } else if (tile === TileType.ICE_CRYSTAL) {
-        this.state.inventory.iceCrystal += 2;
-        this.state.stats.oreMined += 1;
-        this.renderer.spawnBurst(tx, ty, '#67e8f9', 14);
-        this.renderer.addFloatingText(tx, ty, '+2 Cristal Hielo', '#a5f3fc');
-        this.awardPlayerXp(5);
-      } else if (tile === TileType.BLUE_QUARTZ) {
-        this.state.inventory.blueQuartz += 2;
-        this.state.stats.oreMined += 1;
-        this.renderer.spawnBurst(tx, ty, '#38bdf8', 15);
-        this.renderer.addFloatingText(tx, ty, '+2 Cuarzo Azul', '#7dd3fc');
-        this.awardPlayerXp(6);
-      } else if (tile === TileType.DARK_IRON) {
-        this.state.inventory.darkIron += 2;
-        this.state.inventory.ore += 1;
-        this.state.stats.oreMined += 1;
-        this.renderer.spawnBurst(tx, ty, '#a855f7', 14);
-        this.renderer.addFloatingText(tx, ty, '+2 Hierro Oscuro', '#e9d5ff');
-        this.awardPlayerXp(7);
-      } else if (tile === TileType.NEON_MUSHROOM) {
-        this.state.inventory.neonMushroom += 2;
-        this.renderer.spawnBurst(tx, ty, '#c084fc', 12);
-        this.renderer.addFloatingText(tx, ty, '+2 Hongo Neón', '#d8b4fe');
-        this.awardPlayerXp(4);
-      } else if (tile === TileType.KELP) {
-        this.state.inventory.berries += 1;
-        this.state.inventory.rootWood += 1;
-        this.renderer.spawnBurst(tx, ty, '#22c55e', 10);
-        this.renderer.addFloatingText(tx, ty, '+1 Baya · +1 Raíz', '#86efac');
-      } else if (tile === TileType.VOLCANIC_ROCK) {
-        this.state.inventory.stone += 1;
-        if ((tx + ty) % 3 === 0) {
-          this.state.inventory.magmaCoal += 1;
-          this.renderer.addFloatingText(tx, ty, '+1 Piedra · +1 Carbón', '#fdba74');
-        } else {
-          this.renderer.addFloatingText(tx, ty, '+1 Roca Volcánica', '#fca5a5');
-        }
-        this.renderer.spawnBurst(tx, ty, '#b91c1c', 10);
-      } else if (tile === TileType.EVO_STONE_VEIN) {
-        this.state.inventory.evoStone += 1;
-        this.state.inventory.crystal += 1;
-        this.state.stats.oreMined += 1;
-        sound.playPickup();
-        this.renderer.spawnBurst(tx, ty, '#f472b6', 20);
-        this.renderer.addFloatingText(tx, ty, '+1 Piedra Evolutiva', '#f9a8d4');
-        this.awardPlayerXp(12);
-      } else if (tile === TileType.CRACKED_WALL) {
-        this.state.inventory.stone += 2;
-        this.renderer.spawnBurst(tx, ty, '#94a3b8', 18);
-        this.renderer.addFloatingText(tx, ty, '¡Cámara secreta abierta!', '#67e8f9');
-        sound.playPickup();
-      } else if (tile === TileType.TORCH) {
-        this.state.inventory.torches += 1;
-        this.renderer.addFloatingText(tx, ty, '+1 Antorcha', '#fed7aa');
-      } else if (tile === TileType.WALL) {
-        this.state.inventory.walls += 1;
-        this.renderer.addFloatingText(tx, ty, '+1 Pared', '#cbd5e1');
-      } else {
-        this.state.inventory.stone += 1;
-        this.renderer.spawnBurst(tx, ty, '#94a3b8', 8);
-        this.renderer.addFloatingText(tx, ty, '+1 Piedra', '#cbd5e1');
+  private interactWithStoryNpc(ent: RoamingEntity): void {
+    const story = ensureStoryState(this.state);
+    const charId = ent.characterId;
+    if (charId === 'pronto') {
+      if (!this.openDialogue('dlg_cap1_pronto_bienvenida')) {
+        this.notify('Pronto: "Explora las Cuevas Verdes y habla conmigo en Campaña."');
       }
-
-      this.chunks.setTile(tx, ty, TileType.FLOOR);
-      this.invalidateRoomCache();
-      this.emitHud(true);
       return;
     }
-
-    this.notify('No hay un bloque minable frente a ti.');
-  }
-
-  private placeStructure(
-    kind: 'torch' | 'wall' | 'floor' | 'door' | 'station',
-    tx: number,
-    ty: number,
-    currentTile: TileType
-  ): void {
-    const keyMap: Record<typeof kind, InventoryKey> = {
-      torch: 'torches',
-      wall: 'walls',
-      floor: 'floors',
-      door: 'doors',
-      station: 'stations',
-    };
-    const invKey = keyMap[kind];
-    if (this.state.inventory[invKey] <= 0) {
-      this.notify('Sin existencias. Canjea más en el Mercado de Fichas (I).');
+    if (charId === 'trixie') {
+      if (!this.openDialogue('dlg_cap2_banda_meca')) {
+        this.notify('Trixie: "Mantén actualizada tu Babosapedia al capturar especies nuevas."');
+      }
       return;
     }
-
-    if (kind === 'floor') {
-      if (currentTile !== TileType.FLOOR && currentTile !== TileType.WATER && currentTile !== TileType.ICE_FLOOR) {
-        this.notify('Solo puedes colocar suelo sobre terreno libre o agua.');
+    if (charId === 'kord') {
+      const cap5Ready =
+        story.chapterStates['cap_05_acelerador_megamorph'] === 'active' ||
+        story.chapterStates['cap_05_acelerador_megamorph'] === 'completed';
+      const dlgId = cap5Ready ? 'dlg_cap5_acelerador_200mph' : 'dlg_cap2_banda_meca';
+      if (!this.openDialogue(dlgId)) {
+        this.notify('Kord: "Cuando tu Meca esté listo, calibraremos nuevos circuitos."');
+      }
+      return;
+    }
+    if (charId === 'red_hook') {
+      if (!this.state.completedDialogues?.includes('dlg_cap3_rastro_blakk') && this.openDialogue('dlg_cap3_rastro_blakk')) {
         return;
       }
-      this.state.inventory[invKey]--;
-      this.chunks.setTile(tx, ty, TileType.BUILT_FLOOR);
-      this.invalidateRoomCache();
-      this.state.stats.structuresBuilt++;
-      sound.playPlace();
-      this.renderer.addFloatingText(tx, ty, 'Suelo colocado', '#fde68a');
-      this.emitHud(true);
+      if (!this.startRivalDuel('riv_red_hook')) {
+        this.notify('Garfio Rojo: "Vuelve cuando el Capítulo 3 esté activo para un duelo de verdad."');
+      }
       return;
     }
-
-    if (isTileSolid(currentTile) || currentTile === TileType.TORCH || currentTile === TileType.LAVA) {
-      this.notify('Ese bloque está ocupado.');
+    if (charId === 'twist') {
+      if (!this.startRivalDuel('riv_twist')) {
+        this.notify('Twist: "Aún es pronto para medir velocidades en estas cavernas."');
+      }
       return;
     }
-
-    this.state.inventory[invKey]--;
-    if (kind === 'torch') {
-      this.chunks.setTile(tx, ty, TileType.TORCH);
-      this.state.stats.torchesPlaced++;
-      sound.playTorch();
-      this.renderer.spawnBurst(tx, ty, '#fb923c', 12);
-      this.renderer.addFloatingText(tx, ty, 'Antorcha colocada', '#fdba74');
-    } else if (kind === 'wall') {
-      this.chunks.setTile(tx, ty, TileType.WALL);
-      this.state.stats.structuresBuilt++;
-      sound.playPlace();
-      this.renderer.addFloatingText(tx, ty, 'Pared construida', '#cbd5e1');
-    } else if (kind === 'door') {
-      this.chunks.setTile(tx, ty, TileType.DOOR_CLOSED);
-      this.state.stats.structuresBuilt++;
-      sound.playPlace();
-      this.renderer.addFloatingText(tx, ty, 'Puerta instalada', '#fcd34d');
-    } else if (kind === 'station') {
-      this.chunks.setTile(tx, ty, TileType.RECHARGE_STATION);
-      this.state.stats.structuresBuilt++;
-      sound.playPulse();
-      this.renderer.addFloatingText(tx, ty, 'Estación instalada', '#67e8f9');
-    }
-    this.invalidateRoomCache();
-    this.emitHud(true);
+    this.notify(`${ent.name}: "¡Nos vemos en las cavernas!"`);
   }
 
   private openChest(tx: number, ty: number): void {
     this.chunks.setTile(tx, ty, TileType.CHEST_OPEN);
     this.state.stats.chestsOpened++;
     const b = getBiomeAt(tx, ty, this.state.worldSeed);
-    const ore = 3 + Math.floor(Math.random() * 4);
+    const tokens = b === 'Sombrias' ? 4 : b === 'Magma' || b === 'Heladas' ? 3 : 2;
     const berries = 1 + Math.floor(Math.random() * 2);
-    const crystal = Math.random() < 0.65 ? 2 : 1;
-    const cap = Math.random() < 0.7 ? 1 : 0;
-    this.state.inventory.ore += ore;
+    const cap = Math.random() < 0.75 ? 1 : 0;
+    this.state.cavernTokens = (this.state.cavernTokens ?? 0) + tokens;
     this.state.inventory.berries += berries;
-    this.state.inventory.crystal += crystal;
     this.state.inventory.capsules += cap;
     if (Math.random() < 0.35) this.state.inventory.relics += 1;
 
     let biomeNote = '';
     if (b === 'Verdes') {
-      this.state.inventory.rootWood += 2;
-      biomeNote = ' · +2 Madera Raíz';
+      this.state.inventory.berries += 1;
+      biomeNote = ' · +1 Baya silvestre';
     } else if (b === 'Magma') {
-      this.state.inventory.magmaCoal += 2;
-      this.state.inventory.thermalCopper += 1;
-      biomeNote = ' · +2 Carbón Magma, +1 Cobre Térmico';
+      this.state.inventory.emberSnack += 1;
+      biomeNote = ' · +1 Bocado Ígneo';
     } else if (b === 'Heladas') {
-      this.state.inventory.iceCrystal += 2;
-      this.state.inventory.blueQuartz += 1;
-      biomeNote = ' · +2 Cristal Hielo, +1 Cuarzo Azul';
+      this.state.inventory.frostNectar += 1;
+      biomeNote = ' · +1 Néctar Glacial';
     } else if (b === 'Sombrias') {
-      this.state.inventory.darkIron += 2;
-      this.state.inventory.neonMushroom += 2;
+      this.state.inventory.elixirs += 1;
       this.state.inventory.evoStone += 1;
-      biomeNote = ' · +2 Hierro Oscuro, +2 Hongo Neón, +1 Piedra Evolutiva';
+      biomeNote = ' · +1 Elixir · +1 Piedra Evolutiva';
     }
     if (b !== 'Sombrias' && Math.random() < 0.25) {
       this.state.inventory.evoStone += 1;
@@ -1643,9 +1625,9 @@ export class BajoterraEngine {
 
     sound.playPickup();
     this.renderer.spawnBurst(tx, ty, '#facc15', 18);
-    this.renderer.addFloatingText(tx, ty, `+${ore} Min · +${crystal} Cris`, '#fde047');
+    this.renderer.addFloatingText(tx, ty, `+${tokens} Fichas`, '#fde047');
     this.awardPlayerXp(14);
-    this.notify(`¡Cofre abierto! +${ore} mineral, +${crystal} cristal, +${berries} bayas${biomeNote}.`);
+    this.notify(`¡Cofre abierto! +${tokens} Fichas, +${berries} bayas${cap > 0 ? ', +1 Cilindro' : ''}${biomeNote}.`);
     this.emitHud(true);
   }
 
@@ -1670,16 +1652,19 @@ export class BajoterraEngine {
   private interactWithAltar(tx: number, ty: number): void {
     const active = this.state.party[this.state.activePartyIndex];
     if (!active) return;
-    if (this.state.inventory.crystal >= 1) {
-      this.state.inventory.crystal--;
-      const msgs = awardSlugExperience(this.state, active, 25, { bondDelta: 10 });
-      sound.playPulse();
-      this.renderer.spawnBurst(tx, ty, '#2dd4bf', 16);
-      this.notify(msgs[0] || `${getSlugDisplayName(active)} absorbe energía del altar (+25 EXP, +10 Amistad).`);
-      this.emitHud(true);
-    } else {
-      this.notify('Altar Antiguo: ofrece 1 Cristal de Energía para fortalecer a tu babosa activa.');
+    const story = ensureStoryState(this.state);
+    const altarFlag = `altar_${tx}_${ty}`;
+    if (story.storyFlags[altarFlag]) {
+      sound.playUi();
+      this.notify('El altar antiguo ya resonó con tu equipo.');
+      return;
     }
+    story.storyFlags[altarFlag] = true;
+    const msgs = awardSlugExperience(this.state, active, 25, { bondDelta: 10 });
+    sound.playPulse();
+    this.renderer.spawnBurst(tx, ty, '#2dd4bf', 16);
+    this.notify(msgs[0] || `${getSlugDisplayName(active)} sintoniza con el altar antiguo (+25 EXP, +10 Amistad).`);
+    this.emitHud(true);
   }
 
   private useQuickBerry(): void {
@@ -1715,7 +1700,7 @@ export class BajoterraEngine {
     this.renderer.triggerPulseRing(px, py);
     this.awardPlayerXp(4);
 
-    // Scan radius 9 for chests, secret walls, or bosses
+    // Scan radius 9 for chests, secret walls, or hidden discovery shrines
     let foundMsg = '';
     for (let dy = -9; dy <= 9; dy++) {
       for (let dx = -9; dx <= 9; dx++) {
@@ -1724,21 +1709,18 @@ export class BajoterraEngine {
           this.renderer.addFloatingText(px + dx, py + dy, '◆ Cofre', '#fde047');
           foundMsg = '¡Escáner detectó un cofre cercano!';
         } else if (t === TileType.CRACKED_WALL) {
-          this.renderer.addFloatingText(px + dx, py + dy, '✦ Muro Secreto', '#67e8f9');
-          foundMsg = '¡Muro agrietado secreto detectado!';
-        } else if (t === TileType.EVO_STONE_VEIN) {
-          this.renderer.addFloatingText(px + dx, py + dy, '✦ Piedra Evolutiva', '#f472b6');
-          foundMsg = '¡Veta de Piedra Evolutiva detectada!';
-        } else if (
-          t === TileType.ENERGY_CRYSTAL ||
-          t === TileType.SHADOW_CRYSTAL ||
-          t === TileType.BLUE_QUARTZ ||
-          t === TileType.ICE_CRYSTAL ||
-          t === TileType.THERMAL_COPPER ||
-          t === TileType.DARK_IRON
-        ) {
-          this.renderer.spawnBurst(px + dx, py + dy, '#5eead4', 6);
+          this.renderer.addFloatingText(px + dx, py + dy, '✦ Pasaje Secreto', '#67e8f9');
+          foundMsg = '¡Pasaje agrietado secreto detectado!';
         }
+      }
+    }
+
+    for (const sec of HIDDEN_DISCOVERIES) {
+      if (!sec.worldCoords || this.state.discoveredSecrets?.includes(sec.id)) continue;
+      if (Math.hypot(sec.worldCoords.x - px, sec.worldCoords.y - py) <= 10) {
+        this.renderer.addFloatingText(sec.worldCoords.x, sec.worldCoords.y, '✦ Vestigio', '#a5f3fc');
+        this.renderer.spawnBurst(sec.worldCoords.x, sec.worldCoords.y, '#5eead4', 10);
+        foundMsg = '¡Escáner detectó un vestigio oculto cercano!';
       }
     }
 
@@ -1811,7 +1793,7 @@ export class BajoterraEngine {
 
   private seedInitialEntities(): void {
     this.entities = [];
-    // Friendly underground merchant near starter shelter
+    // Friendly subterranean merchants
     this.entities.push({
       uid: 'merchant_home',
       kind: 'merchant',
@@ -1827,6 +1809,122 @@ export class BajoterraEngine {
       dir: 0,
       cooldown: 0,
     });
+    this.entities.push({
+      uid: 'merchant_valle',
+      kind: 'merchant',
+      name: 'Mercader del Valle',
+      icon: '🧳',
+      x: 185,
+      y: 163,
+      homeX: 185,
+      homeY: 163,
+      biome: 'Verdes',
+      level: 1,
+      hp: 99,
+      dir: 0,
+      cooldown: 0,
+    });
+
+    // Story NPCs positioned at handcrafted scenarios
+    const story = ensureStoryState(this.state);
+    this.entities.push(
+      {
+        uid: 'npc_pronto',
+        kind: 'story_npc',
+        characterId: 'pronto',
+        scenarioId: 'esc_caverna_descenso',
+        dialogueId: 'dlg_cap1_pronto_bienvenida',
+        name: 'Pronto',
+        icon: '🧭',
+        x: 158,
+        y: 138,
+        homeX: 158,
+        homeY: 138,
+        biome: 'Verdes',
+        level: 3,
+        hp: 100,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
+        uid: 'npc_trixie',
+        kind: 'story_npc',
+        characterId: 'trixie',
+        scenarioId: 'esc_pueblo_valle_verde',
+        dialogueId: 'dlg_cap2_banda_meca',
+        name: 'Trixie Sting',
+        icon: '📷',
+        x: 182,
+        y: 158,
+        homeX: 182,
+        homeY: 158,
+        biome: 'Verdes',
+        level: 4,
+        hp: 100,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
+        uid: 'npc_kord',
+        kind: 'story_npc',
+        characterId: 'kord',
+        scenarioId:
+          story.currentScenarioId === 'esc_taller_acelerador'
+            ? 'esc_taller_acelerador'
+            : 'esc_pueblo_valle_verde',
+        dialogueId:
+          story.chapterStates['cap_05_acelerador_megamorph'] === 'active' ||
+          story.chapterStates['cap_05_acelerador_megamorph'] === 'completed'
+            ? 'dlg_cap5_acelerador_200mph'
+            : 'dlg_cap2_banda_meca',
+        name: 'Kord Zane',
+        icon: '🔧',
+        x: story.currentScenarioId === 'esc_taller_acelerador' ? 196 : 188,
+        y: story.currentScenarioId === 'esc_taller_acelerador' ? 246 : 158,
+        homeX: story.currentScenarioId === 'esc_taller_acelerador' ? 196 : 188,
+        homeY: story.currentScenarioId === 'esc_taller_acelerador' ? 246 : 158,
+        biome: story.currentScenarioId === 'esc_taller_acelerador' ? 'Magma' : 'Verdes',
+        level: 5,
+        hp: 120,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
+        uid: 'npc_red_hook',
+        kind: 'story_npc',
+        characterId: 'red_hook',
+        scenarioId: 'esc_puesto_agua_oscura',
+        dialogueId: 'dlg_cap3_rastro_blakk',
+        name: 'Garfio Rojo',
+        icon: '🪝',
+        x: 196,
+        y: 134,
+        homeX: 196,
+        homeY: 134,
+        biome: 'Verdes',
+        level: 6,
+        hp: 120,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
+        uid: 'npc_twist',
+        kind: 'story_npc',
+        characterId: 'twist',
+        scenarioId: 'esc_caverna_helada',
+        name: 'Twist',
+        icon: '⚡',
+        x: 46,
+        y: 160,
+        homeX: 46,
+        homeY: 160,
+        biome: 'Heladas',
+        level: 7,
+        hp: 120,
+        dir: 0,
+        cooldown: 0,
+      }
+    );
 
     // Bosses at fixed biome shrines
     for (const b of BOSS_DEFINITIONS) {
@@ -1863,13 +1961,14 @@ export class BajoterraEngine {
     let wildCount = this.entities.filter((e) => e.kind === 'wild' || e.kind === 'mercenary').length;
     if (wildCount >= 14) return;
 
-    for (let tries = 0; tries < 20 && wildCount < 14 && this.entities.length < 22; tries++) {
+    for (let tries = 0; tries < 20 && wildCount < 14 && this.entities.length < 28; tries++) {
       const ang = Math.random() * Math.PI * 2;
       const rad = 11 + Math.random() * 20;
       const wx = Math.floor(px + Math.cos(ang) * rad);
       const wy = Math.floor(py + Math.sin(ang) * rad);
       if (wx < 5 || wy < 5 || wx >= WORLD_W - 5 || wy >= WORLD_H - 5) continue;
       if (Math.hypot(wx - SPAWN_X, wy - SPAWN_Y) < 9) continue;
+      if (Math.hypot(wx - 185, wy - 160) < 9) continue;
       const t = this.chunks.getTile(wx, wy);
       if (isTileSolid(t) || isTileHazard(t) || t === TileType.WATER) continue;
 
@@ -1914,7 +2013,7 @@ export class BajoterraEngine {
         continue;
       }
 
-      if (ent.kind === 'merchant') continue;
+      if (ent.kind === 'merchant' || ent.kind === 'story_npc') continue;
 
       if (ent.kind === 'mercenary' && dist < 8 && dist > 1.0 && ent.cooldown <= 0) {
         // Chase player unless near torches
@@ -2214,13 +2313,21 @@ export class BajoterraEngine {
       this.notify('Mejora tu Refugio al Nivel 3 para usar el retorno rápido.');
       return;
     }
-    this.state.player.x = SPAWN_X;
-    this.state.player.y = SPAWN_Y + 2;
-    this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
+    this.keysHeld.clear();
+    const res = travelToScenario(this.state, 'esc_refugio_shane');
+    if (!res.ok) {
+      this.state.player.x = SPAWN_X;
+      this.state.player.y = SPAWN_Y + 2;
+    }
+    const loaded = this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
+    for (const ck of loaded) {
+      this.state.exploredChunks[ck] = 1;
+    }
     this.renderer.resetCamera(this.state.player.x, this.state.player.y);
+    this.seedInitialEntities();
     sound.playPulse();
     this.setScreen('PLAYING');
-    this.notify('Teletransportado al Refugio Central.');
+    this.notify('Teletransportado al Refugio Shane.');
   }
 
   // Mecha System
@@ -2781,12 +2888,27 @@ export class BajoterraEngine {
   public travelToStoryScenario(scenarioId: string): boolean {
     const res = travelToScenario(this.state, scenarioId);
     if (res.ok) {
+      this.keysHeld.clear();
+      const loaded = this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
+      for (const ck of loaded) {
+        this.state.exploredChunks[ck] = 1;
+      }
+      this.renderer.resetCamera(this.state.player.x, this.state.player.y);
+      this.seedInitialEntities();
+      this.checkSurroundingPOIs(
+        Math.floor(this.state.player.x + 0.5),
+        Math.floor(this.state.player.y + 0.5)
+      );
+      this.syncAmbientMusic();
       sound.playPulse();
     } else {
       sound.playUi();
     }
     this.notify(res.message);
     this.emitHud(true);
+    if (this.screen === 'FULL_MAP' && this.fullMapCanvas) {
+      this.renderer.renderFullWorldMap(this.fullMapCanvas, this.state);
+    }
     return res.ok;
   }
 

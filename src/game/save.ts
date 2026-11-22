@@ -1027,11 +1027,19 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
     }
   }
 
-  // Selected hotbar & shelterTier & playTimeSec
-  const selectedHotbar = raw.selectedHotbar !== undefined ? raw.selectedHotbar : 0;
-  if (!isNonNegInt(selectedHotbar) || selectedHotbar >= HOTBAR_SLOTS.length) {
+  // Selected hotbar (migrate legacy 8-slot V4 saves to 3-slot RPG utility bar) & shelterTier & playTimeSec
+  const rawHotbar = raw.selectedHotbar !== undefined ? raw.selectedHotbar : 0;
+  if (!isNonNegInt(rawHotbar) || rawHotbar > 12) {
     return { ok: false, error: 'Ranura de barra rápida inválida.' };
   }
+  const selectedHotbar =
+    rawHotbar < HOTBAR_SLOTS.length
+      ? rawHotbar
+      : rawHotbar === 6
+      ? Math.min(1, HOTBAR_SLOTS.length - 1)
+      : rawHotbar === 5
+      ? Math.min(2, HOTBAR_SLOTS.length - 1)
+      : 0;
 
   const shelterTier = raw.shelterTier !== undefined ? raw.shelterTier : 1;
   if (!isNonNegInt(shelterTier) || shelterTier < 1 || shelterTier > 3) {
@@ -1791,6 +1799,29 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
       }
     }
 
+    const validScenarioPositions: Record<string, { x: number; y: number }> = {};
+    if (rs.scenarioPositions !== undefined) {
+      if (!isPlainObject(rs.scenarioPositions)) {
+        return { ok: false, error: 'Posiciones de escenarios (scenarioPositions) inválidas.' };
+      }
+      for (const [scId, pos] of Object.entries(rs.scenarioPositions)) {
+        if (!VALID_SCENARIO_IDS.has(scId) || !isPlainObject(pos)) {
+          return { ok: false, error: `Posición de escenario inválida (${scId}).` };
+        }
+        if (
+          !isFiniteNum(pos.x) ||
+          !isFiniteNum(pos.y) ||
+          pos.x < 0 ||
+          pos.x >= WORLD_W ||
+          pos.y < 0 ||
+          pos.y >= WORLD_H
+        ) {
+          return { ok: false, error: `Coordenadas de escenario fuera de rango (${scId}).` };
+        }
+        validScenarioPositions[scId] = { x: pos.x, y: pos.y };
+      }
+    }
+
     validStory = {
       schemaVersion: 1,
       currentChapterId: rs.currentChapterId,
@@ -1804,6 +1835,7 @@ export function validateV4State(raw: unknown): ValidationResult<GameState> {
       storyFlags: validFlags,
       claimedChapterRewards: cChRes.value,
       claimedMissionRewards: cMisRes.value,
+      scenarioPositions: validScenarioPositions,
     };
   }
 

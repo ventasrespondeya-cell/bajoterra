@@ -90,15 +90,7 @@ export type InventoryKey =
 
 export type Inventory = Record<InventoryKey, number>;
 
-export type HotbarAction =
-  | 'mine'
-  | 'torch'
-  | 'wall'
-  | 'floor'
-  | 'door'
-  | 'station'
-  | 'berry'
-  | 'pulse';
+export type HotbarAction = 'pulse' | 'berry' | 'station';
 
 export interface HotbarSlot {
   id: HotbarAction;
@@ -393,10 +385,13 @@ export interface QuestDef {
 
 export interface RoamingEntity {
   uid: string;
-  kind: 'wild' | 'mercenary' | 'boss' | 'merchant';
+  kind: 'wild' | 'mercenary' | 'boss' | 'merchant' | 'story_npc';
   speciesId?: string;
   bossId?: string;
   challengeId?: string;
+  characterId?: string;
+  dialogueId?: string;
+  scenarioId?: string;
   name: string;
   icon: string;
   x: number;
@@ -629,13 +624,13 @@ export type ExplorationActionKind =
   | 'open_chest'
   | 'recharge'
   | 'altar'
-  | 'mine'
-  | 'extract'
-  | 'gather'
-  | 'place'
+  | 'discover_secret'
+  | 'inspect_gate'
+  | 'break_secret'
   | 'pickup_furniture'
   | 'interact_slug'
   | 'berry'
+  | 'place_station'
   | 'pulse'
   | 'none';
 

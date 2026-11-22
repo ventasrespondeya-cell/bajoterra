@@ -1,7 +1,10 @@
+import { HIDDEN_DISCOVERIES } from './activities';
 import { BIOME_INFO, BOSS_DEFINITIONS, FURNITURE_DEFS, HABITAT_DEFS, TILE_PX, WORLD_H, WORLD_W, getSpecies } from './data';
 import { getSlugDisplayName } from './progression';
 import { sampleSlugAnimationFrame, type SlugAnimationState } from './slugArtDirection';
 import { sprites, type SlugSpritePose } from './sprites';
+import { STORY_CHAPTERS_BY_ID, STORY_ROUTES, STORY_SCENARIOS } from './storyData';
+import { canAccessRoute, ensureStoryState } from './storyEngine';
 import { TileType, type BiomeId, type GameState, type RoamingEntity } from './types';
 import { ChunkManager, getBiomeAt } from './world';
 
@@ -424,8 +427,13 @@ export class WorldRenderer {
         if (!reduced) {
           this.drawSpeciesWorldMicroVfx(ctx, ent.speciesId, ex + 14, ey + 14 + anim.offsetY, timeSec);
         }
-      } else if (ent.kind === 'boss' || ent.kind === 'mercenary' || ent.kind === 'merchant') {
-        // Boss / Mercenary / Merchant articulated RPG pixel character
+      } else if (
+        ent.kind === 'boss' ||
+        ent.kind === 'mercenary' ||
+        ent.kind === 'merchant' ||
+        ent.kind === 'story_npc'
+      ) {
+        // Boss / Mercenary / Merchant / Story NPC articulated RPG pixel character
         if (ent.kind === 'boss') {
           ctx.strokeStyle = 'rgba(248, 113, 113, 0.72)';
           ctx.lineWidth = 1.8;
@@ -434,23 +442,50 @@ export class WorldRenderer {
           ctx.stroke();
         } else if (ent.kind === 'merchant') {
           lightSources.push({ sx: ex + 14, sy: ey + 14, r: 84, color: 'rgba(52, 211, 153, 0.68)' });
+        } else if (ent.kind === 'story_npc') {
+          ctx.strokeStyle = 'rgba(45, 212, 191, 0.72)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.ellipse(ex + 14, ey + 22, 11, 4.5, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          lightSources.push({ sx: ex + 14, sy: ey + 14, r: 82, color: 'rgba(45, 212, 191, 0.65)' });
         }
-        const npcSpr = sprites.getNpcCharacterSprite(ent.kind, ent.bossId, animFrame & 1);
+        const spriteKind = ent.kind === 'story_npc' ? 'merchant' : ent.kind;
+        const npcSpr = sprites.getNpcCharacterSprite(spriteKind, ent.bossId, animFrame & 1);
         ctx.drawImage(npcSpr, ex, ey - 1 + bob * 0.55);
       }
 
-      if (ent.kind === 'boss' || ent.kind === 'mercenary' || ent.kind === 'merchant') {
+      if (
+        ent.kind === 'boss' ||
+        ent.kind === 'mercenary' ||
+        ent.kind === 'merchant' ||
+        ent.kind === 'story_npc'
+      ) {
         const label = ent.name;
         const plaqueW = Math.max(54, label.length * 6.2 + 12);
         ctx.fillStyle = 'rgba(5, 11, 18, 0.82)';
         ctx.fillRect(ex + 14 - plaqueW / 2, ey - 14 + bob, plaqueW, 13);
-        ctx.strokeStyle = ent.kind === 'boss' ? '#f87171' : ent.kind === 'merchant' ? '#34d399' : '#fbbf24';
+        ctx.strokeStyle =
+          ent.kind === 'boss'
+            ? '#f87171'
+            : ent.kind === 'merchant'
+            ? '#34d399'
+            : ent.kind === 'story_npc'
+            ? '#2dd4bf'
+            : '#fbbf24';
         ctx.lineWidth = 1;
         ctx.strokeRect(ex + 14 - plaqueW / 2, ey - 14 + bob, plaqueW, 13);
 
         ctx.font = 'bold 10px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillStyle = ent.kind === 'boss' ? '#fecaca' : ent.kind === 'merchant' ? '#a7f3d0' : '#fef08a';
+        ctx.fillStyle =
+          ent.kind === 'boss'
+            ? '#fecaca'
+            : ent.kind === 'merchant'
+            ? '#a7f3d0'
+            : ent.kind === 'story_npc'
+            ? '#99f6e4'
+            : '#fef08a';
         ctx.fillText(label, ex + 14, ey - 4 + bob);
         if (ent.kind === 'boss') {
           lightSources.push({ sx: ex + 14, sy: ey + 14, r: 102, color: 'rgba(248, 113, 113, 0.68)' });
@@ -930,31 +965,115 @@ export class WorldRenderer {
     }
     g.globalAlpha = 1;
 
+    // Interconnected cavern routes
+    const story = ensureStoryState(state);
+    const activeChapter = STORY_CHAPTERS_BY_ID[story.currentChapterId];
+    for (const route of Object.values(STORY_ROUTES)) {
+      const fromSc = STORY_SCENARIOS[route.fromScenarioId];
+      const toSc = STORY_SCENARIOS[route.toScenarioId];
+      if (!fromSc || !toSc) continue;
+      const x1 = (fromSc.worldAnchor.x / WORLD_W) * w;
+      const y1 = (fromSc.worldAnchor.y / WORLD_H) * h;
+      const x2 = (toSc.worldAnchor.x / WORLD_W) * w;
+      const y2 = (toSc.worldAnchor.y / WORLD_H) * h;
+      const access = canAccessRoute(state, route.id);
+      g.save();
+      g.beginPath();
+      if (!access.allowed) {
+        g.setLineDash([4, 4]);
+        g.strokeStyle = 'rgba(148, 163, 184, 0.42)';
+        g.lineWidth = 1.4;
+      } else {
+        g.strokeStyle = 'rgba(45, 212, 191, 0.72)';
+        g.lineWidth = 2.2;
+      }
+      g.moveTo(x1, y1);
+      g.lineTo(x2, y2);
+      g.stroke();
+      g.restore();
+    }
+
     // Discovered POIs only (undiscovered chambers/ruins stay hidden until explored)
     if (state.discoveredPOIs) {
       for (const poi of state.discoveredPOIs) {
         const px = (poi.x / WORLD_W) * w;
         const py = (poi.y / WORLD_H) * h;
         g.fillStyle = poi.kind === 'crystal_chamber' ? '#38bdf8' : poi.kind === 'ancient_ruins' ? '#c084fc' : '#2dd4bf';
-        g.fillRect(px - 3, py - 3, 6, 6);
-        g.strokeStyle = '#060c14';
-        g.lineWidth = 1;
-        g.strokeRect(px - 3, py - 3, 6, 6);
+        g.fillRect(px - 2.5, py - 2.5, 5, 5);
       }
     }
 
-    // Shelter beacon
-    const sx = (160 / WORLD_W) * w;
-    const sy = (160 / WORLD_H) * h;
-    g.fillStyle = '#fde047';
-    g.beginPath();
-    g.arc(sx, sy, 5.5, 0, Math.PI * 2);
-    g.fill();
-    g.font = 'bold 11px sans-serif';
-    g.fillStyle = '#060c14';
-    g.fillText('Refugio', sx + 9, sy + 5);
-    g.fillStyle = '#fef08a';
-    g.fillText('Refugio', sx + 8, sy + 4);
+    // Discovered hidden shrines ONLY (never reveal undiscovered secrets prematurely)
+    for (const sec of HIDDEN_DISCOVERIES) {
+      if (!sec.worldCoords || !state.discoveredSecrets?.includes(sec.id)) continue;
+      const sxSec = (sec.worldCoords.x / WORLD_W) * w;
+      const sySec = (sec.worldCoords.y / WORLD_H) * h;
+      g.save();
+      g.translate(sxSec, sySec);
+      g.rotate(Math.PI / 4);
+      g.fillStyle = '#c084fc';
+      g.fillRect(-3, -3, 6, 6);
+      g.strokeStyle = '#f5d0fe';
+      g.lineWidth = 1;
+      g.strokeRect(-3, -3, 6, 6);
+      g.restore();
+    }
+
+    // Story Scenario nodes (visited / accessible / locked + active chapter objective)
+    for (const sc of Object.values(STORY_SCENARIOS)) {
+      const mx = (sc.worldAnchor.x / WORLD_W) * w;
+      const my = (sc.worldAnchor.y / WORLD_H) * h;
+      const isRefugio = sc.id === 'esc_refugio_shane';
+      const isCurrent = story.currentScenarioId === sc.id;
+      const isVisited = story.visitedScenarioIds.includes(sc.id);
+      const isUnlocked = story.unlockedScenarioIds.includes(sc.id);
+      const isObjective = activeChapter?.scenarioIds.includes(sc.id);
+
+      if (isObjective) {
+        g.strokeStyle = '#fbbf24';
+        g.lineWidth = 1.6;
+        g.beginPath();
+        g.arc(mx, my, isRefugio ? 9 : 7.5, 0, Math.PI * 2);
+        g.stroke();
+      }
+
+      if (isRefugio) {
+        g.fillStyle = '#fde047';
+        g.beginPath();
+        g.arc(mx, my, 5.5, 0, Math.PI * 2);
+        g.fill();
+        g.font = 'bold 11px sans-serif';
+        g.fillStyle = '#060c14';
+        g.fillText('Refugio', mx + 9, my + 5);
+        g.fillStyle = '#fef08a';
+        g.fillText('Refugio', mx + 8, my + 4);
+      } else {
+        g.fillStyle = isCurrent
+          ? '#38bdf8'
+          : isVisited
+          ? '#2dd4bf'
+          : isUnlocked
+          ? '#fbbf24'
+          : '#475569';
+        g.beginPath();
+        g.arc(mx, my, 4.2, 0, Math.PI * 2);
+        g.fill();
+        g.strokeStyle = '#060c14';
+        g.lineWidth = 1.2;
+        g.stroke();
+
+        const alignRight = mx > w * 0.65;
+        const tx = alignRight ? mx - 7 : mx + 7;
+        g.font = 'bold 9.5px sans-serif';
+        g.textAlign = alignRight ? 'right' : 'left';
+        const shortLabel = isUnlocked || isVisited ? sc.name : `🔒 ${sc.name}`;
+        g.fillStyle = '#060c14';
+        g.fillText(shortLabel, tx + 1, my - 5);
+        g.fillStyle = isUnlocked || isVisited ? '#e2e8f0' : '#94a3b8';
+        g.fillText(shortLabel, tx, my - 6);
+        g.textAlign = 'left';
+      }
+    }
 
     // Bosses
     for (const boss of BOSS_DEFINITIONS) {

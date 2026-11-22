@@ -63,6 +63,7 @@ export function createInitialStoryState(): StoryProgressState {
     storyFlags: {},
     claimedChapterRewards: [],
     claimedMissionRewards: [],
+    scenarioPositions: {},
   };
 }
 
@@ -82,6 +83,7 @@ export function ensureStoryState(state: GameState): StoryProgressState {
   if (!s.storyFlags || typeof s.storyFlags !== 'object') s.storyFlags = {};
   if (!Array.isArray(s.claimedChapterRewards)) s.claimedChapterRewards = [];
   if (!Array.isArray(s.claimedMissionRewards)) s.claimedMissionRewards = [];
+  if (!s.scenarioPositions || typeof s.scenarioPositions !== 'object') s.scenarioPositions = {};
 
   for (const ch of SORTED_CHAPTERS) {
     if (!s.chapterStates[ch.id]) {
@@ -716,18 +718,76 @@ export function canAccessRoute(
   return { allowed: true, unlocked: true, reason: 'Ruta abierta.' };
 }
 
+function saveCurrentScenarioPosition(state: GameState, scenarioId: string): void {
+  const story = ensureStoryState(state);
+  if (!story.scenarioPositions) story.scenarioPositions = {};
+  const sc = STORY_SCENARIOS[scenarioId];
+  if (!sc) return;
+  const dist = Math.hypot(state.player.x - sc.worldAnchor.x, state.player.y - sc.worldAnchor.y);
+  if (dist <= 22) {
+    story.scenarioPositions[scenarioId] = {
+      x: Math.round(state.player.x * 100) / 100,
+      y: Math.round(state.player.y * 100) / 100,
+    };
+  }
+}
+
+function getScenarioArrivalPoint(state: GameState, targetScenarioId: string): { x: number; y: number } {
+  const target = STORY_SCENARIOS[targetScenarioId];
+  if (!target) {
+    return { x: state.player.x, y: state.player.y };
+  }
+  const saved = state.story?.scenarioPositions?.[targetScenarioId];
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+    const dist = Math.hypot(saved.x - target.worldAnchor.x, saved.y - target.worldAnchor.y);
+    if (dist <= 20) {
+      return { x: saved.x, y: saved.y };
+    }
+  }
+  return {
+    x: target.worldAnchor.x + (target.entryOffset?.x ?? 0),
+    y: target.worldAnchor.y + (target.entryOffset?.y ?? 2),
+  };
+}
+
 export function travelToScenario(
   state: GameState,
   targetScenarioId: string
-): { ok: boolean; message: string; scenarioName?: string } {
+): { ok: boolean; message: string; scenarioName?: string; destination?: { x: number; y: number } } {
   const story = ensureStoryState(state);
   const target = STORY_SCENARIOS[targetScenarioId];
   if (!target) {
     return { ok: false, message: 'Escenario no encontrado.' };
   }
   if (targetScenarioId === story.currentScenarioId) {
-    return { ok: true, message: `Ya te encuentras en ${target.name}.`, scenarioName: target.name };
+    return {
+      ok: true,
+      message: `Ya te encuentras en ${target.name}.`,
+      scenarioName: target.name,
+      destination: { x: state.player.x, y: state.player.y },
+    };
   }
+
+  const prevScenarioId = story.currentScenarioId;
+
+  const commitTransition = (msg: string): {
+    ok: boolean;
+    message: string;
+    scenarioName: string;
+    destination: { x: number; y: number };
+  } => {
+    saveCurrentScenarioPosition(state, prevScenarioId);
+    const dest = getScenarioArrivalPoint(state, targetScenarioId);
+    story.currentScenarioId = targetScenarioId;
+    pushUnique(story.unlockedScenarioIds, targetScenarioId);
+    pushUnique(story.visitedScenarioIds, targetScenarioId);
+    state.player.x = dest.x;
+    state.player.y = dest.y;
+    if (!state.discoveries.includes(target.biome)) {
+      state.discoveries.push(target.biome);
+    }
+    return { ok: true, message: msg, scenarioName: target.name, destination: dest };
+  };
 
   // Check if there is a connected route from current scenario to target scenario
   const directRoute = Object.values(STORY_ROUTES).find(
@@ -742,16 +802,12 @@ export function travelToScenario(
       return { ok: false, message: access.reason };
     }
     pushUnique(story.unlockedRouteIds, directRoute.id);
-    pushUnique(story.unlockedScenarioIds, targetScenarioId);
-    story.currentScenarioId = targetScenarioId;
-    pushUnique(story.visitedScenarioIds, targetScenarioId);
-    return { ok: true, message: `Viajaste a ${target.name}.`, scenarioName: target.name };
+    return commitTransition(`Viajaste a ${target.name}.`);
   }
 
   // Allow fast backtracking between previously visited & unlocked scenarios
   if (story.unlockedScenarioIds.includes(targetScenarioId) && story.visitedScenarioIds.includes(targetScenarioId)) {
-    story.currentScenarioId = targetScenarioId;
-    return { ok: true, message: `Regresaste a ${target.name}.`, scenarioName: target.name };
+    return commitTransition(`Regresaste a ${target.name}.`);
   }
 
   // Check if a route pointing to target exists to show its exact locked reason
@@ -762,9 +818,7 @@ export function travelToScenario(
       return { ok: false, message: access.reason };
     }
     if (story.unlockedScenarioIds.includes(targetScenarioId)) {
-      story.currentScenarioId = targetScenarioId;
-      pushUnique(story.visitedScenarioIds, targetScenarioId);
-      return { ok: true, message: `Viajaste a ${target.name}.`, scenarioName: target.name };
+      return commitTransition(`Viajaste a ${target.name}.`);
     }
     return {
       ok: false,

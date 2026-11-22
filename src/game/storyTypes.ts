@@ -57,10 +57,15 @@ export interface StoryScenarioDef {
   chapterId: string;
   canonStatus: CanonSourceTag;
   summary: string;
+  regionName: string;
+  facilities: string[];
   connectedRouteIds: string[];
   npcIds: string[];
   encounterIds: string[];
-  worldAnchor?: { x: number; y: number };
+  secretIds?: string[];
+  isSecretArea?: boolean;
+  worldAnchor: { x: number; y: number };
+  entryOffset?: { x: number; y: number };
 }
 
 export type StoryLocation = StoryScenarioDef;
@@ -302,6 +307,8 @@ export interface HiddenDiscoveryDef {
   rewardTokens: number;
   rewardItems?: Partial<Inventory>;
   canonStatus: CanonSourceTag;
+  scenarioId?: string;
+  worldCoords?: { x: number; y: number };
 }
 
 export interface PostGameChallengeDef {
@@ -330,6 +337,7 @@ export interface StoryProgressState {
   storyFlags: Record<string, boolean>;
   claimedChapterRewards: string[];
   claimedMissionRewards: string[];
+  scenarioPositions?: Record<string, { x: number; y: number }>;
 }
 
 export interface StoryMissionSnapshotItem {

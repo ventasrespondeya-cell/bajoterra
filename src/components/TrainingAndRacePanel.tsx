@@ -37,6 +37,12 @@ export const TrainingAndRacePanel: React.FC<TrainingAndRacePanelProps> = ({ snap
   const drillScoreRef = useRef<number>(0);
   drillScoreRef.current = drillScore;
 
+  const drillTimeLeftRef = useRef<number>(0);
+  drillTimeLeftRef.current = drillTimeLeft;
+
+  const gaugeValRef = useRef<number>(20);
+  gaugeValRef.current = gaugeVal;
+
   const raceStateRef = useRef({
     distance: 0,
     elapsed: 0,
@@ -56,37 +62,39 @@ export const TrainingAndRacePanel: React.FC<TrainingAndRacePanelProps> = ({ snap
 
   const mechaMult = getMechaSpeedMultiplier({ mecha: snap.mecha } as GameState);
 
-  // Training Drill Timer & Physics
+  // Training Drill Timer & Physics (never call external state updates inside functional updaters)
   useEffect(() => {
     if (!activeDrill) return;
     const stepMs = 80;
+    let finished = false;
     const timer = setInterval(() => {
-      setDrillTimeLeft((prev) => {
-        const next = Math.max(0, +(prev - stepMs / 1000).toFixed(2));
-        if (next <= 0) {
-          clearInterval(timer);
-          const finishedDrill = activeDrill;
-          const finalScore = drillScoreRef.current;
-          setActiveDrill(null);
-          const res = gameEngine.completeTrainingChallenge(finishedDrill.id, finalScore);
-          setDrillLastFeedback(res.message);
-          return 0;
-        }
-        return next;
-      });
+      if (finished) return;
+      const nextTime = Math.max(0, +(drillTimeLeftRef.current - stepMs / 1000).toFixed(2));
+      drillTimeLeftRef.current = nextTime;
+      setDrillTimeLeft(nextTime);
+
+      if (nextTime <= 0) {
+        finished = true;
+        clearInterval(timer);
+        const finishedDrill = activeDrill;
+        const finalScore = drillScoreRef.current;
+        setActiveDrill(null);
+        const res = gameEngine.completeTrainingChallenge(finishedDrill.id, finalScore);
+        setDrillLastFeedback(res.message);
+        return;
+      }
 
       if (activeDrill.kind === 'velocity') {
-        setGaugeVal((v) => {
-          let next = v + gaugeDirRef.current * 5.2;
-          if (next >= 100) {
-            next = 100;
-            gaugeDirRef.current = -1;
-          } else if (next <= 0) {
-            next = 0;
-            gaugeDirRef.current = 1;
-          }
-          return next;
-        });
+        let nextGauge = gaugeValRef.current + gaugeDirRef.current * 5.2;
+        if (nextGauge >= 100) {
+          nextGauge = 100;
+          gaugeDirRef.current = -1;
+        } else if (nextGauge <= 0) {
+          nextGauge = 0;
+          gaugeDirRef.current = 1;
+        }
+        gaugeValRef.current = nextGauge;
+        setGaugeVal(nextGauge);
       }
     }, stepMs);
 
@@ -98,7 +106,9 @@ export const TrainingAndRacePanel: React.FC<TrainingAndRacePanelProps> = ({ snap
     if (!activeRace) return;
     const stepMs = 100;
     let tickCount = 0;
+    let finished = false;
     const timer = setInterval(() => {
+      if (finished) return;
       tickCount++;
       const cur = raceStateRef.current;
       const baseMps = 28 * Math.max(1.18, mechaMult);
@@ -107,10 +117,11 @@ export const TrainingAndRacePanel: React.FC<TrainingAndRacePanelProps> = ({ snap
       const deltaMeters = ((baseMps + boostMps) * hazardPenalty * stepMs) / 1000;
       const nextDist = Math.min(activeRace.distanceMeters, cur.distance + deltaMeters);
       const nextElapsed = +(cur.elapsed + stepMs / 1000).toFixed(1);
+      const nextBoost = Math.max(0, +(cur.speedBoost - stepMs / 1000).toFixed(3));
 
       setRaceDistance(nextDist);
       setRaceElapsed(nextElapsed);
-      setRaceSpeedBoost((b) => Math.max(0, b - stepMs / 1000));
+      setRaceSpeedBoost(nextBoost);
 
       if (tickCount % 12 === 0) {
         const newHazard = Math.floor(Math.random() * 3);
@@ -120,6 +131,7 @@ export const TrainingAndRacePanel: React.FC<TrainingAndRacePanelProps> = ({ snap
       }
 
       if (nextDist >= activeRace.distanceMeters) {
+        finished = true;
         clearInterval(timer);
         const finishedRace = activeRace;
         const won = nextElapsed <= finishedRace.parTimeSec;
@@ -135,18 +147,27 @@ export const TrainingAndRacePanel: React.FC<TrainingAndRacePanelProps> = ({ snap
   const startDrill = (def: TrainingChallengeDef) => {
     setActiveRace(null);
     setActiveDrill(def);
+    drillTimeLeftRef.current = def.durationSec;
     setDrillTimeLeft(def.durationSec);
+    drillScoreRef.current = 0;
     setDrillScore(0);
     setInterceptStreak(0);
     setTargetPos({ x: 25 + Math.random() * 55, y: 25 + Math.random() * 55 });
+    gaugeValRef.current = 15;
     setGaugeVal(15);
     gaugeDirRef.current = 1;
     setIncomingLane(Math.floor(Math.random() * 3));
     setDrillLastFeedback(`¡Prueba "${def.title}" en marcha!`);
   };
 
+  const addDrillScore = (delta: number) => {
+    const next = drillScoreRef.current + delta;
+    drillScoreRef.current = next;
+    setDrillScore(next);
+  };
+
   const handlePrecisionHit = () => {
-    setDrillScore((s) => s + 1);
+    addDrillScore(1);
     setTargetPos({
       x: 16 + Math.random() * 68,
       y: 18 + Math.random() * 64,
@@ -155,10 +176,10 @@ export const TrainingAndRacePanel: React.FC<TrainingAndRacePanelProps> = ({ snap
 
   const handleVelocityShot = () => {
     if (gaugeVal >= 72 && gaugeVal <= 90) {
-      setDrillScore((s) => s + 2);
+      addDrillScore(2);
       setDrillLastFeedback('¡100 MPH Perfecto! (+2 pts)');
     } else if (gaugeVal >= 55) {
-      setDrillScore((s) => s + 1);
+      addDrillScore(1);
       setDrillLastFeedback('Buen impulso (+1 pt)');
     } else {
       setDrillLastFeedback('Carga insuficiente — apunta a la franja dorada');
@@ -169,7 +190,7 @@ export const TrainingAndRacePanel: React.FC<TrainingAndRacePanelProps> = ({ snap
     if (lane === incomingLane) {
       const nextStreak = interceptStreak + 1;
       setInterceptStreak(nextStreak);
-      setDrillScore((s) => s + (nextStreak >= 3 ? 2 : 1));
+      addDrillScore(nextStreak >= 3 ? 2 : 1);
       setDrillLastFeedback(nextStreak >= 3 ? '¡Bloqueo en racha! (+2 pts)' : '¡Proyectil interceptado!');
     } else {
       setInterceptStreak(0);
@@ -195,8 +216,10 @@ export const TrainingAndRacePanel: React.FC<TrainingAndRacePanelProps> = ({ snap
   };
 
   const selectRaceLane = (lane: number) => {
+    raceStateRef.current.lane = lane;
     setRaceLane(lane);
     if (lane === turboLane) {
+      raceStateRef.current.speedBoost = 1.6;
       setRaceSpeedBoost(1.6);
       setTurboLane((lane + 1) % 3);
     }
