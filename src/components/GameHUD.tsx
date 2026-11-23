@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { BIOME_INFO, HOME_FOOD_DEFS, HOTBAR_SLOTS, getFavoriteFoodForSpecies } from '../game/data';
 import { getMoodLabel } from '../game/home';
+import { formatControlKeyLabel, resolveEffectiveBindings } from '../game/inputManager';
 import { getBondTierInfo, getSlugDisplayName } from '../game/progression';
 import type { ExplorationActionKind, HudSnapshot, InventoryKey } from '../game/types';
 import { ToolIcon } from './GameIcons';
@@ -487,7 +488,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   type="button"
                   onClick={() => onAbility1?.()}
                   disabled={wc.ability1Cooldown > 0 || (activeSlug ? activeSlug.energy < wc.ability1Cost : false)}
-                  title={`${wc.ability1Name} [Z]`}
+                  title={`${wc.ability1Name} [${formatControlKeyLabel(
+                    resolveEffectiveBindings(snap.options.keyBindings).ability1
+                  )}]`}
                   aria-label={`Habilidad 1: ${wc.ability1Name}`}
                   className={`bt-hud-panel px-2.5 rounded-xl border border-amber-400/40 flex items-center gap-1.5 text-[11px] font-bold text-amber-100 cursor-pointer disabled:opacity-45 touch-none ${
                     showTouch ? 'min-h-[44px] min-w-[68px] justify-center' : 'h-9'
@@ -502,7 +505,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   type="button"
                   onClick={() => onAbility2?.()}
                   disabled={wc.ability2Cooldown > 0 || (activeSlug ? activeSlug.energy < wc.ability2Cost : false)}
-                  title={`${wc.ability2Name} [X]`}
+                  title={`${wc.ability2Name} [${formatControlKeyLabel(
+                    resolveEffectiveBindings(snap.options.keyBindings).ability2
+                  )}]`}
                   aria-label={`Habilidad 2: ${wc.ability2Name}`}
                   className={`bt-hud-panel px-2.5 rounded-xl border border-cyan-400/40 flex items-center gap-1.5 text-[11px] font-bold text-cyan-100 cursor-pointer disabled:opacity-45 touch-none ${
                     showTouch ? 'min-h-[44px] min-w-[68px] justify-center' : 'h-9'
@@ -517,7 +522,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   type="button"
                   onClick={() => onDodge?.()}
                   disabled={wc.dodgeCooldown > 0}
-                  title="Esquivar [Espacio]"
+                  title={`Esquivar [${formatControlKeyLabel(
+                    resolveEffectiveBindings(snap.options.keyBindings).dodge
+                  )}]`}
                   aria-label="Esquivar"
                   className={`bt-hud-panel px-2.5 rounded-xl border border-teal-400/45 flex items-center gap-1.5 text-[11px] font-bold text-teal-100 cursor-pointer disabled:opacity-45 touch-none ${
                     showTouch ? 'min-h-[44px] min-w-[62px] justify-center' : 'h-9'

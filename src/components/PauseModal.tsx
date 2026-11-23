@@ -1,5 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { Download, FolderOpen, HardDriveDownload, Keyboard, LogOut, Play, RotateCcw, Save, Settings } from 'lucide-react';
+import {
+  Download,
+  FolderOpen,
+  HardDriveDownload,
+  Keyboard,
+  LogOut,
+  Maximize2,
+  Minimize2,
+  Play,
+  RotateCcw,
+  Save,
+  Settings,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import { gameEngine } from '../game/engine';
 import {
   CONTROL_ACTION_DEFS,
@@ -21,8 +35,27 @@ export const PauseModal: React.FC<PauseModalProps> = ({ snap, onResume, onTitle 
   const [confirmV3, setConfirmV3] = useState(false);
   const [listeningAction, setListeningAction] = useState<ControlActionId | null>(null);
   const [rebindNotice, setRebindNotice] = useState<string | null>(null);
+  const [fullscreenError, setFullscreenError] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() =>
+    typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : false
+  );
 
   const effectiveBindings = resolveEffectiveBindings(snap.options.keyBindings);
+  const musicVol = typeof snap.options.musicVolume === 'number' ? snap.options.musicVolume : 1;
+  const sfxVol = typeof snap.options.sfxVolume === 'number' ? snap.options.sfxVolume : 1;
+  const ambientVol = typeof snap.options.ambientVolume === 'number' ? snap.options.ambientVolume : 1;
+  const screenShakeOn = snap.options.screenShake !== false;
+  const uiScale = snap.options.uiScale || 'normal';
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      gameEngine.resizeCanvas();
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
 
   useEffect(() => {
     if (!listeningAction) return;
@@ -46,6 +79,22 @@ export const PauseModal: React.FC<PauseModalProps> = ({ snap, onResume, onTitle 
     window.addEventListener('keydown', onCaptureKey, true);
     return () => window.removeEventListener('keydown', onCaptureKey, true);
   }, [listeningAction, snap.options.keyBindings]);
+
+  const toggleFullscreen = async () => {
+    setFullscreenError(null);
+    try {
+      if (typeof document === 'undefined') return;
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        setFullscreenError('Tu navegador no admite pantalla completa aquí.');
+      }
+    } catch {
+      setFullscreenError('El contenedor actual restringe pantalla completa.');
+    }
+  };
 
   const exportJson = () => {
     const blob = new Blob([JSON.stringify(gameEngine.state, null, 2)], {
@@ -79,7 +128,12 @@ export const PauseModal: React.FC<PauseModalProps> = ({ snap, onResume, onTitle 
   };
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center p-3 sm:p-5 bg-[#03080e]/88 backdrop-blur-sm">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Pausa y opciones"
+      className="fixed inset-0 z-30 flex items-center justify-center p-3 sm:p-5 bg-[#03080e]/88 backdrop-blur-sm"
+    >
       <div className="bt-panel bt-animate-modal w-full max-w-xl rounded-2xl p-4 sm:p-5 max-h-[92dvh] overflow-y-auto bt-scroll space-y-4">
         <div className="flex items-center justify-between gap-3 border-b border-cyan-400/20 pb-3">
           <div>
@@ -92,6 +146,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({ snap, onResume, onTitle 
             </p>
           </div>
           <button
+            type="button"
             onClick={onResume}
             className="bt-btn-primary px-4 py-2 rounded-xl font-extrabold text-xs cursor-pointer min-h-[40px] flex items-center gap-1.5"
           >
@@ -103,8 +158,16 @@ export const PauseModal: React.FC<PauseModalProps> = ({ snap, onResume, onTitle 
         {/* Options */}
         <div className="bt-inset rounded-xl p-3.5 space-y-3 text-xs">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-slate-100 font-semibold">Sonido y efectos</span>
+            <span className="text-slate-100 font-semibold flex items-center gap-1.5">
+              {snap.options.soundEnabled ? (
+                <Volume2 className="w-3.5 h-3.5 text-teal-300" />
+              ) : (
+                <VolumeX className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              Sonido y efectos
+            </span>
             <button
+              type="button"
               onClick={() => gameEngine.updateOptions({ soundEnabled: !snap.options.soundEnabled })}
               className={`px-3.5 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] ${
                 snap.options.soundEnabled
@@ -116,75 +179,206 @@ export const PauseModal: React.FC<PauseModalProps> = ({ snap, onResume, onTitle 
             </button>
           </div>
 
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-slate-100 font-semibold">Volumen</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={snap.options.volume}
-              onChange={(e) => gameEngine.updateOptions({ volume: Number(e.target.value) })}
-              className="w-40 accent-teal-400 cursor-pointer"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5 pt-1 border-t border-cyan-400/10">
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-slate-200 font-semibold">Volumen</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  aria-label="Volumen maestro"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={snap.options.volume}
+                  onChange={(e) => gameEngine.updateOptions({ volume: Number(e.target.value) })}
+                  className="w-28 accent-teal-400 cursor-pointer"
+                />
+                <span className="w-9 text-right text-[11px] text-cyan-200 tabular-nums font-bold">
+                  {Math.round(snap.options.volume * 100)}%
+                </span>
+              </div>
+            </label>
+
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-slate-200 font-semibold">Música</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  aria-label="Volumen de música"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={musicVol}
+                  onChange={(e) => gameEngine.updateOptions({ musicVolume: Number(e.target.value) })}
+                  className="w-28 accent-teal-400 cursor-pointer"
+                />
+                <span className="w-9 text-right text-[11px] text-cyan-200 tabular-nums font-bold">
+                  {Math.round(musicVol * 100)}%
+                </span>
+              </div>
+            </label>
+
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-slate-200 font-semibold">Efectos (SFX)</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  aria-label="Volumen de efectos"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={sfxVol}
+                  onChange={(e) => gameEngine.updateOptions({ sfxVolume: Number(e.target.value) })}
+                  className="w-28 accent-teal-400 cursor-pointer"
+                />
+                <span className="w-9 text-right text-[11px] text-cyan-200 tabular-nums font-bold">
+                  {Math.round(sfxVol * 100)}%
+                </span>
+              </div>
+            </label>
+
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-slate-200 font-semibold">Ambiente</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  aria-label="Volumen ambiental"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={ambientVol}
+                  onChange={(e) => gameEngine.updateOptions({ ambientVolume: Number(e.target.value) })}
+                  className="w-28 accent-teal-400 cursor-pointer"
+                />
+                <span className="w-9 text-right text-[11px] text-cyan-200 tabular-nums font-bold">
+                  {Math.round(ambientVol * 100)}%
+                </span>
+              </div>
+            </label>
           </div>
 
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-slate-100 font-semibold">Iluminación de cavernas</span>
-            <div className="flex gap-1.5">
-              {(['high', 'eco'] as const).map((q) => (
-                <button
-                  key={q}
-                  onClick={() => gameEngine.updateOptions({ lightingQuality: q })}
-                  className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] ${
-                    snap.options.lightingQuality === q ? 'bt-btn-primary' : 'bt-btn-secondary'
-                  }`}
-                >
-                  {q === 'high' ? 'Completa' : 'Eco (8GB)'}
-                </button>
-              ))}
+          <div className="pt-2 border-t border-cyan-400/10 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-100 font-semibold">Escala de interfaz</span>
+              <div className="flex gap-1.5">
+                {([
+                  { id: 'compact', label: 'Compacta' },
+                  { id: 'normal', label: 'Normal' },
+                  { id: 'large', label: 'Grande' },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => gameEngine.updateOptions({ uiScale: opt.id })}
+                    className={`px-2.5 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] whitespace-nowrap ${
+                      uiScale === opt.id ? 'bt-btn-primary' : 'bt-btn-secondary'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-slate-100 font-semibold">Controles táctiles</span>
-            <div className="flex gap-1.5">
-              {(['auto', 'on', 'off'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => gameEngine.updateOptions({ touchControls: mode })}
-                  className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] ${
-                    snap.options.touchControls === mode ? 'bt-btn-primary' : 'bt-btn-secondary'
-                  }`}
-                >
-                  {mode === 'auto' ? 'Auto' : mode === 'on' ? 'Sí' : 'No'}
-                </button>
-              ))}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-100 font-semibold">Iluminación de cavernas</span>
+              <div className="flex gap-1.5">
+                {(['high', 'eco'] as const).map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => gameEngine.updateOptions({ lightingQuality: q })}
+                    className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] whitespace-nowrap ${
+                      snap.options.lightingQuality === q ? 'bt-btn-primary' : 'bt-btn-secondary'
+                    }`}
+                  >
+                    {q === 'high' ? 'Completa' : 'Eco (8GB)'}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-slate-100 font-semibold">Minimapa en pantalla</span>
-            <button
-              onClick={() => gameEngine.updateOptions({ showMinimap: !snap.options.showMinimap })}
-              className={`px-3.5 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] ${
-                snap.options.showMinimap ? 'bt-btn-primary' : 'bt-btn-secondary text-slate-400'
-              }`}
-            >
-              {snap.options.showMinimap ? 'Visible' : 'Oculto'}
-            </button>
-          </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-100 font-semibold">Controles táctiles</span>
+              <div className="flex gap-1.5">
+                {(['auto', 'on', 'off'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => gameEngine.updateOptions({ touchControls: mode })}
+                    className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] ${
+                      snap.options.touchControls === mode ? 'bt-btn-primary' : 'bt-btn-secondary'
+                    }`}
+                  >
+                    {mode === 'auto' ? 'Auto' : mode === 'on' ? 'Sí' : 'No'}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-slate-100 font-semibold">Movimiento y destellos</span>
-            <button
-              onClick={() => gameEngine.updateOptions({ reducedMotion: !snap.options.reducedMotion })}
-              className={`px-3.5 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] ${
-                snap.options.reducedMotion ? 'bt-btn-amber' : 'bt-btn-secondary'
-              }`}
-            >
-              {snap.options.reducedMotion ? 'Reducido' : 'Completo'}
-            </button>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-100 font-semibold">Minimapa en pantalla</span>
+              <button
+                type="button"
+                onClick={() => gameEngine.updateOptions({ showMinimap: !snap.options.showMinimap })}
+                className={`px-3.5 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] ${
+                  snap.options.showMinimap ? 'bt-btn-primary' : 'bt-btn-secondary text-slate-400'
+                }`}
+              >
+                {snap.options.showMinimap ? 'Visible' : 'Oculto'}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-100 font-semibold">Sacudida de cámara</span>
+              <button
+                type="button"
+                onClick={() => gameEngine.updateOptions({ screenShake: !screenShakeOn })}
+                className={`px-3.5 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] ${
+                  screenShakeOn ? 'bt-btn-primary' : 'bt-btn-secondary text-slate-400'
+                }`}
+              >
+                {screenShakeOn ? 'Activa' : 'Desactivada'}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-100 font-semibold">Movimiento y destellos</span>
+              <button
+                type="button"
+                onClick={() => gameEngine.updateOptions({ reducedMotion: !snap.options.reducedMotion })}
+                className={`px-3.5 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] ${
+                  snap.options.reducedMotion ? 'bt-btn-amber' : 'bt-btn-secondary'
+                }`}
+              >
+                {snap.options.reducedMotion ? 'Reducido' : 'Completo'}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-100 font-semibold">Pantalla completa</span>
+              <button
+                type="button"
+                onClick={() => void toggleFullscreen()}
+                className="bt-btn-secondary px-3.5 py-1.5 rounded-lg font-bold cursor-pointer min-h-[34px] flex items-center gap-1.5"
+              >
+                {isFullscreen ? (
+                  <>
+                    <Minimize2 className="w-3.5 h-3.5 text-teal-300" />
+                    Salir
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="w-3.5 h-3.5 text-teal-300" />
+                    Activar
+                  </>
+                )}
+              </button>
+            </div>
+
+            {fullscreenError && (
+              <p className="text-[11px] text-amber-300">{fullscreenError}</p>
+            )}
           </div>
         </div>
 

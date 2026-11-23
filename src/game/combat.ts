@@ -807,12 +807,24 @@ export class CombatManager {
     return true;
   }
 
+  public hasStateChangeHandler(): boolean {
+    return this.onStateChangeCallback !== null;
+  }
+
   public cycleSlug(state: GameState, dir: 1 | -1 = 1): boolean {
+    if (!this.battle || this.battle.turn !== 'duel') return false;
     const len = state.party.length;
     if (len <= 1) return false;
+    const baseIdx =
+      Number.isInteger(state.activePartyIndex) &&
+      state.activePartyIndex >= 0 &&
+      state.activePartyIndex < len
+        ? state.activePartyIndex
+        : 0;
     for (let offset = 1; offset <= len; offset++) {
-      const idx = (state.activePartyIndex + dir * offset + len) % len;
-      if (state.party[idx].hp > 0 && idx !== state.activePartyIndex) {
+      const idx = (((baseIdx + dir * offset) % len) + len) % len;
+      const candidate = state.party[idx];
+      if (candidate && candidate.hp > 0 && idx !== baseIdx) {
         return this.swapSlug(state, idx);
       }
     }

@@ -179,7 +179,10 @@ export const CinematicDirector: React.FC<CinematicDirectorProps> = ({
   // Auto-release any active battle intro lock if player exits battle early
   useEffect(() => {
     if (!snap.battle && isBattleIntroEvent(featured)) {
-      const next = controllerRef.current.finishFeatured();
+      let next = controllerRef.current.finishFeatured();
+      while (next && isBattleIntroEvent(next)) {
+        next = controllerRef.current.finishFeatured();
+      }
       startFeaturedSequence(next);
     }
   }, [featured, snap.battle, startFeaturedSequence]);

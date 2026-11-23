@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import { Sparkles } from 'lucide-react';
 import { ELEMENT_CHART } from '../game/data';
 import { getSlugDisplayName } from '../game/progression';
@@ -32,16 +32,6 @@ export const SlugColumn: React.FC<SlugColumnProps> = ({
   compact = false,
   className = '',
 }) => {
-  const prevIdxRef = useRef(activeIndex);
-  const [swapTick, setSwapTick] = useState(0);
-
-  useEffect(() => {
-    if (prevIdxRef.current !== activeIndex) {
-      prevIdxRef.current = activeIndex;
-      setSwapTick((t) => t + 1);
-    }
-  }, [activeIndex]);
-
   if (!party || party.length === 0) return null;
 
   return (
@@ -73,7 +63,7 @@ export const SlugColumn: React.FC<SlugColumnProps> = ({
 
         return (
           <button
-            key={`${s.uid}_${isActive ? swapTick : 0}`}
+            key={s.uid}
             type="button"
             disabled={isDisabled}
             onClick={() => onSelectSlug(idx)}

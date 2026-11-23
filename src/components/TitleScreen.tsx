@@ -1,24 +1,87 @@
-import React, { useState } from 'react';
-import { Compass, FolderOpen, Play, RotateCcw, Sparkles } from 'lucide-react';
-import type { HudSnapshot } from '../game/types';
+import React, { useEffect, useState } from 'react';
+import {
+  Compass,
+  FolderOpen,
+  HardDriveDownload,
+  Info,
+  Map,
+  Play,
+  RotateCcw,
+  Save,
+  Settings,
+  Sparkles,
+  X,
+} from 'lucide-react';
+import { sound } from '../game/audio';
+import {
+  checkStorageCapabilities,
+  loadGameV4Detailed,
+  type StorageCapabilities,
+} from '../game/save';
+import { STORY_CHAPTERS_BY_ID } from '../game/storyData';
+import type { GameState, HudSnapshot } from '../game/types';
+import { GameSettingsContent } from './GameSettingsContent';
 import { SlugPortrait } from './SlugPortrait';
 
 interface TitleScreenProps {
   snap: HudSnapshot;
   onNewGame: () => void;
   onContinue: () => void;
+  onContinueToMap?: () => void;
+  onContinueToCampaign?: () => void;
   onImportV3Detected: () => void;
   onImportJsonFile: (text: string) => void;
 }
+
+type TitleModalKind = null | 'settings' | 'saves' | 'credits';
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
   snap,
   onNewGame,
   onContinue,
+  onContinueToMap,
+  onContinueToCampaign,
   onImportV3Detected,
   onImportJsonFile,
 }) => {
   const [confirmAction, setConfirmAction] = useState<null | 'new' | 'v3'>(null);
+  const [activeModal, setActiveModal] = useState<TitleModalKind>(null);
+  const [listeningBind, setListeningBind] = useState(false);
+  const [savePreview, setSavePreview] = useState<GameState | null>(null);
+  const [savePreviewLoading, setSavePreviewLoading] = useState(false);
+  const [storageCaps, setStorageCaps] = useState<StorageCapabilities | null>(null);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !listeningBind) {
+        e.preventDefault();
+        setActiveModal(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeModal, listeningBind]);
+
+  useEffect(() => {
+    if (activeModal !== 'saves') return;
+    let alive = true;
+    setSavePreviewLoading(true);
+    setSaveNotice(null);
+    void Promise.all([
+      snap.hasV4Save ? loadGameV4Detailed({ syncStores: false }) : Promise.resolve(null),
+      checkStorageCapabilities(),
+    ]).then(([loadRes, caps]) => {
+      if (!alive) return;
+      setSavePreview(loadRes?.state ?? null);
+      setStorageCaps(caps);
+      setSavePreviewLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [activeModal, snap.hasV4Save]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -27,6 +90,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         onImportJsonFile(reader.result);
+        setActiveModal(null);
       }
     };
     reader.onerror = () => {
@@ -36,8 +100,27 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     e.target.value = '';
   };
 
+  const exportSavedJson = () => {
+    if (!savePreview) return;
+    const blob = new Blob([JSON.stringify(savePreview, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bajoterra-4-0-respaldo.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setSaveNotice('Respaldo JSON exportado correctamente.');
+  };
+
+  const savedChapterTitle = savePreview?.story?.currentChapterId
+    ? STORY_CHAPTERS_BY_ID[savePreview.story.currentChapterId]?.title || 'Campaña Bajoterra'
+    : 'Campaña Bajoterra';
+
   return (
     <div
+      onPointerDown={() => sound.unlockAudio()}
       className="fixed inset-0 z-20 flex flex-col justify-between p-4 sm:p-8 md:p-12 overflow-y-auto bt-scroll"
       style={{
         background:
@@ -58,7 +141,6 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       {/* Main Hero Lockup */}
       <div className="max-w-3xl my-auto py-4">
         <div className="bt-panel rounded-2xl p-5 sm:p-7 md:p-8 relative overflow-hidden">
-          {/* Subtle corner tech bevel lines */}
           <div className="pointer-events-none absolute top-0 right-0 w-44 h-44 bg-gradient-to-bl from-teal-400/10 to-transparent" />
           <div className="pointer-events-none absolute bottom-0 left-0 w-44 h-44 bg-gradient-to-tr from-amber-400/10 to-transparent" />
 
@@ -81,7 +163,6 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 <stop offset="100%" stopColor="#134e4a" />
               </linearGradient>
             </defs>
-            {/* Crystal Crest Emblem */}
             <polygon
               points="32,12 52,24 58,52 38,84 18,68 14,32"
               fill="url(#btCrystal)"
@@ -160,6 +241,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               </p>
               <div className="flex flex-wrap gap-2">
                 <button
+                  type="button"
                   onClick={() => {
                     const act = confirmAction;
                     setConfirmAction(null);
@@ -171,6 +253,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                   Confirmar
                 </button>
                 <button
+                  type="button"
                   onClick={() => setConfirmAction(null)}
                   className="bt-btn-secondary px-4 py-2.5 text-xs font-bold rounded-xl cursor-pointer min-h-[44px]"
                 >
@@ -179,48 +262,97 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               </div>
             </div>
           ) : (
-            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
-              {snap.hasV4Save ? (
-                <>
+            <div className="space-y-3">
+              {/* Primary Action Row */}
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+                {snap.hasV4Save ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={onContinue}
+                      className="bt-btn-primary px-6 py-3 rounded-xl font-extrabold text-sm tracking-wide cursor-pointer min-h-[48px] flex items-center gap-2 whitespace-nowrap"
+                    >
+                      <Play className="w-4 h-4 fill-current" />
+                      Continuar Expedición
+                    </button>
+                    {onContinueToCampaign && (
+                      <button
+                        type="button"
+                        onClick={onContinueToCampaign}
+                        className="bt-btn-secondary px-4 py-3 rounded-xl font-bold text-sm cursor-pointer min-h-[48px] flex items-center gap-2 whitespace-nowrap"
+                      >
+                        <Compass className="w-4 h-4 text-teal-300" />
+                        Campaña
+                      </button>
+                    )}
+                    {onContinueToMap && (
+                      <button
+                        type="button"
+                        onClick={onContinueToMap}
+                        className="bt-btn-secondary px-4 py-3 rounded-xl font-bold text-sm cursor-pointer min-h-[48px] flex items-center gap-2 whitespace-nowrap"
+                      >
+                        <Map className="w-4 h-4 text-cyan-300" />
+                        Mapa del Mundo
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setConfirmAction('new')}
+                      className="bt-btn-secondary px-5 py-3 rounded-xl font-bold text-sm cursor-pointer min-h-[48px] flex items-center gap-2 whitespace-nowrap"
+                    >
+                      <RotateCcw className="w-4 h-4 text-cyan-300" />
+                      Nueva Partida
+                    </button>
+                  </>
+                ) : (
                   <button
-                    onClick={onContinue}
-                    className="bt-btn-primary px-6 py-3 rounded-xl font-extrabold text-sm tracking-wide cursor-pointer min-h-[48px] flex items-center gap-2"
+                    type="button"
+                    onClick={onNewGame}
+                    className="bt-btn-primary px-6 py-3 rounded-xl font-extrabold text-sm tracking-wide cursor-pointer min-h-[48px] flex items-center gap-2 whitespace-nowrap"
                   >
                     <Play className="w-4 h-4 fill-current" />
-                    Continuar Expedición
+                    Iniciar Expedición
                   </button>
+                )}
+
+                {snap.hasV3Save && (
                   <button
-                    onClick={() => setConfirmAction('new')}
-                    className="bt-btn-secondary px-5 py-3 rounded-xl font-bold text-sm cursor-pointer min-h-[48px] flex items-center gap-2"
+                    type="button"
+                    onClick={() => setConfirmAction('v3')}
+                    className="bt-btn-amber px-4 py-3 rounded-xl font-extrabold text-sm cursor-pointer min-h-[48px] whitespace-nowrap"
                   >
-                    <RotateCcw className="w-4 h-4 text-cyan-300" />
-                    Nueva Partida
+                    Importar Bajoterra 3.0
                   </button>
-                </>
-              ) : (
-                <button
-                  onClick={onNewGame}
-                  className="bt-btn-primary px-6 py-3 rounded-xl font-extrabold text-sm tracking-wide cursor-pointer min-h-[48px] flex items-center gap-2"
-                >
-                  <Play className="w-4 h-4 fill-current" />
-                  Iniciar Expedición
-                </button>
-              )}
+                )}
+              </div>
 
-              {snap.hasV3Save && (
+              {/* Secondary Menu Row (Settings, Save Management, Credits) */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
                 <button
-                  onClick={() => setConfirmAction('v3')}
-                  className="bt-btn-amber px-4 py-3 rounded-xl font-extrabold text-sm cursor-pointer min-h-[48px]"
+                  type="button"
+                  onClick={() => setActiveModal('settings')}
+                  className="bt-btn-secondary px-3.5 py-2 rounded-xl font-bold text-xs cursor-pointer min-h-[42px] flex items-center gap-1.5 whitespace-nowrap"
                 >
-                  Importar Bajoterra 3.0
+                  <Settings className="w-3.5 h-3.5 text-teal-300" />
+                  Configuración
                 </button>
-              )}
-
-              <label className="bt-btn-secondary px-4 py-3 rounded-xl font-semibold text-sm cursor-pointer min-h-[48px] flex items-center gap-2">
-                <FolderOpen className="w-4 h-4 text-teal-300" />
-                <span>Cargar respaldo JSON</span>
-                <input type="file" accept=".json,application/json" onChange={handleFile} hidden />
-              </label>
+                <button
+                  type="button"
+                  onClick={() => setActiveModal('saves')}
+                  className="bt-btn-secondary px-3.5 py-2 rounded-xl font-bold text-xs cursor-pointer min-h-[42px] flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <Save className="w-3.5 h-3.5 text-cyan-300" />
+                  Gestión de Guardado
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveModal('credits')}
+                  className="bt-btn-secondary px-3.5 py-2 rounded-xl font-bold text-xs cursor-pointer min-h-[42px] flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <Info className="w-3.5 h-3.5 text-amber-300" />
+                  Créditos
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -240,6 +372,212 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         <span><strong className="text-cyan-200">M</strong> Mapa</span>
         <span><strong className="text-cyan-200">Esc</strong> Pausa</span>
       </div>
+
+      {/* Title Modal Overlays */}
+      {activeModal === 'settings' && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Configuración del juego"
+          onClick={() => {
+            if (!listeningBind) setActiveModal(null);
+          }}
+          className="fixed inset-0 z-40 flex items-center justify-center p-3 sm:p-5 bg-[#03080e]/88 backdrop-blur-sm"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bt-panel bt-animate-modal w-full max-w-xl rounded-2xl p-4 sm:p-5 max-h-[90dvh] overflow-y-auto bt-scroll space-y-4"
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-cyan-400/20 pb-3">
+              <div>
+                <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-teal-300" />
+                  Configuración
+                </h2>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Audio por canales, accesibilidad, pantalla y controles de teclado.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                aria-label="Cerrar configuración"
+                className="bt-btn-secondary p-2 rounded-xl cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <GameSettingsContent snap={snap} onListeningChange={setListeningBind} />
+          </div>
+        </div>
+      )}
+
+      {activeModal === 'saves' && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Gestión de guardado"
+          onClick={() => setActiveModal(null)}
+          className="fixed inset-0 z-40 flex items-center justify-center p-3 sm:p-5 bg-[#03080e]/88 backdrop-blur-sm"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bt-panel bt-animate-modal w-full max-w-lg rounded-2xl p-4 sm:p-5 max-h-[90dvh] overflow-y-auto bt-scroll space-y-4"
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-cyan-400/20 pb-3">
+              <div>
+                <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
+                  <Save className="w-5 h-5 text-cyan-300" />
+                  Gestión de Guardado
+                </h2>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Inspección local, respaldo JSON y migración desde Bajoterra 3.0.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                aria-label="Cerrar gestión de guardado"
+                className="bt-btn-secondary p-2 rounded-xl cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {saveNotice && (
+              <div className="px-3 py-2 rounded-xl bg-teal-500/15 border border-teal-400/50 text-xs text-teal-100">
+                {saveNotice}
+              </div>
+            )}
+
+            <div className="bt-inset rounded-xl p-3.5 space-y-2 text-xs">
+              <div className="font-extrabold text-teal-300 uppercase tracking-wider">
+                Estado del almacenamiento
+              </div>
+              {savePreviewLoading ? (
+                <p className="text-slate-300">Verificando partida guardada…</p>
+              ) : savePreview ? (
+                <div className="space-y-1.5 text-slate-200 tabular-nums">
+                  <div className="font-bold text-white">{savedChapterTitle}</div>
+                  <div>
+                    Explorador Nv.{savePreview.player.level} · Refugio Tier {savePreview.shelterTier} · {Object.keys(savePreview.capturedSpecies).length}/20 especies · {savePreview.cavernTokens ?? 0} Fichas
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    Biomas descubiertos: {savePreview.discoveries.length}/6 · Jefes derrotados: {savePreview.defeatedBosses.length}/6
+                  </div>
+                </div>
+              ) : (
+                <p className="text-slate-300">
+                  No se detectó ninguna partida 4.0 guardada aún en este navegador.
+                </p>
+              )}
+              {storageCaps && (
+                <div className="text-[11px] text-slate-400 pt-1 border-t border-cyan-400/10">
+                  Motores disponibles: {storageCaps.indexedDBAvailable ? 'IndexedDB activo' : 'IndexedDB no disponible'} · {storageCaps.localStorageAvailable ? 'localStorage activo' : 'localStorage restringido'}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+              <label className="bt-btn-secondary py-2.5 px-3 rounded-xl font-bold cursor-pointer min-h-[44px] flex items-center justify-center gap-1.5">
+                <FolderOpen className="w-4 h-4 text-teal-300" />
+                <span>Cargar respaldo JSON</span>
+                <input type="file" accept=".json,application/json" onChange={handleFile} hidden />
+              </label>
+
+              <button
+                type="button"
+                disabled={!savePreview}
+                onClick={exportSavedJson}
+                className="bt-btn-secondary py-2.5 px-3 rounded-xl font-bold cursor-pointer disabled:opacity-45 min-h-[44px] flex items-center justify-center gap-1.5"
+              >
+                <HardDriveDownload className="w-4 h-4 text-cyan-300" />
+                Exportar respaldo JSON
+              </button>
+
+              {snap.hasV3Save && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveModal(null);
+                    setConfirmAction('v3');
+                  }}
+                  className="bt-btn-amber py-2.5 px-3 rounded-xl font-extrabold cursor-pointer min-h-[44px] sm:col-span-2"
+                >
+                  Migrar Partida Local Bajoterra 3.0
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeModal === 'credits' && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Créditos del juego"
+          onClick={() => setActiveModal(null)}
+          className="fixed inset-0 z-40 flex items-center justify-center p-3 sm:p-5 bg-[#03080e]/88 backdrop-blur-sm"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bt-panel bt-animate-modal w-full max-w-lg rounded-2xl p-4 sm:p-5 max-h-[90dvh] overflow-y-auto bt-scroll space-y-4 text-xs"
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-cyan-400/20 pb-3">
+              <div>
+                <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
+                  <Info className="w-5 h-5 text-amber-300" />
+                  Bajoterra 4.0 — Mundo Vivo
+                </h2>
+                <p className="text-slate-300 mt-0.5">
+                  Edición completa de campaña, exploración abierta y crianza de babosas.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                aria-label="Cerrar créditos"
+                className="bt-btn-secondary p-2 rounded-xl cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bt-inset rounded-xl p-3.5 space-y-2.5 leading-relaxed text-slate-200">
+              <div>
+                <div className="font-bold text-teal-300">Mundo y Diseño Interactivo</div>
+                <p className="text-slate-300">
+                  6 biomas subterráneos interconectados, Refugio Viviente personalizable con hábitats elementales, 20 especies de babosas con estados animados, evolución Megamorph y campaña lineal de 8 capítulos.
+                </p>
+              </div>
+              <div>
+                <div className="font-bold text-cyan-300">Arte Procedural y Síntesis Sonora</div>
+                <p className="text-slate-300">
+                  Renderizado 2D en Canvas con tilesets y retratos procedurales originales y banda sonora dinámica generada en tiempo real mediante WebAudio API.
+                </p>
+              </div>
+              <div>
+                <div className="font-bold text-amber-300">Tecnología Base</div>
+                <p className="text-slate-300">
+                  React 19 · TypeScript · Vite · Tailwind CSS · Lucide Icons · Persistencia híbrida IndexedDB + LocalStorage.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="bt-btn-primary px-4 py-2 rounded-xl font-extrabold cursor-pointer min-h-[40px]"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

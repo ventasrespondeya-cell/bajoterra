@@ -14,6 +14,7 @@ import {
 import { HIDDEN_DISCOVERIES } from '../game/activities';
 import { BIOME_INFO, BOSS_DEFINITIONS } from '../game/data';
 import { gameEngine } from '../game/engine';
+import { formatControlKeyLabel, resolveEffectiveBindings } from '../game/inputManager';
 import {
   STORY_CHAPTERS_BY_ID,
   STORY_CHARACTERS,
@@ -649,7 +650,10 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
                         {scenarioSecrets.length > 0 && (
                           <div className="text-[10px] text-purple-300 font-semibold mt-0.5 tabular-nums">
                             Secretos hallados: {discoveredInSelected.length}/{scenarioSecrets.length}
-                            {discoveredInSelected.length === 0 && ' · Explora con Pulso [Espacio]'}
+                            {discoveredInSelected.length === 0 &&
+                              ` · Explora con Pulso [${formatControlKeyLabel(
+                                resolveEffectiveBindings(snap.options.keyBindings).pulse
+                              )}]`}
                           </div>
                         )}
                       </div>
@@ -684,7 +688,9 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({ snap, fullMapRef, on
 
             {snap.discoveredPOIs.length === 0 && discoveredSecretItems.length === 0 ? (
               <p className="text-xs text-slate-400">
-                Explora los túneles subterráneos y emite tu Pulso [Espacio] para revelar santuarios, puestos avanzados y vestigios ocultos.
+                Explora los túneles subterráneos y emite tu Pulso [{formatControlKeyLabel(
+                  resolveEffectiveBindings(snap.options.keyBindings).pulse
+                )}] para revelar santuarios, puestos avanzados y vestigios ocultos.
               </p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-28 overflow-y-auto bt-scroll pr-1">

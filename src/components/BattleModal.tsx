@@ -75,6 +75,8 @@ export const BattleModal: React.FC<BattleModalProps> = ({
   const aimDraggedRef = useRef(false);
 
   const heldMoveKeysRef = useRef<Set<string>>(new Set());
+  const onSyncRef = useRef(onSync);
+  onSyncRef.current = onSync;
 
   const ally = state.party[state.activePartyIndex] || state.party[0];
   const allySpecies = getSpecies(ally.id);
@@ -118,14 +120,23 @@ export const BattleModal: React.FC<BattleModalProps> = ({
     aimPointerIdRef.current = null;
     canvasPointerIdRef.current = null;
     aimDraggedRef.current = false;
-    setJoyNub({ x: 0, y: 0 });
-    setAimNub({ x: 0, y: 0, active: false });
+    setJoyNub((prev) => (prev.x === 0 && prev.y === 0 ? prev : { x: 0, y: 0 }));
+    setAimNub((prev) => (!prev.active && prev.x === 0 && prev.y === 0 ? prev : { x: 0, y: 0, active: false }));
     if (combat.battle?.playerDuelist.charging) {
       combat.battle.playerDuelist.charging = false;
       combat.battle.playerDuelist.charge = 0;
     }
     combat.setMoveInput(0, 0);
   }, [combat]);
+
+  const syncAfterCombatChange = useCallback(
+    (alreadyNotifiedByCombat: boolean) => {
+      if (!alreadyNotifiedByCombat || !combat.hasStateChangeHandler()) {
+        onSyncRef.current();
+      }
+    },
+    [combat]
+  );
 
   const toArenaCoords = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
@@ -170,7 +181,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
 
       if (now - lastUiSync >= 80) {
         lastUiSync = now;
-        onSync();
+        onSyncRef.current();
       }
       rafId = requestAnimationFrame(frame);
     };
@@ -179,22 +190,22 @@ export const BattleModal: React.FC<BattleModalProps> = ({
     return () => {
       cancelAnimationFrame(rafId);
     };
-  }, [combat, introPaused, state, onSync]);
+  }, [combat, introPaused, state]);
 
   const selectOrFireMode = useCallback(
     (mode: BlasterShotMode) => {
       if (!combat.battle || combat.battle.turn !== 'duel') return;
       if (combat.battle.selectedMode === mode && mode !== 'quick') {
-        combat.fireBlasterShot(state, { charge: 0.78, modeOverride: mode });
+        const shot = combat.fireBlasterShot(state, { charge: 0.78, modeOverride: mode });
         setActionsOpen(false);
-        onSync();
+        syncAfterCombatChange(Boolean(shot));
         return;
       }
-      combat.setSelectedMode(state, mode);
+      const changed = combat.setSelectedMode(state, mode);
       setActionsOpen(false);
-      onSync();
+      syncAfterCombatChange(changed);
     },
-    [combat, state, onSync]
+    [combat, state, syncAfterCombatChange]
   );
 
   // Full 2D keyboard controls (WASD/Arrows + InputManager bindings: 1-4/Q switch, Z/X skills, F/Right-click contextual, R pulse, Space dodge, Left Click fire)
@@ -224,45 +235,43 @@ export const BattleModal: React.FC<BattleModalProps> = ({
           updateKeyboardMove();
         }
       } else if (boundAction === 'slug1' || key === '1') {
-        if (state.party[0]) {
-          combat.swapSlug(state, 0);
-          onSync();
+        if (!e.repeat && state.party[0]) {
+          syncAfterCombatChange(combat.swapSlug(state, 0));
         }
       } else if (boundAction === 'slug2' || key === '2') {
-        if (state.party[1]) {
-          combat.swapSlug(state, 1);
-          onSync();
+        if (!e.repeat && state.party[1]) {
+          syncAfterCombatChange(combat.swapSlug(state, 1));
         }
       } else if (boundAction === 'slug3' || key === '3') {
-        if (state.party[2]) {
-          combat.swapSlug(state, 2);
-          onSync();
+        if (!e.repeat && state.party[2]) {
+          syncAfterCombatChange(combat.swapSlug(state, 2));
         }
       } else if (boundAction === 'slug4' || key === '4') {
-        if (state.party[3]) {
-          combat.swapSlug(state, 3);
-          onSync();
+        if (!e.repeat && state.party[3]) {
+          syncAfterCombatChange(combat.swapSlug(state, 3));
         }
       } else if (boundAction === 'cycleSlug' || key === 'q') {
-        if (combat.cycleSlug(state, 1)) onSync();
+        if (!e.repeat && combat.cycleSlug(state, 1)) {
+          syncAfterCombatChange(true);
+        }
       } else if (boundAction === 'ability1' || key === 'z') {
-        selectOrFireMode(0);
+        if (!e.repeat) selectOrFireMode(0);
       } else if (boundAction === 'ability2' || key === 'x') {
-        selectOrFireMode(1);
+        if (!e.repeat) selectOrFireMode(1);
       } else if (boundAction === 'pulse' || key === 'r') {
-        if (combat.battle.pulseWindowActive) {
-          combat.fireBlasterShot(state, { charge: 0.8, modeOverride: 'pulse' });
-          onSync();
+        if (!e.repeat && combat.battle.pulseWindowActive) {
+          const shot = combat.fireBlasterShot(state, { charge: 0.8, modeOverride: 'pulse' });
+          syncAfterCombatChange(Boolean(shot));
         }
       } else if (boundAction === 'interact' || boundAction === 'secondary' || key === 'f' || e.key === 'Shift') {
         e.preventDefault();
-        combat.triggerContextualAction(state);
-        onSync();
+        if (!e.repeat) {
+          syncAfterCombatChange(combat.triggerContextualAction(state));
+        }
       } else if (boundAction === 'dodge' || e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
         if (!e.repeat) {
-          combat.triggerDodge(state);
-          onSync();
+          syncAfterCombatChange(combat.triggerDodge(state));
         }
       } else if (boundAction === 'fire') {
         e.preventDefault();
@@ -271,7 +280,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
         }
       }
     },
-    [actionsOpen, combat, introPaused, state, onSync, selectOrFireMode, updateKeyboardMove]
+    [actionsOpen, combat, introPaused, state, selectOrFireMode, syncAfterCombatChange, updateKeyboardMove]
   );
 
   const handleKeyUp = useCallback(
@@ -294,12 +303,12 @@ export const BattleModal: React.FC<BattleModalProps> = ({
       if (isEditableEventTarget(e.target)) return;
       if (boundAction === 'fire') {
         if (combat.battle?.turn === 'duel' && combat.battle.playerDuelist.charging) {
-          combat.releaseChargeAndFire(state);
-          onSync();
+          const shot = combat.releaseChargeAndFire(state);
+          syncAfterCombatChange(Boolean(shot));
         }
       }
     },
-    [combat, state, onSync, updateKeyboardMove]
+    [combat, state, syncAfterCombatChange, updateKeyboardMove]
   );
 
   useEffect(() => {
@@ -390,8 +399,8 @@ export const BattleModal: React.FC<BattleModalProps> = ({
     aimDraggedRef.current = false;
     setAimNub({ x: 0, y: 0, active: false });
     if (shouldFire && combat.battle?.turn === 'duel' && combat.battle.playerDuelist.charging) {
-      combat.releaseChargeAndFire(state);
-      onSync();
+      const shot = combat.releaseChargeAndFire(state);
+      syncAfterCombatChange(Boolean(shot));
     }
   };
 
@@ -600,8 +609,8 @@ export const BattleModal: React.FC<BattleModalProps> = ({
                 {battle.pulseWindowActive && canAct ? (
                   <button
                     onClick={() => {
-                      combat.fireBlasterShot(state, { charge: 0.82, modeOverride: 'pulse' });
-                      onSync();
+                      const fired = combat.fireBlasterShot(state, { charge: 0.82, modeOverride: 'pulse' });
+                      syncAfterCombatChange(Boolean(fired));
                     }}
                     className="bt-btn-primary px-2 py-0.5 rounded text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
                   >
@@ -676,7 +685,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               e.preventDefault();
               if (!canAct) return;
               combat.triggerContextualAction(state);
-              onSync();
+              syncAfterCombatChange(true);
             }}
             onPointerDown={(e) => {
               if (!canAct || e.button === 2) return;
@@ -698,16 +707,16 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               if (canAct && combat.battle?.playerDuelist.charging) {
                 const pt = toArenaCoords(e.clientX, e.clientY);
                 combat.aimAtArenaPoint(pt.x, pt.y);
-                combat.releaseChargeAndFire(state);
-                onSync();
+                const fired = combat.releaseChargeAndFire(state);
+                syncAfterCombatChange(Boolean(fired));
               }
             }}
             onPointerCancel={(e) => {
               if (canvasPointerIdRef.current !== e.pointerId) return;
               canvasPointerIdRef.current = null;
               if (combat.battle?.playerDuelist.charging) {
-                combat.releaseChargeAndFire(state);
-                onSync();
+                const fired = combat.releaseChargeAndFire(state);
+                syncAfterCombatChange(Boolean(fired));
               }
             }}
             onLostPointerCapture={(e) => {
@@ -724,8 +733,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
           activeIndex={state.activePartyIndex}
           activeMood={allyMood}
           onSelectSlug={(idx) => {
-            combat.swapSlug(state, idx);
-            onSync();
+            syncAfterCombatChange(combat.swapSlug(state, idx));
           }}
           disabled={!canAct}
           disableKo
@@ -798,9 +806,9 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               <button
                 disabled={guardCd > 0}
                 onClick={() => {
-                  combat.activateGuard(state);
+                  const ok = combat.activateGuard(state);
                   setActionsOpen(false);
-                  onSync();
+                  syncAfterCombatChange(ok);
                 }}
                 className="bt-btn-secondary p-2 rounded-xl border-sky-400/40 text-center disabled:opacity-40 cursor-pointer min-h-[46px]"
               >
@@ -811,9 +819,9 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               <button
                 disabled={state.inventory.berries <= 0}
                 onClick={() => {
-                  combat.useItem(state, 'berries');
+                  const ok = combat.useItem(state, 'berries');
                   setActionsOpen(false);
-                  onSync();
+                  syncAfterCombatChange(ok);
                 }}
                 className="bt-btn-secondary p-2 rounded-xl border-emerald-500/40 text-center disabled:opacity-40 cursor-pointer min-h-[46px]"
               >
@@ -824,9 +832,9 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               <button
                 disabled={state.inventory.core <= 0}
                 onClick={() => {
-                  combat.useItem(state, 'core');
+                  const ok = combat.useItem(state, 'core');
                   setActionsOpen(false);
-                  onSync();
+                  syncAfterCombatChange(ok);
                 }}
                 className="bt-btn-secondary p-2 rounded-xl border-cyan-500/40 text-center disabled:opacity-40 cursor-pointer min-h-[46px]"
               >
@@ -837,9 +845,9 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               <button
                 disabled={state.inventory.capsules <= 0 || battle.kind !== 'wild'}
                 onClick={() => {
-                  combat.useItem(state, 'capsules');
+                  const ok = combat.useItem(state, 'capsules');
                   setActionsOpen(false);
-                  onSync();
+                  syncAfterCombatChange(ok);
                 }}
                 className="bt-btn-secondary p-2 rounded-xl border-indigo-400/40 text-center disabled:opacity-40 cursor-pointer min-h-[46px]"
               >
@@ -850,9 +858,9 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               <button
                 disabled={state.inventory.masterCapsules <= 0 || battle.kind !== 'wild'}
                 onClick={() => {
-                  combat.useItem(state, 'masterCapsules');
+                  const ok = combat.useItem(state, 'masterCapsules');
                   setActionsOpen(false);
-                  onSync();
+                  syncAfterCombatChange(ok);
                 }}
                 className="bt-btn-secondary p-2 rounded-xl border-purple-400/50 text-center disabled:opacity-40 cursor-pointer min-h-[46px]"
               >
@@ -863,9 +871,9 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               <button
                 disabled={battle.kind === 'boss'}
                 onClick={() => {
-                  combat.attemptRun(state);
+                  const ok = combat.attemptRun(state);
                   setActionsOpen(false);
-                  onSync();
+                  syncAfterCombatChange(ok);
                 }}
                 className="p-2 rounded-xl bg-[#261419] border border-rose-500/45 hover:border-rose-400 text-[11px] font-bold text-rose-200 disabled:opacity-40 cursor-pointer min-h-[46px]"
               >
@@ -884,7 +892,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
             <button
               onClick={() => {
                 combat.closeBattle();
-                onSync();
+                onSyncRef.current();
               }}
               className="bt-btn-primary px-6 py-2.5 rounded-xl font-extrabold text-sm cursor-pointer min-h-[44px] shrink-0"
             >
@@ -934,8 +942,8 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               <button
                 disabled={!canAct || dodgeCd > 0}
                 onClick={() => {
-                  combat.triggerDodge(state);
-                  onSync();
+                  const ok = combat.triggerDodge(state);
+                  syncAfterCombatChange(ok);
                 }}
                 aria-label="Esquivar"
                 className="min-h-[44px] px-2.5 rounded-xl border border-teal-400/50 bt-btn-secondary text-teal-100 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer disabled:opacity-45 touch-none"
@@ -973,7 +981,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
                 disabled={!canAct || contextual.disabled}
                 onClick={() => {
                   combat.triggerContextualAction(state);
-                  onSync();
+                  syncAfterCombatChange(true);
                 }}
                 className={`min-h-[44px] px-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-45 touch-none ${
                   contextual.kind === 'capture'
@@ -1100,8 +1108,8 @@ export const BattleModal: React.FC<BattleModalProps> = ({
               <button
                 disabled={!canAct || dodgeCd > 0}
                 onClick={() => {
-                  combat.triggerDodge(state);
-                  onSync();
+                  const ok = combat.triggerDodge(state);
+                  syncAfterCombatChange(ok);
                 }}
                 className="min-h-[44px] px-3 rounded-xl border border-teal-400/50 bt-btn-secondary text-teal-100 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-45"
               >
@@ -1113,7 +1121,7 @@ export const BattleModal: React.FC<BattleModalProps> = ({
                 disabled={!canAct || contextual.disabled}
                 onClick={() => {
                   combat.triggerContextualAction(state);
-                  onSync();
+                  syncAfterCombatChange(true);
                 }}
                 className={`min-h-[44px] px-3.5 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-45 ${
                   contextual.kind === 'capture'

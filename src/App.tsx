@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BattleModal } from './components/BattleModal';
 import { CinematicDirector } from './components/CinematicDirector';
 import { DialogueModal } from './components/DialogueModal';
@@ -22,6 +22,9 @@ export default function App() {
   const mainCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const minimapRef = useRef<HTMLCanvasElement | null>(null);
   const fullMapRef = useRef<HTMLCanvasElement | null>(null);
+  const handleBattleSync = useCallback(() => {
+    gameEngine.emitHud(true);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
@@ -77,9 +80,17 @@ export default function App() {
   }, [snap.screen, snap.options.showMinimap]);
 
   const effectiveReducedMotion = Boolean(snap.options.reducedMotion || osReducedMotion);
+  const uiScale = snap.options.uiScale || 'normal';
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.dataset.uiScale = uiScale;
+    }
+  }, [uiScale]);
 
   return (
     <div
+      data-ui-scale={uiScale}
       className={`relative w-full h-[100dvh] overflow-hidden bg-[#060c13]${
         effectiveReducedMotion ? ' bt-reduced-motion' : ''
       }`}
@@ -101,6 +112,11 @@ export default function App() {
           snap={snap}
           onNewGame={() => gameEngine.startNewGame()}
           onContinue={() => gameEngine.continueSavedGame()}
+          onContinueToMap={() => void gameEngine.continueSavedGame('FULL_MAP')}
+          onContinueToCampaign={() => {
+            setExpeditionTab('campana');
+            void gameEngine.continueSavedGame('EXPEDITION');
+          }}
           onImportV3Detected={() => gameEngine.importDetectedV3Save()}
           onImportJsonFile={(txt) => {
             gameEngine.importJsonText(txt);
@@ -153,7 +169,7 @@ export default function App() {
           combat={gameEngine.combat}
           introPaused={battleIntroActive}
           reducedMotion={effectiveReducedMotion}
-          onSync={() => gameEngine.emitHud(true)}
+          onSync={handleBattleSync}
         />
       )}
 

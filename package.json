@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test tests/save-regression.test.ts tests/part2-gameplay.test.ts"
+    "test": "tsx --test tests/save-regression.test.ts tests/part2-gameplay.test.ts tests/part3-completion.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -41,6 +41,24 @@
   }
 }
 
+html[data-ui-scale='compact'] {
+  font-size: 14px;
+}
+
+html[data-ui-scale='normal'] {
+  font-size: 16px;
+}
+
+html[data-ui-scale='large'] {
+  font-size: 17.5px;
+}
+
+@media (max-width: 480px) {
+  html[data-ui-scale='large'] {
+    font-size: 16.5px;
+  }
+}
+
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }

@@ -167,6 +167,8 @@ export class BajoterraEngine {
   private v3RawCache: string | null = null;
   private listeners = new Set<(snap: HudSnapshot) => void>();
   private lastHudPush = 0;
+  private isEmittingHud = false;
+  private pendingHudForce = false;
   private dpr = 1;
   private lastMinimapDraw = 0;
   private autoSaveErrorNotified = false;
@@ -194,6 +196,8 @@ export class BajoterraEngine {
     this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
     this.seedInitialEntities();
     this.checkSavesAvailability();
+    this.applyOptionsToAudio();
+    this.syncAmbientMusic();
   }
 
   private ensureExplorationFields(): void {
@@ -246,11 +250,32 @@ export class BajoterraEngine {
     };
   }
 
+  private handleChapter8VictoryIfNeeded(newlyCompletedChapterIds: string[]): void {
+    if (!newlyCompletedChapterIds.includes('cap_08_ciudadela_blakk')) return;
+    const active = this.state.party[this.state.activePartyIndex] || this.state.party[0];
+    this.seedInitialEntities();
+    cinematicEvents.emit({
+      type: 'campaign_victory',
+      title: '¡Victoria en las 99 Cavernas!',
+      subtitle: 'Bastión Sombrío liberado · Campaña de 8 Capítulos completada',
+      speciesId: active?.id || 'infurnus',
+      loreLine:
+        'Eli Shane, Burpy, Trixie, Kord y Pronto restauran el equilibrio en Bajoterra. Los Torneos Élite y Desafíos Post-Game ya están abiertos.',
+      audioCue: 'victory_fanfare',
+      skippable: true,
+      priority: 'dramatic',
+      dedupeKey: 'campaign_victory_ch8',
+    });
+    sound.playVictory();
+    this.notify('¡Campaña completada! Bastión Sombrío liberado y Post-Game desbloqueado.');
+  }
+
   private syncStoryProgress(opts?: { skipRewards?: boolean }): void {
     const res = reconcileStoryProgress(this.state, opts);
     if (res.xpGained > 0 && !opts?.skipRewards) {
       this.awardPlayerXp(res.xpGained);
     }
+    this.handleChapter8VictoryIfNeeded(res.newlyCompletedChapterIds);
     if (res.newlyActivatedChapterIds.length > 0) {
       const latestId = res.newlyActivatedChapterIds[res.newlyActivatedChapterIds.length - 1];
       const ch = STORY_CHAPTERS_BY_ID[latestId];
@@ -420,9 +445,25 @@ export class BajoterraEngine {
   public emitHud(force = false): void {
     const now = performance.now();
     if (!force && now - this.lastHudPush < 90) return;
-    this.lastHudPush = now;
-    const snap = this.getSnapshot();
-    this.listeners.forEach((fn) => fn(snap));
+    if (this.isEmittingHud) {
+      this.pendingHudForce = this.pendingHudForce || force;
+      return;
+    }
+    this.isEmittingHud = true;
+    try {
+      this.lastHudPush = now;
+      const snap = this.getSnapshot();
+      this.listeners.forEach((fn) => fn(snap));
+    } finally {
+      this.isEmittingHud = false;
+    }
+    if (this.pendingHudForce) {
+      const pendingForce = this.pendingHudForce;
+      this.pendingHudForce = false;
+      queueMicrotask(() => {
+        this.emitHud(pendingForce);
+      });
+    }
   }
 
   public notify(msg: string): void {
@@ -510,7 +551,7 @@ export class BajoterraEngine {
     this.emitHud(true);
   }
 
-  public async continueSavedGame(): Promise<void> {
+  public async continueSavedGame(targetScreen: UIScreen = 'PLAYING'): Promise<void> {
     const loadRes = await loadGameV4Detailed({ syncStores: true });
     if (!loadRes.state) {
       this.startNewGame();
@@ -530,7 +571,7 @@ export class BajoterraEngine {
     this.chunks.ensureWindowAround(this.state.player.x, this.state.player.y, 2);
     this.renderer.resetCamera(this.state.player.x, this.state.player.y);
     this.seedInitialEntities();
-    this.screen = 'PLAYING';
+    this.screen = targetScreen === 'TITLE' ? 'PLAYING' : targetScreen;
     this.syncAmbientMusic();
     void requestPersistentStorageIfNeeded();
     this.notify(
@@ -539,6 +580,13 @@ export class BajoterraEngine {
         : 'Partida 4.0 cargada.'
     );
     this.emitHud(true);
+    if (this.screen === 'FULL_MAP' && this.fullMapCanvas && typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        if (this.fullMapCanvas) {
+          this.renderer.renderFullWorldMap(this.fullMapCanvas, this.state);
+        }
+      });
+    }
   }
 
   public async importDetectedV3Save(): Promise<boolean> {
@@ -690,9 +738,13 @@ export class BajoterraEngine {
 
   private syncAmbientMusic(): void {
     if (this.screen === 'TITLE') {
-      sound.stopAllMusic();
+      sound.setInRefuge(false);
+      sound.setMenuMode(true);
       return;
     }
+    sound.setMenuMode(false);
+    const inRefuge = Math.hypot(this.state.player.x - SPAWN_X, this.state.player.y - SPAWN_Y) <= 16;
+    sound.setInRefuge(inRefuge);
     const biome = getBiomeAt(
       Math.floor(this.state.player.x + 0.5),
       Math.floor(this.state.player.y + 0.5),
@@ -710,6 +762,7 @@ export class BajoterraEngine {
 
   public setActivePartyIndex(index: number): void {
     if (index < 0 || index >= this.state.party.length) return;
+    if (index === this.state.activePartyIndex) return;
     this.state.activePartyIndex = index;
     sound.playUi();
     this.notify(`Babosa activa: ${getSlugDisplayName(this.state.party[index])}`);
@@ -724,6 +777,12 @@ export class BajoterraEngine {
   private applyOptionsToAudio(): void {
     sound.enabled = this.state.options.soundEnabled;
     sound.volume = this.state.options.volume;
+    sound.musicVolume =
+      typeof this.state.options.musicVolume === 'number' ? this.state.options.musicVolume : 1;
+    sound.sfxVolume =
+      typeof this.state.options.sfxVolume === 'number' ? this.state.options.sfxVolume : 1;
+    sound.ambientVolume =
+      typeof this.state.options.ambientVolume === 'number' ? this.state.options.ambientVolume : 1;
   }
 
   public handleKeyDown(e: KeyboardEvent): void {
@@ -744,8 +803,12 @@ export class BajoterraEngine {
     }
 
     if (this.screen === 'TITLE') {
-      if (key === 'enter' || key === ' ') {
-        if (this.hasV4) this.continueSavedGame();
+      const hasOpenDialog =
+        typeof document !== 'undefined' && typeof document.querySelector === 'function'
+          ? Boolean(document.querySelector('[role="dialog"]'))
+          : false;
+      if (!hasOpenDialog && (key === 'enter' || key === ' ')) {
+        if (this.hasV4) void this.continueSavedGame();
         else this.startNewGame();
       }
       return;
@@ -1385,6 +1448,8 @@ export class BajoterraEngine {
 
     // Biome tracking & first discovery
     const b = getBiomeAt(px, py, this.state.worldSeed);
+    const inRefuge = Math.hypot(this.state.player.x - SPAWN_X, this.state.player.y - SPAWN_Y) <= 16;
+    sound.setInRefuge(inRefuge);
     sound.setAmbientBiome(b, this.screen !== 'TITLE');
     if (!this.state.discoveries.includes(b)) {
       this.state.discoveries.push(b);
@@ -1917,13 +1982,16 @@ export class BajoterraEngine {
     const story = ensureStoryState(this.state);
     const charId = ent.characterId;
     if (charId === 'pronto') {
-      if (!this.openDialogue('dlg_cap1_pronto_bienvenida')) {
-        this.notify('Pronto: "Explora las Cuevas Verdes y habla conmigo en Campaña."');
+      const targetDlg = ent.dialogueId || 'dlg_cap1_pronto_bienvenida';
+      if (!this.openDialogue(targetDlg)) {
+        this.notify('Pronto: "Explora las cavernas y coordina tu ruta en Campaña."');
       }
       return;
     }
     if (charId === 'trixie') {
-      const targetDlg = ent.dialogueId || (ent.scenarioId === 'esc_gruta_acuatica' ? 'dlg_gruta_acuatica' : 'dlg_cap2_banda_meca');
+      const targetDlg =
+        ent.dialogueId ||
+        (ent.scenarioId === 'esc_gruta_acuatica' ? 'dlg_gruta_acuatica' : 'dlg_cap2_banda_meca');
       if (!this.openDialogue(targetDlg)) {
         this.notify('Trixie: "Mantén actualizada tu Babosapedia al capturar especies nuevas."');
       }
@@ -1939,8 +2007,13 @@ export class BajoterraEngine {
       const cap7Ready =
         story.chapterStates['cap_07_acelerador_megamorph'] === 'active' ||
         story.chapterStates['cap_07_acelerador_megamorph'] === 'completed';
-      const dlgId = cap7Ready ? 'dlg_cap7_acelerador_200mph' : 'dlg_cap2_banda_meca';
-      if (!this.openDialogue(dlgId)) {
+      const preferredDlg =
+        ent.dialogueId && !this.state.completedDialogues?.includes(ent.dialogueId)
+          ? ent.dialogueId
+          : cap7Ready
+          ? 'dlg_cap7_acelerador_200mph'
+          : 'dlg_cap2_banda_meca';
+      if (!this.openDialogue(preferredDlg)) {
         this.notify('Kord: "Cuando tu Meca esté listo, calibraremos nuevos circuitos."');
       }
       return;
@@ -1955,9 +2028,25 @@ export class BajoterraEngine {
       return;
     }
     if (charId === 'twist') {
+      if (
+        ent.dialogueId === 'dlg_cap5_twist_fronteras' &&
+        !this.state.completedDialogues?.includes('dlg_cap5_twist_fronteras') &&
+        this.openDialogue('dlg_cap5_twist_fronteras')
+      ) {
+        return;
+      }
       if (!this.startRivalDuel('rival_twist')) {
         this.notify('Twist: "Aún es pronto para medir velocidades en estas cavernas."');
       }
+      return;
+    }
+    if (charId === 'comandante_blakk' || charId === 'dr_blakk') {
+      if (!this.openDialogue(ent.dialogueId || 'dlg_cap8_bastion_climax')) {
+        this.notify('Comandante Blakk aguarda en el núcleo del Bastión Sombrío.');
+      }
+      return;
+    }
+    if (ent.dialogueId && this.openDialogue(ent.dialogueId)) {
       return;
     }
     this.notify(`${ent.name}: "¡Nos vemos en las cavernas!"`);
@@ -2209,6 +2298,53 @@ export class BajoterraEngine {
       dir: 0,
       cooldown: 0,
     });
+    this.entities.push(
+      {
+        uid: 'merchant_marea_azul',
+        kind: 'merchant',
+        name: 'Mercader de Marea Azul',
+        icon: '🧳',
+        x: 242,
+        y: 205,
+        homeX: 242,
+        homeY: 205,
+        biome: 'Acuaticas',
+        level: 2,
+        hp: 99,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
+        uid: 'merchant_camp_termal',
+        kind: 'merchant',
+        name: 'Herrero Termal Trol',
+        icon: '⚒️',
+        x: 134,
+        y: 236,
+        homeX: 134,
+        homeY: 236,
+        biome: 'Magma',
+        level: 3,
+        hp: 99,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
+        uid: 'merchant_vigia_prisma',
+        kind: 'merchant',
+        name: 'Vigía del Prisma',
+        icon: '💎',
+        x: 105,
+        y: 89,
+        homeX: 105,
+        homeY: 89,
+        biome: 'Cristalinas',
+        level: 4,
+        hp: 99,
+        dir: 0,
+        cooldown: 0,
+      }
+    );
 
     // Story NPCs positioned at handcrafted scenarios
     const story = ensureStoryState(this.state);
@@ -2293,6 +2429,24 @@ export class BajoterraEngine {
         cooldown: 0,
       },
       {
+        uid: 'npc_pronto_acuatica',
+        kind: 'story_npc',
+        characterId: 'pronto',
+        scenarioId: 'esc_gruta_acuatica',
+        dialogueId: 'dlg_gruta_acuatica',
+        name: 'Pronto',
+        icon: '🧭',
+        x: 251,
+        y: 230,
+        homeX: 251,
+        homeY: 230,
+        biome: 'Acuaticas',
+        level: 4,
+        hp: 100,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
         uid: 'npc_red_hook',
         kind: 'story_npc',
         characterId: 'red_hook',
@@ -2328,6 +2482,42 @@ export class BajoterraEngine {
         cooldown: 0,
       },
       {
+        uid: 'npc_twist_magma',
+        kind: 'story_npc',
+        characterId: 'twist',
+        scenarioId: 'esc_caverna_magma',
+        dialogueId: 'dlg_cap5_twist_fronteras',
+        name: 'Twist (Forja)',
+        icon: '⚡',
+        x: 159,
+        y: 248,
+        homeX: 159,
+        homeY: 248,
+        biome: 'Magma',
+        level: 7,
+        hp: 120,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
+        uid: 'npc_kord_magma',
+        kind: 'story_npc',
+        characterId: 'kord',
+        scenarioId: 'esc_caverna_magma',
+        dialogueId: 'dlg_cap5_twist_fronteras',
+        name: 'Kord Zane',
+        icon: '🔧',
+        x: 165,
+        y: 248,
+        homeX: 165,
+        homeY: 248,
+        biome: 'Magma',
+        level: 7,
+        hp: 120,
+        dir: 0,
+        cooldown: 0,
+      },
+      {
         uid: 'npc_will_shane',
         kind: 'story_npc',
         characterId: 'will_shane',
@@ -2346,6 +2536,46 @@ export class BajoterraEngine {
         cooldown: 0,
       }
     );
+
+    if (isPostGameUnlocked(this.state)) {
+      this.entities.push({
+        uid: 'npc_epilogo_trixie',
+        kind: 'story_npc',
+        characterId: 'trixie',
+        scenarioId: 'esc_ciudadela_sombria',
+        dialogueId: 'dlg_cap8_epilogo_shane',
+        name: 'Trixie Sting (Epílogo)',
+        icon: '📷',
+        x: 272,
+        y: 54,
+        homeX: 272,
+        homeY: 54,
+        biome: 'Sombrias',
+        level: 9,
+        hp: 130,
+        dir: 0,
+        cooldown: 0,
+      });
+    } else if (!this.state.defeatedBosses.includes('boss_blakk')) {
+      this.entities.push({
+        uid: 'npc_dr_blakk_citadel',
+        kind: 'story_npc',
+        characterId: 'comandante_blakk',
+        scenarioId: 'esc_ciudadela_sombria',
+        dialogueId: 'dlg_cap8_bastion_climax',
+        name: 'Comandante Blakk',
+        icon: '🕶️',
+        x: 266,
+        y: 54,
+        homeX: 266,
+        homeY: 54,
+        biome: 'Sombrias',
+        level: 10,
+        hp: 150,
+        dir: 0,
+        cooldown: 0,
+      });
+    }
 
     // Bosses at fixed biome shrines
     for (const b of BOSS_DEFINITIONS) {
@@ -3266,7 +3496,7 @@ export class BajoterraEngine {
   public startPostGameChallenge(challengeId: string): boolean {
     if (this.combat.battle) return false;
     if (!isPostGameUnlocked(this.state)) {
-      this.notify('Completa el Capítulo 6 (Ciudadela del Comandante Blakk) para desbloquear el Post-Game.');
+      this.notify('Completa el Capítulo 8 (Bastión Sombrío) para desbloquear el Post-Game.');
       return false;
     }
     const chal = POSTGAME_CHALLENGES.find((c) => c.id === challengeId);
@@ -3484,6 +3714,9 @@ export class BajoterraEngine {
     if (res.xpGained > 0) {
       this.awardPlayerXp(res.xpGained);
     }
+    if (res.completedChapterId) {
+      this.handleChapter8VictoryIfNeeded([res.completedChapterId]);
+    }
     if (res.unlockedChapterId) {
       const ch = STORY_CHAPTERS_BY_ID[res.unlockedChapterId];
       if (ch) {
@@ -3512,12 +3745,14 @@ export class BajoterraEngine {
         });
       }
     }
-    sound.playVictory();
-    this.notify(
-      res.unlockedChapterId && STORY_CHAPTERS_BY_ID[res.unlockedChapterId]
-        ? `${res.message} · ¡${STORY_CHAPTERS_BY_ID[res.unlockedChapterId].title} activo!`
-        : res.message
-    );
+    if (res.completedChapterId !== 'cap_08_ciudadela_blakk') {
+      sound.playVictory();
+      this.notify(
+        res.unlockedChapterId && STORY_CHAPTERS_BY_ID[res.unlockedChapterId]
+          ? `${res.message} · ¡${STORY_CHAPTERS_BY_ID[res.unlockedChapterId].title} activo!`
+          : res.message
+      );
+    }
     this.emitHud(true);
     return true;
   }
